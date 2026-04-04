@@ -39,7 +39,8 @@ helm-lint:
 helm-template:
 	helm template synthetics-operator charts/synthetics-operator >/dev/null
 
-ko-build-local: tools
-	KO_DOCKER_REPO=ko.local $(TOOLS_BIN)/ko build --local --bare .
+ko-build-local:
+	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
+	@KO_DOCKER_REPO=ko.local $(TOOLS_BIN)/ko build --local --bare .
 
 ci: fmt vet test-envtest helm-lint helm-template
