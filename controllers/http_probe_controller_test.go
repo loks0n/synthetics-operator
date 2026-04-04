@@ -10,8 +10,10 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -23,7 +25,8 @@ import (
 	internalprobes "github.com/loks0n/synthetics-operator/internal/probes"
 )
 
-func TestHttpProbeReconcileRegistersProbe(t *testing.T) {
+func setupEnvtest(t *testing.T) (client.Client, func()) {
+	t.Helper()
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("KUBEBUILDER_ASSETS not set")
 	}
@@ -39,18 +42,23 @@ func TestHttpProbeReconcileRegistersProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start envtest: %v", err)
 	}
-	defer func() {
-		_ = testEnv.Stop()
-	}()
 
 	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
+		_ = testEnv.Stop()
 		t.Fatalf("create client: %v", err)
 	}
 	if err := k8sClient.Create(context.Background(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}); err != nil && !apierrors.IsAlreadyExists(err) {
+		_ = testEnv.Stop()
 		t.Fatalf("create namespace: %v", err)
 	}
 
+	return k8sClient, func() { _ = testEnv.Stop() }
+}
+
+func newReconciler(t *testing.T, k8sClient client.Client) (*HttpProbeReconciler, *internalprobes.Scheduler) {
+	t.Helper()
+	scheme := k8sClient.Scheme()
 	store, err := internalmetrics.NewStore()
 	if err != nil {
 		t.Fatalf("create store: %v", err)
@@ -59,33 +67,32 @@ func TestHttpProbeReconcileRegistersProbe(t *testing.T) {
 	ctx := t.Context()
 	go func() { _ = scheduler.Start(ctx) }()
 
-	reconciler := &HttpProbeReconciler{
+	return &HttpProbeReconciler{
 		Client:    k8sClient,
 		Scheme:    scheme,
 		Scheduler: scheduler,
 		Metrics:   store,
 		Clock:     time.Now,
-	}
+	}, scheduler
+}
+
+func TestHttpProbeReconcileRegistersProbe(t *testing.T) {
+	k8sClient, stop := setupEnvtest(t)
+	defer stop()
+	reconciler, _ := newReconciler(t, k8sClient)
 
 	probe := &syntheticsv1alpha1.HttpProbe{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "api-health",
-			Namespace: "default",
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "api-health", Namespace: "default"},
 		Spec: syntheticsv1alpha1.HttpProbeSpec{
 			Interval: metav1.Duration{Duration: 30 * time.Second},
 			Timeout:  metav1.Duration{Duration: 10 * time.Second},
-			Request: syntheticsv1alpha1.HTTPRequestSpec{
-				URL:    "https://example.com",
-				Method: "GET",
-			},
+			Request:  syntheticsv1alpha1.HTTPRequestSpec{URL: "https://example.com", Method: "GET"},
 			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: 200},
 		},
 	}
 	if err := k8sClient.Create(context.Background(), probe); err != nil {
 		t.Fatalf("create probe: %v", err)
 	}
-
 	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(probe)}); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
@@ -96,5 +103,100 @@ func TestHttpProbeReconcileRegistersProbe(t *testing.T) {
 	}
 	if updated.Status.Summary == nil || updated.Status.Summary.Message == "" {
 		t.Fatalf("expected summary to be populated, got %#v", updated.Status.Summary)
+	}
+}
+
+func TestHttpProbeReconcileInitializingCondition(t *testing.T) {
+	k8sClient, stop := setupEnvtest(t)
+	defer stop()
+	reconciler, _ := newReconciler(t, k8sClient)
+
+	probe := &syntheticsv1alpha1.HttpProbe{
+		ObjectMeta: metav1.ObjectMeta{Name: "init-probe", Namespace: "default"},
+		Spec: syntheticsv1alpha1.HttpProbeSpec{
+			Interval:   metav1.Duration{Duration: 30 * time.Second},
+			Timeout:    metav1.Duration{Duration: 10 * time.Second},
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: "https://example.com", Method: "GET"},
+			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: 200},
+		},
+	}
+	if err := k8sClient.Create(context.Background(), probe); err != nil {
+		t.Fatalf("create probe: %v", err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(probe)}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	var updated syntheticsv1alpha1.HttpProbe
+	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(probe), &updated); err != nil {
+		t.Fatalf("get probe: %v", err)
+	}
+
+	ready := apimeta.FindStatusCondition(updated.Status.Conditions, syntheticsv1alpha1.ConditionReady)
+	if ready == nil {
+		t.Fatal("expected Ready condition")
+	}
+	if ready.Status != metav1.ConditionUnknown {
+		t.Fatalf("expected Ready=Unknown, got %s", ready.Status)
+	}
+	if ready.Reason != syntheticsv1alpha1.ReasonInitializing {
+		t.Fatalf("expected reason Initializing, got %s", ready.Reason)
+	}
+}
+
+func TestHttpProbeReconcileSuspend(t *testing.T) {
+	k8sClient, stop := setupEnvtest(t)
+	defer stop()
+	reconciler, _ := newReconciler(t, k8sClient)
+
+	probe := &syntheticsv1alpha1.HttpProbe{
+		ObjectMeta: metav1.ObjectMeta{Name: "suspended-probe", Namespace: "default"},
+		Spec: syntheticsv1alpha1.HttpProbeSpec{
+			Interval:   metav1.Duration{Duration: 30 * time.Second},
+			Timeout:    metav1.Duration{Duration: 10 * time.Second},
+			Suspend:    true,
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: "https://example.com", Method: "GET"},
+			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: 200},
+		},
+	}
+	if err := k8sClient.Create(context.Background(), probe); err != nil {
+		t.Fatalf("create probe: %v", err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(probe)}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	var updated syntheticsv1alpha1.HttpProbe
+	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(probe), &updated); err != nil {
+		t.Fatalf("get probe: %v", err)
+	}
+
+	suspended := apimeta.FindStatusCondition(updated.Status.Conditions, syntheticsv1alpha1.ConditionSuspended)
+	if suspended == nil {
+		t.Fatal("expected Suspended condition")
+	}
+	if suspended.Status != metav1.ConditionTrue {
+		t.Fatalf("expected Suspended=True, got %s", suspended.Status)
+	}
+	if suspended.Reason != syntheticsv1alpha1.ReasonSuspended {
+		t.Fatalf("expected reason Suspended, got %s", suspended.Reason)
+	}
+
+	// probe should not be registered in the scheduler
+	key := types.NamespacedName{Namespace: "default", Name: "suspended-probe"}
+	if _, ok := reconciler.Metrics.Snapshot(key); ok {
+		t.Fatal("suspended probe should not have metrics")
+	}
+}
+
+func TestHttpProbeReconcileNotFound(t *testing.T) {
+	k8sClient, stop := setupEnvtest(t)
+	defer stop()
+	reconciler, _ := newReconciler(t, k8sClient)
+
+	// Reconcile a probe that doesn't exist — should not error
+	key := types.NamespacedName{Namespace: "default", Name: "gone"}
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("reconcile of missing probe should not error, got %v", err)
 	}
 }
