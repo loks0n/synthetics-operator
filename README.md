@@ -344,9 +344,9 @@ The operator exposes its own health metrics alongside probe metrics, giving visi
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_operator_results_received_total` | counter | Results successfully ingested via HTTP ingest per `kind` |
+| `synthetics_operator_results_received_total` | counter | Results received from NATS result stream per `kind` |
 | `synthetics_operator_results_parse_failed_total` | counter | Results received but failed to parse per `kind` |
-| `synthetics_operator_ingest_rejected_total` | counter | Intake requests rejected (auth failure or channel full) |
+| `synthetics_operator_nats_publish_failed_total` | counter | NATS publish failures per component (sidecar, probe-worker) |
 
 **Certificate**
 
@@ -395,25 +395,37 @@ These labels are distinct from Kubernetes metadata labels on the CRD — `spec.m
 
 ## 4. Controller Architecture
 
-### 4.1 Execution model split
+### 4.1 Deployment architecture
 
-| In-operator (goroutines) | Pod-based (CronJobs) |
-|--------------------------|----------------------|
-| HttpProbe, DnsProbe | PlaywrightTest, K6Test |
+Four deployments with independent scaling characteristics:
 
-Lightweight probes run in-process for efficiency. Script runners need isolation and their own runtimes.
+| Deployment | Default replicas | Scales to | Responsibilities |
+|---|---|---|---|
+| `synthetics-operator-controller` | 1 | 1 | Reconcile CRDs, manage CronJobs, status conditions, cert rotation |
+| `synthetics-operator-probes` | 1 | N | HttpProbe + DnsProbe execution, publish results to NATS |
+| `synthetics-operator-metrics` | 1 | N | Consume NATS result stream, serve `/metrics` |
+| `synthetics-operator-webhook` | 2 | N | Validate + default CRDs |
 
-### 4.2 Worker pool with even distribution
+NATS JetStream is the message bus connecting all components. CronJob sidecars publish directly to NATS — they never talk to the operator.
 
-HttpProbe and DnsProbe run inside a shared worker pool. Rather than jitter (which is random and can still cluster), probes are distributed evenly across their interval using a deterministic gap-filling algorithm.
+```
+controller          → NATS work queue  ← probe-workers (compete for jobs)
+CronJob sidecars    → NATS result stream
+probe-workers       → NATS result stream
+NATS result stream  → metrics-consumer → /metrics
+```
 
-When probes are added dynamically, the algorithm finds the largest gap between existing probe start times and inserts the new probe at the midpoint. This avoids disrupting existing probe schedules while maintaining good distribution.
+### 4.2 Probe scheduling via NATS work queue
 
-> **Example:** 6 probes on a 30s interval start at 0s, 5s, 10s, 15s, 20s, 25s — guaranteed even spread with no clustering.
+The controller publishes a job to the NATS work queue at the scheduled time for each HttpProbe and DnsProbe. Probe workers compete to consume jobs — NATS delivers each job to exactly one worker. On ACK, the message is removed. On worker crash, NATS redelivers after a timeout.
 
-Probes with different intervals are grouped into per-interval buckets. Distribution runs independently within each bucket — a 30s probe and a 60s probe cannot be meaningfully distributed relative to each other.
+Rather than jitter (which is random and can still cluster), jobs are published using the same gap-filling even distribution algorithm — the controller staggers publish times deterministically across each interval.
 
-Worker count is configurable with a default of 50 concurrent workers. Each idle goroutine consumes approximately 4KB, so 1000 probes costs around 4MB — well within a reasonable operator footprint.
+> **Example:** 6 probes on a 30s interval have jobs published at 0s, 5s, 10s, 15s, 20s, 25s — guaranteed even spread with no clustering.
+
+Workers are stateless — a plain Deployment. Scale by adding replicas; NATS distributes work automatically. No sharding, no StatefulSet, no rebalancing on scale changes.
+
+If the controller restarts, no jobs are published during the gap (~5–10s). In-flight probe workers finish their current jobs normally; the work queue drains and sits idle until the controller recovers.
 
 ### 4.3 CronJob management (PlaywrightTest + K6Test)
 
@@ -445,24 +457,31 @@ _Layer 2 — pre-flight check (add if users hit this in practice)._ On reconcile
 
 A troubleshooting section in the docs covers the common case: "if your K6Test never runs, check `kubectl describe k6test <name>` and look for `Ready=False` with `reason: JobCreationFailed`. Verify `runner.resources` fits within namespace quotas."
 
-### 4.4 Result ingestion via HTTP ingest
+### 4.4 Result ingestion via NATS
 
-CronJob pods post normalized result JSON directly to an HTTP endpoint on the operator (`POST /ingest`). The operator updates its OTel metrics instruments immediately. No Kubernetes API writes occur in the result ingestion hot path.
+All results flow through NATS — probe workers publish in-process results, CronJob sidecars publish after the test completes. The metrics consumer subscribes to the result stream and updates OTel instruments. No HTTP ingest endpoint, no shared in-memory state, no single-writer constraint.
 
-**Flow:**
+**Probe worker flow:**
 
 ```
-1. Main container runs test and writes raw output to /results/output.json (shared volume)
-2. Sidecar reads /results/output.json, normalizes the result, posts JSON to http://synthetics-operator/ingest
-3. Operator returns 202 Accepted, drops result onto an internal buffered channel
-4. Worker pool drains channel, updates in-memory metrics map
-5. Job completes (native sidecar terminates automatically with the main container — requires Kubernetes 1.33+)
-6. TTL/garbage collection removes old Jobs
+1. Controller publishes job to NATS work queue
+2. Probe worker consumes job, runs HttpProbe/DnsProbe
+3. Worker publishes result to NATS result stream, ACKs job
+4. Metrics consumer receives result, updates OTel instruments
 ```
 
-The main container stays completely stock — users can pin to official `mcr.microsoft.com/playwright` or `grafana/k6` images without modification. The operator owns a single small sidecar image (`results-writer`) that handles normalization and HTTP posting across all runner types.
+**CronJob sidecar flow:**
 
-**Result payload:**
+```
+1. Main container runs test, writes raw output to /results/output.json (shared volume)
+2. Sidecar normalizes output, publishes result to NATS result stream
+3. Job completes (native sidecar terminates automatically — requires Kubernetes 1.33+)
+4. Metrics consumer receives result, updates OTel instruments
+```
+
+The main container stays completely stock — users can pin to official `mcr.microsoft.com/playwright` or `grafana/k6` images without modification. The `results-writer` sidecar handles normalization and NATS publishing across all runner types.
+
+**Result message:**
 
 ```json
 {
@@ -474,17 +493,15 @@ The main container stays completely stock — users can pin to official `mcr.mic
 }
 ```
 
-**Ingest handler:**
+**Metrics consumer:**
 
-The handler validates the ServiceAccount token from the `Authorization` header against the Kubernetes TokenReview API, then returns `202 Accepted` immediately. If the internal channel is full (operator overloaded), it returns `503` so the sidecar retries rather than silently dropping. The operator never blocks on processing in the request path.
+Subscribes to the NATS result stream and records results directly into OTel instruments (gauges, counters). The OTel Prometheus exporter serves current instrument state on `/metrics` at scrape time. Multiple metrics-consumer replicas can each subscribe to the full stream — all replicas hold identical state and serve identical `/metrics`. Prometheus can scrape any of them.
 
-**Sidecar retry:**
+On restart, instrument state is lost until results arrive from each probe's next run — typically within one interval. Prometheus shows a gap, not stale data.
 
-The sidecar retries with exponential backoff for up to 30 seconds after posting. This covers transient network blips and operator restarts (~5–10s). If the operator is still unreachable after 30 seconds, the sidecar gives up — the next scheduled run will produce fresh results. No fallback to ConfigMap; the simple path is intentional.
+**Sidecar NATS auth:**
 
-**In-memory metrics state:**
-
-The operator records results directly into OTel instruments (gauges, counters) as they arrive. The OTel Prometheus exporter serves the current instrument state on `/metrics` at scrape time — no separate in-memory map needed. On operator restart, instrument state is lost until each probe's next run completes — typically within one interval. Prometheus shows a gap, not stale data.
+The sidecar authenticates to NATS using its pod ServiceAccount token. NATS is configured with a callout to the operator controller for token validation via the Kubernetes TokenReview API. Runner pods require no Kubernetes API write permissions.
 
 **Condition set** — two conditions, stable across all CRD types:
 
@@ -503,29 +520,16 @@ The operator records results directly into OTel instruments (gauges, counters) a
 | `ConfigError` | Probe spec is invalid (bad URL, unreachable resolver) |
 | `Initializing` | Probe registered, first run not yet complete |
 
-Status conditions are updated by the operator's Job watch — not the ingest path — so they remain accurate even if a result post is lost.
+Status conditions are updated by the controller's Job watch — not the result stream — so they remain accurate even if a result message is lost.
 
 **Crash handling:**
 
-- If the main container crashes before producing results, the sidecar has nothing to post; the operator derives failure from Job/Pod status via the Job watch and sets `Ready=False`.
-- If the sidecar fails to reach the operator within its retry window, the run result is lost. The next scheduled run restores state. Prometheus shows a gap in the affected metric.
-
-**Security boundary:**
-
-- Main runner container remains generic and need not understand operator internals.
-- The sidecar authenticates via its pod ServiceAccount token — no Kubernetes API write permissions required.
-- The operator verifies tokens via TokenReview; an unauthenticated or unauthorized POST is rejected with `401`/`403`.
-
-Still narrow and namespaced, but materially less invasive than granting runner pods permission to mutate CRD status.
+- If the main container crashes before producing results, the sidecar has nothing to publish; the controller derives failure from Job/Pod status via the Job watch and sets `Ready=False`.
+- If the sidecar fails to connect to NATS, the result is lost. The next scheduled run restores state. Prometheus shows a gap in the affected metric. With JetStream enabled, NATS buffers messages across restarts — the sidecar retries until NATS is available.
 
 ### 4.5 CRD webhooks
 
-Validating and defaulting webhooks run in a **separate `synthetics-operator-webhook` deployment** — stateless, no leader election, 2–3 replicas. This means `kubectl apply` remains available even while the main operator is restarting. The webhook deployment shares the same binary but starts with a `--webhook-only` flag that disables the reconcile loop, worker pool, and ingest handler.
-
-| Deployment | Replicas | Responsibilities |
-|---|---|---|
-| `synthetics-operator-webhook` | 2–3 | Validate + default CRDs |
-| `synthetics-operator` | 1 | Reconcile, worker pool, `/ingest`, `/metrics` |
+Validating and defaulting webhooks run in a **separate `synthetics-operator-webhook` deployment** — stateless, no leader election, 2+ replicas. This means `kubectl apply` remains available even while other operator components are restarting. The webhook deployment shares the same binary but starts with a `--webhook-only` flag.
 
 The webhook provides immediate feedback on invalid resources at apply time rather than surfacing errors later via status conditions.
 
@@ -639,21 +643,33 @@ Webhook replicas watch the Secret via informer and reload certs on change via at
 
 ### 4.7 Availability
 
-**`synthetics-operator-webhook` (2–3 replicas)**
+**`synthetics-operator-webhook` (2+ replicas)**
 - Stateless — any replica handles any webhook call
-- Unavailability causes `kubectl apply` to fail; PodDisruptionBudget ensures at least one replica is always up
+- PodDisruptionBudget ensures at least one replica is always up
 
-**`synthetics-operator` (1 replica)**
-- Single replica; no leader election, no routing complexity
-- On restart (~5–10s): in-operator probes pause briefly, CronJobs continue running on their existing schedules unaffected, sidecar retries cover results posted during the window
+**`synthetics-operator-controller` (1 replica)**
+- Single replica; no leader election needed
+- On restart (~5–10s): no jobs published to work queue; probe workers drain existing jobs and idle until controller recovers; CronJobs continue running unaffected
 - Reconcile is idempotent — always diffs current vs desired state
-- Graceful shutdown on SIGTERM — in-flight probe runs complete before exit
-- Requeue with backoff on controller errors
+- Graceful shutdown on SIGTERM — in-flight reconciles complete before exit
 
-### 4.8 Operator resource footprint
+**`synthetics-operator-probes` (1+ replicas)**
+- Stateless — any worker consumes any job from the NATS work queue
+- Scale up to increase probe throughput; scale down without resharding
+
+**`synthetics-operator-metrics` (1+ replicas)**
+- Each replica consumes the full NATS result stream — all replicas hold identical OTel instrument state
+- Scale up for `/metrics` scrape availability; all replicas serve identical data
+
+**NATS**
+- Default: 1 replica, no JetStream — results are best-effort, gaps acceptable
+- With JetStream + PVC: results buffered across restarts — no gaps during controller or metrics-consumer downtime
+- With 3 replicas: NATS cluster, survives single-node failure
+
+### 4.8 Resource footprint
 
 ```yaml
-# synthetics-operator (per replica)
+# synthetics-operator-controller
 resources:
   requests:
     cpu: 50m
@@ -661,6 +677,24 @@ resources:
   limits:
     cpu: 200m
     memory: 256Mi
+
+# synthetics-operator-probes (per replica)
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# synthetics-operator-metrics (per replica)
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
 
 # synthetics-operator-webhook (per replica)
 resources:
@@ -670,21 +704,43 @@ resources:
   limits:
     cpu: 50m
     memory: 64Mi
+
+# nats (per replica)
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi
 ```
 
 ### 4.9 RBAC summary
 
-**`synthetics-operator` ClusterRole** (single replica, no leader election):
+**`synthetics-operator-controller` ClusterRole:**
 
 | Resource | Verbs | Why |
 |----------|-------|-----|
-| `httpprobes`, `dnsprobes`, `playwrighttests`, `k6tests` | get, list, watch, update, patch | Reconcile CRDs, update status |
+| `httpprobes`, `dnsprobes`, `playwrighttests`, `k6tests` | get, list, watch, update, patch | Reconcile CRDs, update status conditions |
 | `jobs`, `cronjobs` | get, list, watch, create, update, delete | Manage CronJobs for script runners |
-| `configmaps` | get, list, watch, create, update, patch | Read scripts and manage webhook ConfigMaps |
+| `configmaps` | get, list, watch, create, update, patch | Read scripts, manage webhook ConfigMaps |
 | `secrets` | get, list, watch, create, update | Webhook certs Secret |
 | `validatingwebhookconfigurations`, `mutatingwebhookconfigurations` | get, update, patch | Inject caBundle |
-| `leases` | get, create, update | controller-runtime lease (informer health) |
+| `leases` | get, create, update | controller-runtime informer health |
 | `events` | create, patch | Emit Kubernetes events |
+| `tokenreviews` | create | Validate sidecar ServiceAccount tokens for NATS auth callout |
+
+**`synthetics-operator-probes` ClusterRole:**
+
+| Resource | Verbs | Why |
+|----------|-------|-----|
+| `httpprobes`, `dnsprobes` | get, list, watch | Read probe specs to execute |
+
+**`synthetics-operator-metrics` ClusterRole:**
+
+| Resource | Verbs | Why |
+|----------|-------|-----|
+| — | — | No Kubernetes API access needed |
 
 **`synthetics-operator-webhook` ClusterRole:**
 
@@ -693,13 +749,13 @@ resources:
 | `httpprobes`, `dnsprobes`, `playwrighttests`, `k6tests` | get, list, watch | Read CRD schemas for validation |
 | `secrets` | get, watch | Load webhook serving cert |
 
-Runner pod ServiceAccounts require no Kubernetes API write permissions. Authentication to the operator's ingest endpoint uses the pod's ServiceAccount token, verified via TokenReview. See section 4.4.
+Runner pod ServiceAccounts require no Kubernetes API permissions. Sidecars authenticate to NATS via their pod ServiceAccount token; the controller validates tokens via TokenReview on the NATS auth callout. See section 4.4.
 
 ### 4.10 NetworkPolicy
 
-Runner pods post results to the operator's HTTP ingest endpoint. The attack surface is bounded: the sidecar authenticates via its pod ServiceAccount token (verified via TokenReview), and the token grants no Kubernetes API write permissions. A rogue pod with a stolen token can post a fabricated result but cannot modify CRDs, ConfigMaps, or any other cluster resource.
+Runner pods publish results directly to NATS using their pod ServiceAccount token. The controller validates tokens via a NATS auth callout — the token grants no Kubernetes API write permissions. A rogue pod with a stolen token can publish a fabricated result but cannot modify CRDs, ConfigMaps, or any other cluster resource.
 
-A default NetworkPolicy is shipped in the Helm chart restricting the operator pod to accept inbound traffic only on `:8080` (Prometheus scrape) from the monitoring namespace, `:8081` (health probes) from the kubelet, and `:9443` (ingest + webhooks) from namespaces with the `synthetics-runner: true` label. Opt-in because not every cluster has a CNI that enforces NetworkPolicy.
+A default NetworkPolicy is shipped in the Helm chart. Opt-in because not every cluster has a CNI that enforces NetworkPolicy.
 
 ```yaml
 # values.yaml
@@ -708,56 +764,77 @@ networkPolicy:
   prometheusNamespace: monitoring
 ```
 
-When enabled, the generated policy:
+When enabled, separate policies are generated per deployment:
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: synthetics-operator
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: synthetics-operator
-  policyTypes: [Ingress]
-  ingress:
-    - ports:
-        - port: 8080   # Prometheus /metrics
-      from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: monitoring
-    - ports:
-        - port: 8081   # health probes
-    - ports:
-        - port: 9443   # ingest + webhooks
-      from:
-        - namespaceSelector:
-            matchLabels:
-              synthetics-runner: "true"
-```
+- `synthetics-operator-metrics`: `:8080` from monitoring namespace, `:8081` from kubelet
+- `synthetics-operator-webhook`: `:9443` from all namespaces (API server), `:8081` from kubelet
+- `synthetics-operator-controller`: `:8081` from kubelet only
+- `synthetics-operator-probes`: `:8081` from kubelet only
+- `nats`: `:4222` (client) from runner namespaces + operator namespace, `:6222` (cluster) between NATS pods only
 
-Egress is not restricted — the operator needs to reach the Kubernetes API server and, for HttpProbe/DnsProbe, arbitrary external endpoints.
+Egress is not restricted — probe workers need to reach arbitrary external endpoints.
 
 ---
 
-## 5. Repository Structure
+## 5. Helm Configuration
+
+### 5.1 NATS scaling tiers
+
+```yaml
+# Small — default, single team, <100 probes
+nats:
+  replicas: 1
+  jetstream:
+    enabled: false
+
+# Medium — multiple teams, 100–1000 probes
+# JetStream buffers results across restarts — no gaps during controller or metrics-consumer downtime
+nats:
+  replicas: 1
+  jetstream:
+    enabled: true
+    storage:
+      size: 5Gi
+      storageClass: ""   # uses cluster default
+
+# Large — org-wide, 1000+ probes
+# 3-replica NATS cluster survives single-node failure; multiple operator replicas for throughput
+nats:
+  replicas: 3
+  jetstream:
+    enabled: true
+    storage:
+      size: 20Gi
+      storageClass: ""
+
+operator:
+  probes:
+    replicas: 3   # probe workers scale independently
+  metrics:
+    replicas: 2   # all replicas serve identical /metrics
+```
+
+### 5.2 Repository Structure
 
 ```
 /api/v1alpha1                   # CRD type definitions
-/controllers                    # Reconcile logic per CRD
+/controllers                    # Reconcile logic per CRD (runs in controller deployment)
   http_probe_controller.go
   dns_probe_controller.go
   playwright_test_controller.go
   k6_test_controller.go
   /internal
-    scheduler.go                # Shared in-operator scheduling + worker pool
-    metrics.go                  # Shared OTel meter, instrument definitions
-    runner.go                   # Shared Job lifecycle management
-    ingest.go                   # HTTP ingest handler, buffered channel, worker pool
+    scheduler.go                # Work queue job publishing + even distribution
+    runner.go                   # Shared CronJob lifecycle management
     certmanager.go              # Cert generation, rotation, reload
+/probes                         # Probe worker (runs in probes deployment)
+  worker.go                     # NATS work queue consumer, probe execution
+  /internal
+    metrics.go                  # Shared OTel meter, instrument definitions
+/metrics                        # Metrics consumer (runs in metrics deployment)
+  consumer.go                   # NATS result stream consumer, OTel instrument updates
 /images
-  /results-writer               # Sidecar image for normalizing runner output and posting to operator ingest endpoint
+  /results-writer               # Sidecar image for normalizing runner output and publishing to NATS
 /charts
   /synthetics-operator          # Helm chart for the operator
 /dashboards
@@ -937,15 +1014,15 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | In-operator scheduling | HttpProbe and DnsProbe run as goroutines inside the operator. Sub-minute intervals required; pod-per-run would be wasteful. |
 | CronJobs for scripts | PlaywrightTest and K6Test need isolated runtimes and run at minute-or-longer intervals. CronJobs are the natural fit. |
 | Even distribution over jitter | Probes distributed deterministically using a gap-filling algorithm. Jitter is random and can still cluster; even distribution is guaranteed. |
-| Worker pool | Shared pool (default 50 workers) across all in-operator probes. Bounds concurrency, prevents goroutine explosion at scale. |
-| HTTP ingest for result ingestion | CronJob sidecar posts results directly to the operator's `/ingest` endpoint. No Kubernetes API writes in the result path — eliminates the per-run ConfigMap create/watch/reconcile/status-patch chain and its associated scaling ceiling. |
-| Result writer sidecar pattern | Job pods include a native sidecar (`results-writer`) that normalizes runner output and posts to `/ingest`. Main container stays completely stock (official Playwright/k6 images). Runner pods need no Kubernetes API write permissions. Requires Kubernetes 1.33+. |
+| NATS work queue for probe scheduling | Controller publishes jobs to a NATS work queue; probe workers compete to consume. Workers are stateless — scale by adding replicas, no resharding. Controller restart causes a brief scheduling gap; workers drain existing jobs normally. |
+| NATS result stream | All results (probe workers + CronJob sidecars) flow through a single NATS result stream. Decouples writers from the metrics consumer. With JetStream enabled, results are buffered across restarts. |
+| Result writer sidecar pattern | Job pods include a native sidecar (`results-writer`) that normalizes runner output and publishes to NATS. Main container stays completely stock (official Playwright/k6 images). Runner pods need no Kubernetes API write permissions. Requires Kubernetes 1.33+. |
 | Re-export k6 metrics | Curated k6 summary metrics re-exported by operator rather than forwarding full k6 Prometheus output. Keeps schema clean. |
 | depends field | One level deep only. Suppresses failure metrics when a dependency is unhealthy. No orchestration, no chaining — purely noise reduction. |
 | CRD webhooks | Validating and defaulting webhooks in a separate `synthetics-operator-webhook` deployment (2–3 replicas, stateless). Keeps `kubectl apply` available during operator restarts. Same binary, `--webhook-only` flag. |
 | Self-managed certs | Operator generates and rotates self-signed CA + serving certs, stored in a Secret. Webhook replicas watch the Secret and hot-reload via atomic pointer swap. No cert-manager dependency. |
 | Grafana in repo | Dashboards and alert rules shipped in the repo, distributed via Helm ConfigMaps and grafana.com. Minimises time-to-value. |
-| Operator health metrics | Worker pool saturation, reconcile errors, CronJob failures, Job rejections, result ingestion, and cert expiry all instrumented via OTel SDK. Exported as Prometheus on `/metrics` via OTel Prometheus exporter. Queue depth is the key saturation signal. |
+| Operator health metrics | NATS queue depth, reconcile errors, CronJob failures, Job rejections, result stream lag, and cert expiry all instrumented via OTel SDK. Exported as Prometheus on `/metrics` via OTel Prometheus exporter. NATS queue depth is the key saturation signal. |
 | Custom metric labels | `spec.metricLabels` on all CRDs propagates to OTel metric attributes (Prometheus labels). Enables per-team alerting and dashboard filtering without separate namespaces. Deliberately separate from k8s metadata labels so observability labels can be managed independently and cardinality stays explicit. |
 | suspend field | All CRDs support `spec.suspend` to pause probes without deletion. In-operator probes are unscheduled; CronJobs set `suspend: true`. |
 | Consistent interval syntax | All four CRDs use `interval` (duration string). For CronJob-backed probes the operator converts the interval to a CronJob schedule with a per-probe offset for even distribution. Sub-minute intervals (e.g. `10s`) only supported by HttpProbe and DnsProbe; minimum for PlaywrightTest and K6Test is `1m`. |
