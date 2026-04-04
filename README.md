@@ -966,6 +966,7 @@ No special Kubernetes version floor is introduced by result ingestion anymore. S
 | Automatic VU distribution | K6Test operator divides total VUs by parallelism using k6 execution segments automatically. Users set total VUs in the script, not per-pod VUs. |
 | Thresholds in script only | k6 thresholds defined in the script, not duplicated in the CRD. Avoids drift between two sources of truth. Operator parses threshold results from k6 summary output. |
 | No alerting in operator | Operator emits metrics only. Users own Alertmanager rules. Avoids duplicating alerting infrastructure and keeps operator scope focused. |
+| Assertions are stateless | CRD spec assertions (`status`, `latency.maxMs`, `body`, `resolvedAddresses`) evaluate the current run only — no sliding windows, no history, no aggregation. Anything that requires multiple results over time (p95 latency, consecutive failure rate) belongs in Alertmanager rules against the emitted metrics, not in the CRD schema. |
 | In-operator scheduling | HttpProbe and DnsProbe run as goroutines inside the operator. Sub-minute intervals required; pod-per-run would be wasteful. |
 | CronJobs for scripts | PlaywrightTest and K6Test need isolated runtimes and run at minute-or-longer intervals. CronJobs are the natural fit. |
 | Even distribution over jitter | Probes distributed deterministically using a gap-filling algorithm. Jitter is random and can still cluster; even distribution is guaranteed. |
