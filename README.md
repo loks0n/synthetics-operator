@@ -344,8 +344,9 @@ The operator exposes its own health metrics alongside probe metrics, giving visi
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_operator_results_received_total` | counter | Result ConfigMaps processed per `kind` |
-| `synthetics_operator_results_parse_failed_total` | counter | Result ConfigMaps received but failed to parse per `kind` |
+| `synthetics_operator_results_received_total` | counter | Results successfully ingested via HTTP ingest per `kind` |
+| `synthetics_operator_results_parse_failed_total` | counter | Results received but failed to parse per `kind` |
+| `synthetics_operator_ingest_rejected_total` | counter | Intake requests rejected (auth failure or channel full) |
 
 **Certificate**
 
@@ -444,77 +445,50 @@ _Layer 2 — pre-flight check (add if users hit this in practice)._ On reconcile
 
 A troubleshooting section in the docs covers the common case: "if your K6Test never runs, check `kubectl describe k6test <name>` and look for `Ready=False` with `reason: JobCreationFailed`. Verify `runner.resources` fits within namespace quotas."
 
-### 4.4 Result ingestion via owned ConfigMaps
+### 4.4 Result ingestion via HTTP ingest
 
-CronJob pods write normalized result summaries to per-run ConfigMaps. The operator watches Jobs and those owned ConfigMaps, then projects the latest state into the parent CR's `.status` and Prometheus metrics. The controller is the sole writer of CR status.
-
-This preserves the standard operator contract — workloads produce artifacts, controllers own parent `.status` — and keeps the transport layer debuggable with standard tooling: `kubectl get jobs,pods,configmaps`.
-
-**Result object model:**
-
-Each CronJob run produces one ConfigMap owned by the Job. The name is deterministic from the Job UID to avoid collisions and simplify reconciliation. The payload is a compact normalized summary, not the runner's raw output dump.
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: checkout-flow-result-7f6c9
-  ownerReferences:
-    - apiVersion: batch/v1
-      kind: Job
-      name: checkout-flow-29184720
-data:
-  result.json: |
-    {
-      "kind": "PlaywrightTest",
-      "probeName": "checkout-flow",
-      "success": true,
-      "timestamp": "2026-04-04T12:00:00Z",
-      "durationMs": 4200,
-      "summary": {}
-    }
-```
+CronJob pods post normalized result JSON directly to an HTTP endpoint on the operator (`POST /ingest`). The operator updates its in-memory metrics state and emits Prometheus metrics immediately. No Kubernetes API writes occur in the result ingestion hot path.
 
 **Flow:**
 
 ```
 1. Main container runs test and writes raw output to /results/output.json (shared volume)
-2. Sidecar container watches /results/output.json, normalizes the result, and writes the per-run result ConfigMap
-3. Job completes (native sidecar terminates automatically with the main container — requires Kubernetes 1.33+)
-4. Operator watches Job + ConfigMap events, parses result.json, and updates parent CR status
-5. Operator emits Prometheus metrics from controller memory based on normalized result state
-6. TTL/garbage collection removes old Jobs and their owned result ConfigMaps
+2. Sidecar reads /results/output.json, normalizes the result, posts JSON to http://synthetics-operator/ingest
+3. Operator returns 202 Accepted, drops result onto an internal buffered channel
+4. Worker pool drains channel, updates in-memory metrics map
+5. Job completes (native sidecar terminates automatically with the main container — requires Kubernetes 1.33+)
+6. TTL/garbage collection removes old Jobs
 ```
 
-A native Kubernetes sidecar (initContainer with `restartPolicy: Always`) handles result ingestion. This keeps the main container completely stock — users can pin to official `mcr.microsoft.com/playwright` or `grafana/k6` images without any modification. The operator owns a single small sidecar image (`results-writer`) that handles normalization and ConfigMap writes across all runner types. The sidecar does not patch the parent CR and does not own status semantics. Its only cluster-facing responsibility is writing the run's result ConfigMap.
+The main container stays completely stock — users can pin to official `mcr.microsoft.com/playwright` or `grafana/k6` images without modification. The operator owns a single small sidecar image (`results-writer`) that handles normalization and HTTP posting across all runner types.
 
-**CRD status structure:**
+**Result payload:**
 
-```yaml
-status:
-  observedGeneration: 3
-  conditions:
-    - type: Ready
-      status: "True"
-      reason: ProbeSucceeded
-      message: "Last run succeeded"
-      lastTransitionTime: "2026-04-04T12:00:00Z"
-    - type: Suspended
-      status: "False"
-      reason: ResumeRequested
-      message: "Probe is active"
-      lastTransitionTime: "2026-04-04T11:00:00Z"
-  lastRunTime: "2026-04-04T12:00:00Z"
-  lastSuccessTime: "2026-04-04T12:00:00Z"
-  lastFailureTime: null
-  consecutiveFailures: 0
-  summary:
-    success: true
-    durationMs: 4200
-    # probe-type-specific fields added here (see below)
+```json
+{
+  "kind": "PlaywrightTest",
+  "probeName": "checkout-flow",
+  "success": true,
+  "timestamp": "2026-04-04T12:00:00Z",
+  "durationMs": 4200
+}
 ```
 
-This is a clean operator-owned API. The operator is the sole writer. The sidecar produces a run artifact; the operator translates that into the fields above. `summary` contains normalized, user-facing state — not raw runner output.
+**Single-writer design:**
+
+Only the leader replica handles `/ingest`. The operator sets a `synthetics.dev/role: leader` label on its own pod when it wins election and removes it on loss. A headless Service with that label selector gives sidecars a stable DNS name that always resolves to the current leader. Non-leader replicas serve `/metrics` (always empty — Prometheus scrapes the leader pod only) but reject `/ingest` with `503`. This avoids split-brain metrics state without any cross-replica coordination.
+
+**Ingest handler:**
+
+The handler validates the ServiceAccount token from the `Authorization` header against the Kubernetes TokenReview API, then returns `202 Accepted` immediately. If the internal channel is full (operator overloaded), it returns `503` so the sidecar retries rather than silently dropping. The operator never blocks on processing in the request path.
+
+**Sidecar retry:**
+
+The sidecar retries with exponential backoff for up to 30 seconds after posting. This covers transient network blips and leader election transitions (~5–10s). If the operator is still unreachable after 30 seconds, the sidecar gives up — the next scheduled run will produce fresh results. No fallback to ConfigMap; the simple path is intentional.
+
+**In-memory metrics state:**
+
+The operator holds a `map[probeKey]RunResult` updated by the worker pool. Prometheus metrics are derived from this map at scrape time. On operator restart the map is empty until each probe's next run completes — typically within one interval. Prometheus shows a gap, not stale data.
 
 **Condition set** — two conditions, stable across all CRD types:
 
@@ -533,66 +507,18 @@ This is a clean operator-owned API. The operator is the sole writer. The sidecar
 | `ConfigError` | Probe spec is invalid (bad URL, unreachable resolver) |
 | `Initializing` | Probe registered, first run not yet complete |
 
-**`summary` fields by probe type:**
-
-For HttpProbe and DnsProbe, `summary` is written directly by the controller from the in-process run result. For K6Test and PlaywrightTest, the controller derives it from the per-run ConfigMap after the Job completes.
-
-```yaml
-# HttpProbe
-summary:
-  success: true
-  durationMs: 142
-  statusCode: 200
-
-# DnsProbe
-summary:
-  success: true
-  responseMs: 8
-  resolvedAddresses: ["1.2.3.4"]
-
-# K6Test
-summary:
-  success: true
-  durationMs: 62000
-  thresholdsPassed: true
-  httpReqDurationP95Ms: 210
-  httpReqFailedRate: 0.001
-
-# PlaywrightTest
-summary:
-  success: true
-  durationMs: 4200
-  testsTotal: 12
-  testsPassed: 12
-  testsFailed: 0
-```
-
-This is the user-facing source of truth for `kubectl get/describe`. Prometheus metrics are derived from the same normalized controller state.
-
-**Security boundary:**
-
-- Main runner container remains generic and need not understand CRD internals.
-- The result writer has no permission to read or modify parent CRs.
-- The operator is the only component allowed to update `status`, `conditions`, and readiness semantics.
+Status conditions are updated by the operator's Job watch — not the ingest path — so they remain accurate even if a result post is lost.
 
 **Crash handling:**
 
-- If the main container crashes before producing results, no valid result ConfigMap is written; the operator derives failure from Job/Pod status and updates CR status accordingly.
-- If the result writer fails after results are produced but before persisting them, the Job still shows failed or incomplete ingestion and the operator surfaces that via status conditions and `synthetics_operator_results_parse_failed_total` / failed-run metrics.
-- If the API server is transiently unavailable, the writer retries ConfigMap creation/update with exponential backoff. This affects only the per-run artifact, not CR status ownership.
+- If the main container crashes before producing results, the sidecar has nothing to post; the operator derives failure from Job/Pod status via the Job watch and sets `Ready=False`.
+- If the sidecar fails to reach the operator within its retry window, the run result is lost. The next scheduled run restores state. Prometheus shows a gap in the affected metric.
 
-**RBAC for result writer ServiceAccount:**
+**Security boundary:**
 
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: synthetics-results-writer
-rules:
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["create", "get", "update", "patch"]
-```
+- Main runner container remains generic and need not understand operator internals.
+- The sidecar authenticates via its pod ServiceAccount token — no Kubernetes API write permissions required.
+- The operator verifies tokens via TokenReview; an unauthenticated or unauthorized POST is rejected with `401`/`403`.
 
 Still narrow and namespaced, but materially less invasive than granting runner pods permission to mutate CRD status.
 
@@ -728,19 +654,19 @@ The operator requires a ClusterRole with the following permissions:
 |----------|-------|-----|
 | `httpprobes`, `dnsprobes`, `playwrighttests`, `k6tests` | get, list, watch, update, patch | Reconcile CRDs, update status |
 | `jobs`, `cronjobs` | get, list, watch, create, update, delete | Manage CronJobs for script runners |
-| `configmaps` | get, list, watch, create, update, patch | Read scripts, watch result artifacts, and manage webhook/result ConfigMaps |
+| `configmaps` | get, list, watch, create, update, patch | Read scripts and manage webhook ConfigMaps |
 | `secrets` | get, list, watch, create, update | Webhook certs Secret |
 | `validatingwebhookconfigurations`, `mutatingwebhookconfigurations` | get, update, patch | Inject caBundle |
 | `leases` | get, create, update | Leader election |
 | `events` | create, patch | Emit Kubernetes events |
 
-The result writer ServiceAccount is separate and scoped per-namespace to writing result ConfigMaps only. See section 4.4.
+Runner pod ServiceAccounts require no Kubernetes API write permissions. Authentication to the operator's ingest endpoint uses the pod's ServiceAccount token, verified via TokenReview. See section 4.4.
 
 ### 4.10 NetworkPolicy
 
-The result-ingestion attack surface is reduced by design — there is no operator HTTP endpoint to hit, and runner pods never need permission to mutate parent CRDs. The only cluster-facing write from a Job pod is its per-run result ConfigMap, using a narrowly scoped ServiceAccount. A rogue pod without that binding cannot impersonate the result writer.
+Runner pods post results to the operator's HTTP ingest endpoint. The attack surface is bounded: the sidecar authenticates via its pod ServiceAccount token (verified via TokenReview), and the token grants no Kubernetes API write permissions. A rogue pod with a stolen token can post a fabricated result but cannot modify CRDs, ConfigMaps, or any other cluster resource.
 
-A default NetworkPolicy is shipped in the Helm chart as a general hygiene measure, restricting the operator pod to accept inbound traffic only on `:8080` (Prometheus scrape) from the monitoring namespace. Opt-in because not every cluster has a CNI that enforces NetworkPolicy.
+A default NetworkPolicy is shipped in the Helm chart restricting the operator pod to accept inbound traffic only on `:8080` (Prometheus scrape) from the monitoring namespace and `:8443` (ingest + webhooks) from namespaces with the `synthetics-runner: true` label. Opt-in because not every cluster has a CNI that enforces NetworkPolicy.
 
 ```yaml
 # values.yaml
@@ -787,10 +713,10 @@ Egress is not restricted — the operator needs to reach the Kubernetes API serv
     scheduler.go                # Shared in-operator scheduling + worker pool
     metrics.go                  # Shared Prometheus registry
     runner.go                   # Shared Job lifecycle management
-    resultstore.go              # Result ConfigMap naming, parsing, and watch logic
+    ingest.go                   # HTTP ingest handler, buffered channel, worker pool
     certmanager.go              # Cert generation, rotation, reload
 /images
-  /results-writer               # Sidecar image for normalizing runner output and writing result ConfigMaps
+  /results-writer               # Sidecar image for normalizing runner output and posting to operator ingest endpoint
 /charts
   /synthetics-operator          # Helm chart for the operator
 /dashboards
@@ -873,7 +799,7 @@ Pure Go, no cluster needed. Fast, run on every PR.
 - Probe result parsing (k6 summary JSON, Playwright output)
 - Metric recording logic
 - Webhook validation and defaulting functions — these are just Go functions, trivially testable
-- Result ConfigMap naming, normalized payload generation, and controller-side status projection
+- Intake payload normalization and in-memory metrics map update logic
 
 ### 7.2 Controller tests with envtest
 
@@ -882,12 +808,12 @@ envtest ships with controller-runtime and spins up a real API server and etcd lo
 What to cover:
 
 - Reconcile creates the correct CronJob from a `K6Test` or `PlaywrightTest` spec
-- CronJob pods include result writer wiring with correct RBAC and result artifact naming
+- CronJob pods include results-writer sidecar with correct ServiceAccount
 - Updating a probe interval updates the CronJob schedule
 - Deleting a probe cleans up owned resources
 - `depends` suppression — create two probes, mark one unhealthy, verify the other is suppressed in metrics
-- Result ConfigMap ingestion triggers CRD status update and metric emission
-- Status conditions updated correctly after reconcile
+- Posting to `/ingest` updates in-memory metrics state and emits correct Prometheus metrics
+- Job watch updates status conditions correctly on Job success/failure
 - Webhook validation rejects invalid specs
 - Webhook defaulting fills missing fields
 - `suspend: true` pauses in-operator probes and sets CronJob `suspend`
@@ -899,9 +825,9 @@ Covers ~80% of operator behaviour, runs in CI in under a minute.
 
 Full cluster, real Jobs running, real Playwright and k6 images. Slower but tests the complete path end to end.
 
-- `PlaywrightTest` CronJob runs, script executes, result ConfigMap is written, CRD status updates, metrics appear on `/metrics`
+- `PlaywrightTest` CronJob runs, script executes, sidecar posts to `/ingest`, metrics appear on `/metrics`
 - `K6Test` runs, thresholds evaluated, summary parsed correctly
-- Result writer retries on transient API server error (simulate with network policy)
+- Sidecar retries on transient operator unavailability (simulate by scaling operator to zero briefly)
 - Cert rotation — force expiry, verify rotation happens, webhook continues working
 - HA — kill the leader replica, verify standby takes over and probes resume
 - `runOnDeploy` — trigger a deployment, verify `K6Test` fires
@@ -937,7 +863,7 @@ Merge to main
 
 Nightly
   → scale tests (including churn)
-  → full kind suite across k8s versions (1.28, 1.29, 1.30, 1.31)
+  → full kind suite across k8s versions (1.33, 1.34, 1.35, 1.36)
 ```
 
 ### 7.7 Multi-version testing
@@ -949,7 +875,7 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
-    image: kindest/node:v1.31.0
+    image: kindest/node:v1.33.0
 ```
 
 The native sidecar pattern (initContainer with `restartPolicy: Always`) requires Kubernetes 1.33+, where this feature is GA. This is the minimum supported version for the operator.
@@ -971,8 +897,8 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | CronJobs for scripts | PlaywrightTest and K6Test need isolated runtimes and run at minute-or-longer intervals. CronJobs are the natural fit. |
 | Even distribution over jitter | Probes distributed deterministically using a gap-filling algorithm. Jitter is random and can still cluster; even distribution is guaranteed. |
 | Worker pool | Shared pool (default 50 workers) across all in-operator probes. Bounds concurrency, prevents goroutine explosion at scale. |
-| Controller-owned status projection | CronJob pods write normalized per-run result summaries to owned ConfigMaps. The operator watches those artifacts plus Job state, then updates CR status and Prometheus metrics. Preserves the standard operator contract: controller owns status. |
-| Result writer artifact pattern | Job pods include a native sidecar (`results-writer`) that only persists the run's ConfigMap artifact. Main container stays completely stock (official Playwright/k6 images), and no runner pod needs permission to patch CRDs. Requires Kubernetes 1.33+. |
+| HTTP ingest for result ingestion | CronJob sidecar posts results directly to the operator's `/ingest` endpoint. No Kubernetes API writes in the result path — eliminates the per-run ConfigMap create/watch/reconcile/status-patch chain and its associated scaling ceiling. |
+| Result writer sidecar pattern | Job pods include a native sidecar (`results-writer`) that normalizes runner output and posts to `/ingest`. Main container stays completely stock (official Playwright/k6 images). Runner pods need no Kubernetes API write permissions. Requires Kubernetes 1.33+. |
 | Re-export k6 metrics | Curated k6 summary metrics re-exported by operator rather than forwarding full k6 Prometheus output. Keeps schema clean. |
 | depends field | One level deep only. Suppresses failure metrics when a dependency is unhealthy. No orchestration, no chaining — purely noise reduction. |
 | CRD webhooks | Validating and defaulting webhooks implemented for all CRDs. Immediate feedback at apply time rather than errors surfacing via status conditions. |
@@ -1093,9 +1019,8 @@ Each phase ships a usable product. No phase is purely foundational.
 
 **Deliverable:** Shared infrastructure required by all CronJob-backed probe types.
 
-- Result writer binary: runs inside Job pods, writes normalized summary JSON to a per-run ConfigMap
-- RBAC for result writer ServiceAccount (ConfigMap create/update only, namespaced)
-- Operator watches owned ConfigMaps and projects results into parent CR status
+- `results-writer` sidecar image: normalizes runner output, posts to operator `/ingest` with retry
+- Operator `/ingest` HTTP handler: TokenReview auth, buffered channel, worker pool, in-memory metrics map
 - Scale testing suite (500+ in-operator probes, add/remove churn)
 
 **Usable because:** K6Test and PlaywrightTest both depend on this infrastructure. Building and validating it independently reduces risk when those CRDs ship.
@@ -1109,7 +1034,7 @@ Each phase ships a usable product. No phase is purely foundational.
 - `K6Test` CRD: script ConfigMap reference, `interval`, `runOnDeploy`, `parallelism`, `k6Version`, `ttlAfterFinished`, `runner` block
 - CronJob reconciliation with even distribution offset
 - Automatic VU distribution across parallel pods using k6 execution segments
-- k6 summary JSON parsing from owned result ConfigMaps
+- k6 summary JSON parsing in the results-writer sidecar
 - Job rejection detection: `Ready=False` with `reason: JobCreationFailed`, metric, and Kubernetes Event
 - k6 Grafana dashboard
 - kind integration tests for full Job lifecycle
@@ -1125,7 +1050,7 @@ Each phase ships a usable product. No phase is purely foundational.
 
 - `PlaywrightTest` CRD: script ConfigMap reference, `interval`, `playwrightVersion`, `ttlAfterFinished`, `runner` block
 - CronJob reconciliation with even distribution offset (reuses Phase 8 infrastructure)
-- Playwright JSON reporter output parsing
+- Playwright JSON reporter output parsing in the results-writer sidecar
 - Per-test metrics with `suite` and `test` labels; suite-level rollups
 - Playwright Grafana dashboard
 - kind integration tests with real Playwright image
