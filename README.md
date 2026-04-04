@@ -699,7 +699,7 @@ Runner pod ServiceAccounts require no Kubernetes API write permissions. Authenti
 
 Runner pods post results to the operator's HTTP ingest endpoint. The attack surface is bounded: the sidecar authenticates via its pod ServiceAccount token (verified via TokenReview), and the token grants no Kubernetes API write permissions. A rogue pod with a stolen token can post a fabricated result but cannot modify CRDs, ConfigMaps, or any other cluster resource.
 
-A default NetworkPolicy is shipped in the Helm chart restricting the operator pod to accept inbound traffic only on `:8080` (Prometheus scrape) from the monitoring namespace and `:8443` (ingest + webhooks) from namespaces with the `synthetics-runner: true` label. Opt-in because not every cluster has a CNI that enforces NetworkPolicy.
+A default NetworkPolicy is shipped in the Helm chart restricting the operator pod to accept inbound traffic only on `:8080` (Prometheus scrape) from the monitoring namespace, `:8081` (health probes) from the kubelet, and `:9443` (ingest + webhooks) from namespaces with the `synthetics-runner: true` label. Opt-in because not every cluster has a CNI that enforces NetworkPolicy.
 
 ```yaml
 # values.yaml
@@ -727,6 +727,14 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+    - ports:
+        - port: 8081   # health probes
+    - ports:
+        - port: 9443   # ingest + webhooks
+      from:
+        - namespaceSelector:
+            matchLabels:
+              synthetics-runner: "true"
 ```
 
 Egress is not restricted — the operator needs to reach the Kubernetes API server and, for HttpProbe/DnsProbe, arbitrary external endpoints.
@@ -947,7 +955,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Multi-version testing | Nightly suite runs against the four most recent k8s minor versions. Support policy is derived from actual CI coverage. |
 | CRD graduation | `v1alpha1` initially. Graduation to `v1beta1` and `v1` driven by schema stability and adoption, with conversion webhooks at each transition. |
 | Idiomatic status schema | All CRDs expose `observedGeneration`, two stable condition types (`Ready`, `Suspended`), first-class `lastRunTime`/`lastSuccessTime`/`lastFailureTime`/`consecutiveFailures`, and a normalized `summary` block. Job rejection surfaces as `Ready=False` with `reason: JobCreationFailed` — a reason, not a separate condition type. Status is a clean operator-owned API; the run artifact (ConfigMap) is the transport layer. |
-| NetworkPolicy (opt-in) | Helm chart ships an opt-in NetworkPolicy restricting operator pod inbound to `:8080` from the monitoring namespace. Egress unrestricted. Disabled by default — not every cluster has an enforcing CNI. |
+| NetworkPolicy (opt-in) | Helm chart ships an opt-in NetworkPolicy restricting operator pod inbound to `:8080` (metrics) from monitoring namespace, `:8081` (health) from kubelet, `:9443` (ingest + webhooks) from runner namespaces. Egress unrestricted. Disabled by default — not every cluster has an enforcing CNI. |
 | Cert reload via atomic pointer | Webhook `tls.Config` uses `GetCertificate` reading from `atomic.Pointer[tls.Certificate]`. Leader rotates and writes Secret; all replicas reload via Secret informer `OnUpdate`. No fsnotify, no polling, no restart. Startup re-injects `caBundle` if it diverges from Secret CA (self-heals after crashed rotation). |
 
 ---
