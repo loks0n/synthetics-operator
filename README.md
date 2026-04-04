@@ -930,7 +930,7 @@ What to cover:
 - Updating a probe interval updates the CronJob schedule
 - Deleting a probe cleans up owned resources
 - `depends` suppression — create two probes, mark one unhealthy, verify the other is suppressed in metrics
-- Posting to `/ingest` updates OTel instruments and values appear correctly on `/metrics`
+- Probe worker publishes result to NATS, metrics consumer receives it and values appear correctly on `/metrics`
 - Job watch updates status conditions correctly on Job success/failure
 - Webhook validation rejects invalid specs
 - Webhook defaulting fills missing fields
@@ -943,7 +943,7 @@ Covers ~80% of operator behaviour, runs in CI in under a minute.
 
 Full cluster, real Jobs running, real Playwright and k6 images. Slower but tests the complete path end to end.
 
-- `PlaywrightTest` CronJob runs, script executes, sidecar posts to `/ingest`, metrics appear on `/metrics`
+- `PlaywrightTest` CronJob runs, script executes, sidecar publishes to NATS, metrics appear on `/metrics`
 - `K6Test` runs, thresholds evaluated, summary parsed correctly
 - Sidecar retries on transient operator unavailability (simulate by scaling operator to zero briefly)
 - Cert rotation — force expiry, verify rotation happens, webhook continues working
@@ -1032,7 +1032,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Multi-version testing | Nightly suite runs against the four most recent k8s minor versions. Support policy is derived from actual CI coverage. |
 | CRD graduation | `v1alpha1` initially. Graduation to `v1beta1` and `v1` driven by schema stability and adoption, with conversion webhooks at each transition. |
 | Idiomatic status schema | All CRDs expose `observedGeneration`, two stable condition types (`Ready`, `Suspended`), first-class `lastRunTime`/`lastSuccessTime`/`lastFailureTime`/`consecutiveFailures`, and a normalized `summary` block. Job rejection surfaces as `Ready=False` with `reason: JobCreationFailed` — a reason, not a separate condition type. Status is a clean operator-owned API; the run artifact (ConfigMap) is the transport layer. |
-| NetworkPolicy (opt-in) | Helm chart ships an opt-in NetworkPolicy restricting operator pod inbound to `:8080` (metrics) from monitoring namespace, `:8081` (health) from kubelet, `:9443` (ingest + webhooks) from runner namespaces. Egress unrestricted. Disabled by default — not every cluster has an enforcing CNI. |
+| NetworkPolicy (opt-in) | Helm chart ships per-deployment opt-in NetworkPolicies. NATS client port `:4222` restricted to operator + runner namespaces. Metrics `:8080` restricted to monitoring namespace. Webhook `:9443` open to API server. Disabled by default — not every cluster has an enforcing CNI. |
 | Cert reload via atomic pointer | Webhook `tls.Config` uses `GetCertificate` reading from `atomic.Pointer[tls.Certificate]`. Leader rotates and writes Secret; all replicas reload via Secret informer `OnUpdate`. No fsnotify, no polling, no restart. Startup re-injects `caBundle` if it diverges from Secret CA (self-heals after crashed rotation). |
 
 ---
@@ -1125,7 +1125,7 @@ Each phase ships a usable product. No phase is purely foundational.
 
 **Deliverable:** Separate `synthetics-operator-webhook` deployment for independent availability of CRD validation.
 
-- `--webhook-only` flag: disables reconcile loop, worker pool, and ingest handler
+- `--webhook-only` flag: disables reconcile loop, probe worker, and NATS connections
 - PodDisruptionBudget ensures at least one webhook replica is always up
 - Graceful shutdown — in-flight probe runs complete before the process exits
 
@@ -1137,8 +1137,9 @@ Each phase ships a usable product. No phase is purely foundational.
 
 **Deliverable:** Shared infrastructure required by all CronJob-backed probe types.
 
-- `results-writer` sidecar image: normalizes runner output, posts to operator `/ingest` with retry
-- Operator `/ingest` HTTP handler: TokenReview auth, buffered channel, worker pool, in-memory metrics map
+- `results-writer` sidecar image: normalizes runner output, publishes to NATS result stream with retry
+- NATS work queue consumer in probe-workers deployment
+- NATS result stream consumer in metrics deployment
 - Scale testing suite (500+ in-operator probes, add/remove churn)
 
 **Usable because:** K6Test and PlaywrightTest both depend on this infrastructure. Building and validating it independently reduces risk when those CRDs ship.
