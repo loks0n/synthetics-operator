@@ -524,7 +524,14 @@ Still narrow and namespaced, but materially less invasive than granting runner p
 
 ### 4.5 CRD webhooks
 
-The operator implements both validating and defaulting webhooks for all CRDs, providing immediate feedback on invalid resources at apply time rather than surfacing errors later via status conditions.
+Validating and defaulting webhooks run in a **separate `synthetics-operator-webhook` deployment** — stateless, no leader election, 2–3 replicas. This means `kubectl apply` remains available even while the main operator is undergoing leader election or restarting. The webhook deployment shares the same binary but starts with a `--webhook-only` flag that disables the reconcile loop, worker pool, and ingest handler.
+
+| Deployment | Replicas | Leader election | Responsibilities |
+|---|---|---|---|
+| `synthetics-operator-webhook` | 2–3 | No | Validate + default CRDs |
+| `synthetics-operator` | 2–3 | Yes (single active) | Reconcile, worker pool, `/ingest`, `/metrics` |
+
+The webhook provides immediate feedback on invalid resources at apply time rather than surfacing errors later via status conditions.
 
 **Validating webhook** — rejects invalid resources before they are persisted:
 
@@ -560,7 +567,9 @@ func (k *K6Test) Default() {
 
 Webhooks require TLS — the operator manages its own certificates with no external dependencies. cert-manager is explicitly not required.
 
-**Startup sequence:**
+Cert management is split across the two deployments: the operator leader generates and rotates certs, writing them to a shared Secret. All webhook replicas watch that Secret and hot-reload certs on change via an atomic pointer swap.
+
+**Startup sequence (operator leader):**
 
 ```
 1. Check if synthetics-webhook-certs Secret exists
@@ -569,7 +578,13 @@ Webhooks require TLS — the operator manages its own certificates with no exter
 2. Compare Secret CA against caBundle in ValidatingWebhookConfiguration
      → if they diverge, re-inject caBundle (self-heals after a crashed rotation)
 3. Start background rotation goroutine (leader only)
-4. Webhook server starts with GetCertificate reading from atomic pointer
+```
+
+**Startup sequence (webhook replicas):**
+
+```
+1. Load cert from synthetics-webhook-certs Secret
+2. Start webhook server with GetCertificate reading from atomic pointer
 ```
 
 **Secret structure** — follows standard naming conventions:
@@ -624,12 +639,21 @@ No fsnotify (fragile with Secret volume mounts), no polling, no restart. The inf
 
 **caBundle divergence edge case** — if the leader rotates the cert but crashes before updating the WebhookConfiguration's `caBundle`, the new cert is signed by a CA the API server doesn't trust. Webhook calls fail. On startup, every replica checks whether the CA in the Secret matches the `caBundle` in the WebhookConfiguration and re-injects if they diverge. This is part of the startup sequence (step 2 above) and self-heals on the next leader election.
 
-**HA behaviour** — only the leader replica runs cert rotation. Non-leaders watch the Secret via informer and reload certs on change. Registered as a leader-only `Runnable` via controller-runtime.
+**HA behaviour** — only the operator leader runs cert rotation. All webhook replicas watch the Secret via informer and reload certs on change via atomic pointer swap.
 
 ### 4.7 High availability
 
-- Leader election enabled by default — multiple operator replicas supported, only the leader runs schedulers
-- Non-leader replicas are hot standby — take over immediately on leader failure
+Two separate deployments with independent availability:
+
+**`synthetics-operator-webhook` (2–3 replicas, no leader election)**
+- Stateless — any replica handles any webhook call
+- Available continuously, including during operator leader transitions
+- Unavailability causes `kubectl apply` to fail; PodDisruptionBudget ensures at least one replica is always up
+
+**`synthetics-operator` (2–3 replicas, leader election)**
+- Only the leader runs the worker pool, reconcile loop, and `/ingest`
+- Non-leader replicas are hot standby — take over within ~5–10s on leader failure
+- During transition: in-operator probes pause briefly, CronJobs continue running on their existing schedules unaffected
 - Reconcile is idempotent — always diffs current vs desired state
 - Graceful shutdown on SIGTERM — in-flight probe runs complete before exit
 - Requeue with backoff on controller errors
@@ -637,6 +661,7 @@ No fsnotify (fragile with Secret volume mounts), no polling, no restart. The inf
 ### 4.8 Operator resource footprint
 
 ```yaml
+# synthetics-operator (per replica)
 resources:
   requests:
     cpu: 50m
@@ -644,11 +669,20 @@ resources:
   limits:
     cpu: 200m
     memory: 256Mi
+
+# synthetics-operator-webhook (per replica)
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 50m
+    memory: 64Mi
 ```
 
 ### 4.9 RBAC summary
 
-The operator requires a ClusterRole with the following permissions:
+**`synthetics-operator` ClusterRole:**
 
 | Resource | Verbs | Why |
 |----------|-------|-----|
@@ -659,6 +693,13 @@ The operator requires a ClusterRole with the following permissions:
 | `validatingwebhookconfigurations`, `mutatingwebhookconfigurations` | get, update, patch | Inject caBundle |
 | `leases` | get, create, update | Leader election |
 | `events` | create, patch | Emit Kubernetes events |
+
+**`synthetics-operator-webhook` ClusterRole:**
+
+| Resource | Verbs | Why |
+|----------|-------|-----|
+| `httpprobes`, `dnsprobes`, `playwrighttests`, `k6tests` | get, list, watch | Read CRD schemas for validation |
+| `secrets` | get, watch | Load webhook serving cert |
 
 Runner pod ServiceAccounts require no Kubernetes API write permissions. Authentication to the operator's ingest endpoint uses the pod's ServiceAccount token, verified via TokenReview. See section 4.4.
 
@@ -829,7 +870,7 @@ Full cluster, real Jobs running, real Playwright and k6 images. Slower but tests
 - `K6Test` runs, thresholds evaluated, summary parsed correctly
 - Sidecar retries on transient operator unavailability (simulate by scaling operator to zero briefly)
 - Cert rotation — force expiry, verify rotation happens, webhook continues working
-- HA — kill the leader replica, verify standby takes over and probes resume
+- HA — kill the operator leader, verify standby takes over and probes resume; verify webhook deployment remains available throughout
 - `runOnDeploy` — trigger a deployment, verify `K6Test` fires
 - Resource quota rejection — apply a tight ResourceQuota, verify operator records rejection metric and sets status condition
 
@@ -901,8 +942,8 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Result writer sidecar pattern | Job pods include a native sidecar (`results-writer`) that normalizes runner output and posts to `/ingest`. Main container stays completely stock (official Playwright/k6 images). Runner pods need no Kubernetes API write permissions. Requires Kubernetes 1.33+. |
 | Re-export k6 metrics | Curated k6 summary metrics re-exported by operator rather than forwarding full k6 Prometheus output. Keeps schema clean. |
 | depends field | One level deep only. Suppresses failure metrics when a dependency is unhealthy. No orchestration, no chaining — purely noise reduction. |
-| CRD webhooks | Validating and defaulting webhooks implemented for all CRDs. Immediate feedback at apply time rather than errors surfacing via status conditions. |
-| Self-managed certs | Operator generates and rotates its own self-signed CA and serving certs. No cert-manager dependency. Follows KEDA's approach — certs stored in a Secret, caBundle injected into webhook config, rotation runs as a leader-only goroutine. Reload via atomic pointer swap triggered by Secret informer watch. |
+| CRD webhooks | Validating and defaulting webhooks in a separate `synthetics-operator-webhook` deployment (2–3 replicas, no leader election). Stateless — keeps `kubectl apply` available during operator leader transitions. Same binary, `--webhook-only` flag. |
+| Self-managed certs | Operator leader generates and rotates self-signed CA + serving certs, stored in a Secret. Webhook replicas watch the Secret and hot-reload via atomic pointer swap. No cert-manager dependency. |
 | Grafana in repo | Dashboards and alert rules shipped in the repo, distributed via Helm ConfigMaps and grafana.com. Minimises time-to-value. |
 | Operator health metrics | Worker pool saturation, reconcile errors, CronJob failures, Job rejections, result ingestion, and cert expiry all exposed as Prometheus metrics. Queue depth is the key saturation signal. |
 | Custom metric labels | `spec.metricLabels` on all CRDs propagates to Prometheus metrics. Enables per-team alerting and dashboard filtering without separate namespaces. Deliberately separate from k8s metadata labels so observability labels can be managed independently and cardinality stays explicit. |
