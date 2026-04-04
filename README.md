@@ -2,9 +2,6 @@
 ### Architecture & Design Document
 *Kubernetes Operator for Unified Synthetic Monitoring — April 2026*
 
-> **Revision notes:** Changes from v1 marked with ⚡. See end of document for full changelog.
-
----
 
 ## 1. Overview
 
@@ -29,7 +26,7 @@ The project is deliberately opinionated: Playwright for browser tests, k6 for lo
 - Not a generic script runner — Playwright and k6 only
 - Not a SaaS product — fully in-cluster
 
-### 1.3 Why Prometheus, not OpenTelemetry ⚡
+### 1.3 Why Prometheus, not OpenTelemetry
 
 The operator exports to Prometheus exclusively. OTel is gaining traction but the Prometheus ecosystem (Alertmanager, Grafana, recording rules) is mature and ubiquitous in Kubernetes environments today. If demand materialises, an OTel exporter can be added alongside Prometheus without changing the internal metrics model. Not planned for initial release.
 
@@ -46,7 +43,7 @@ The operator defines four CRDs, split into two execution models: lightweight net
 | `PlaywrightTest` | CronJob (Playwright) | Scripted browser flows and multi-step journeys |
 | `K6Test` | CronJob (k6) | Load and performance testing |
 
-### 2.1 Shared fields ⚡
+### 2.1 Shared fields
 
 All CRDs support the following fields:
 
@@ -68,14 +65,14 @@ metadata:
 spec:
   interval: 30s
   timeout: 10s
-  suspend: false          # ⚡ pause without deleting
+  suspend: false          # pause without deleting
   request:
     url: https://my-service/health
     method: GET
     headers:
       Authorization: "Bearer ${SECRET_TOKEN}"
-    body: '{"ping": true}'          # ⚡ optional request body
-    tls:                             # ⚡ optional mTLS client certs
+    body: '{"ping": true}'          # optional request body
+    tls:                             # optional mTLS client certs
       clientCertSecret:
         name: mtls-client-cert
         certKey: tls.crt
@@ -116,14 +113,14 @@ metadata:
 spec:
   interval: 1m
   timeout: 5s
-  suspend: false          # ⚡
+  suspend: false          #
   hostname: my-service.com
   recordType: A   # A, AAAA, CNAME, MX, TXT, NS
   assertions:
     resolvedAddresses:
       contains: "1.2.3.4"
     responseTimeMs: 100
-    maxResolvedAddresses: 20   # ⚡ cardinality cap, see 3.4
+    maxResolvedAddresses: 20   # cardinality cap, see 3.4
   resolver: "8.8.8.8:53"   # optional
 ```
 
@@ -139,13 +136,13 @@ metadata:
 spec:
   interval: 5m
   timeout: 30s
-  suspend: false             # ⚡
+  suspend: false             #
   script:
     configMap:
       name: checkout-playwright-script
       key: script.js
   playwrightVersion: "1.42.0"
-  ttlAfterFinished: 1h       # ⚡ explicit, defaults to 1h if omitted
+  ttlAfterFinished: 1h       # explicit, defaults to 1h if omitted
   depends:
     - kind: HttpProbe
       name: auth-service
@@ -177,7 +174,7 @@ All four CRD types use `interval` (duration string). For PlaywrightTest and K6Te
 
 k6 scripts executed on an interval or triggered externally via CI. Supports distributed execution via parallelism — the operator automatically divides VUs across runner pods using k6 execution segments, users just set total VUs in the script. A `runner` block configures all pod-level concerns separately from test configuration.
 
-⚡ **`spec.thresholds` removed.** Thresholds are defined in the k6 script itself — that's the source of truth. Duplicating them in the CRD creates drift. The operator parses threshold results from k6 summary output. If thresholds need to be externally visible before running the test, read them from the script ConfigMap.
+Thresholds are defined in the k6 script itself — the script is the source of truth. The operator parses threshold pass/fail results from k6 summary output; there is no `spec.thresholds` field on the CRD.
 
 ```yaml
 apiVersion: synthetics.dev/v1alpha1
@@ -187,14 +184,14 @@ metadata:
 spec:
   interval: 2h              # optional, minimum 1m
   runOnDeploy: false        # trigger on new deployment
-  suspend: false            # ⚡
+  suspend: false            #
   parallelism: 4
   k6Version: "0.50.0"
   script:
     configMap:
       name: api-k6-script
       key: script.js
-  ttlAfterFinished: 1h      # ⚡ explicit default documented
+  ttlAfterFinished: 1h      # explicit default documented
 
   runner:
     env:
@@ -237,7 +234,7 @@ depends:
     name: api-dns
 ```
 
-### 2.7 CRD version graduation strategy ⚡
+### 2.7 CRD version graduation strategy
 
 Initial release as `v1alpha1`. Graduation path:
 
@@ -269,13 +266,13 @@ Plus any custom labels defined in `spec.metricLabels` — see section 3.8.
 | `synthetics_consecutive_failures` | gauge | Number of consecutive failures since last success |
 | `synthetics_last_run_timestamp` | gauge | Unix timestamp of last probe execution |
 | `synthetics_probe_suppressed` | gauge 0\|1 | Probe failed but suppressed due to unhealthy dependency |
-| `synthetics_probe_config_error` | gauge 0\|1 | ⚡ Probe is misconfigured (bad URL, unreachable resolver, invalid script). Distinct from execution failure. |
+| `synthetics_probe_config_error` | gauge 0\|1 | Probe is misconfigured (bad URL, unreachable resolver, invalid script). Distinct from execution failure. |
 
 ### 3.3 HttpProbe metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_probe_duration_ms` | gauge | ⚡ Pre-computed request latency percentiles with `quantile` label (p50, p95, p99). Gauge, not histogram — percentiles are computed in the operator from a sliding window, not by Prometheus. |
+| `synthetics_probe_duration_ms` | gauge | Pre-computed request latency percentiles with `quantile` label (p50, p95, p99). Gauge, not histogram — percentiles are computed in the operator from a sliding window, not by Prometheus. |
 | `synthetics_probe_status_code` | gauge | HTTP status code returned |
 | `synthetics_probe_assertion_passed` | gauge 0\|1 | Per-assertion result with assertion label |
 | `synthetics_ssl_expiry_days` | gauge | Days until SSL certificate expiry |
@@ -287,8 +284,8 @@ Plus any custom labels defined in `spec.metricLabels` — see section 3.8.
 |--------|------|-------------|
 | `synthetics_dns_success` | gauge 0\|1 | Whether DNS resolution succeeded |
 | `synthetics_dns_response_ms` | gauge | DNS response time in milliseconds |
-| `synthetics_dns_resolved_address` | gauge | ⚡ One series per resolved address (value always 1). **Capped at `maxResolvedAddresses` (default 20)** to prevent cardinality explosion with CDN hostnames that rotate IPs. If the response exceeds the cap, addresses are truncated and `synthetics_dns_resolved_truncated` is set to 1. |
-| `synthetics_dns_resolved_truncated` | gauge 0\|1 | ⚡ Set if resolved addresses exceeded the cap |
+| `synthetics_dns_resolved_address` | gauge | One series per resolved address (value always 1). **Capped at `maxResolvedAddresses` (default 20)** to prevent cardinality explosion with CDN hostnames that rotate IPs. If the response exceeds the cap, addresses are truncated and `synthetics_dns_resolved_truncated` is set to 1. |
+| `synthetics_dns_resolved_truncated` | gauge 0\|1 | Set if resolved addresses exceeded the cap |
 
 ### 3.5 PlaywrightTest metrics
 
@@ -335,7 +332,7 @@ The operator exposes its own health metrics alongside probe metrics, giving visi
 |--------|------|-------------|
 | `synthetics_operator_reconcile_total` | counter | Reconcile attempts with `kind` and `result` (success\|error\|requeue) labels |
 | `synthetics_operator_reconcile_duration_ms` | histogram | Reconcile duration per `kind` |
-| `synthetics_operator_cronjob_rejected_total` | counter | ⚡ Jobs rejected by the API server (resource quota, LimitRange, admission webhook). Surfaces cluster policy conflicts. |
+| `synthetics_operator_cronjob_rejected_total` | counter | Jobs rejected by the API server (resource quota, LimitRange, admission webhook). Surfaces cluster policy conflicts. |
 
 **CronJob lifecycle**
 
@@ -348,8 +345,8 @@ The operator exposes its own health metrics alongside probe metrics, giving visi
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_operator_results_received_total` | counter | ⚡ Result ConfigMaps processed per `kind` |
-| `synthetics_operator_results_parse_failed_total` | counter | ⚡ Result ConfigMaps received but failed to parse per `kind` |
+| `synthetics_operator_results_received_total` | counter | Result ConfigMaps processed per `kind` |
+| `synthetics_operator_results_parse_failed_total` | counter | Result ConfigMaps received but failed to parse per `kind` |
 
 **Certificate**
 
@@ -448,16 +445,11 @@ _Layer 2 — pre-flight check (add if users hit this in practice)._ On reconcile
 
 A troubleshooting section in the docs covers the common case: "if your K6Test never runs, check `kubectl describe k6test <name>` and look for `Ready=False` with `reason: JobCreationFailed`. Verify `runner.resources` fits within namespace quotas."
 
-### 4.4 Result ingestion via owned ConfigMaps ⚡
+### 4.4 Result ingestion via owned ConfigMaps
 
-**⚡ Redesigned.** CronJob pods write normalized result summaries to per-run ConfigMaps. The operator watches Jobs and those owned ConfigMaps, then projects the latest state into the parent CR's `.status` and Prometheus metrics. The controller remains the sole writer of CR status.
+CronJob pods write normalized result summaries to per-run ConfigMaps. The operator watches Jobs and those owned ConfigMaps, then projects the latest state into the parent CR's `.status` and Prometheus metrics. The controller is the sole writer of CR status.
 
-**Why owned ConfigMaps:**
-
-- Preserves the normal operator contract: workloads produce artifacts, controllers own parent `.status`.
-- Eliminates the unusual requirement for runner pods to patch CRD status subresources.
-- Keeps the transport Kubernetes-native and debuggable with standard tooling: `kubectl get jobs,pods,configmaps`.
-- Avoids the bespoke HTTP callback service and token auth system from v1, while staying compatible with GitOps and status-driven tooling.
+This preserves the standard operator contract — workloads produce artifacts, controllers own parent `.status` — and keeps the transport layer debuggable with standard tooling: `kubectl get jobs,pods,configmaps`.
 
 **Result object model:**
 
@@ -590,7 +582,7 @@ This is the user-facing source of truth for `kubectl get/describe`. Prometheus m
 - If the result writer fails after results are produced but before persisting them, the Job still shows failed or incomplete ingestion and the operator surfaces that via status conditions and `synthetics_operator_results_parse_failed_total` / failed-run metrics.
 - If the API server is transiently unavailable, the writer retries ConfigMap creation/update with exponential backoff. This affects only the per-run artifact, not CR status ownership.
 
-**RBAC for result writer ServiceAccount:** ⚡
+**RBAC for result writer ServiceAccount:**
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -634,7 +626,7 @@ func (h *HttpProbe) Default() {
 
 func (k *K6Test) Default() {
     if k.Spec.TTLAfterFinished == 0 {
-        k.Spec.TTLAfterFinished = 1 * time.Hour  // ⚡ prevent pod accumulation
+        k.Spec.TTLAfterFinished = 1 * time.Hour  // prevent pod accumulation
     }
 }
 ```
@@ -729,7 +721,7 @@ resources:
     memory: 256Mi
 ```
 
-### 4.9 RBAC summary ⚡
+### 4.9 RBAC summary
 
 The operator requires a ClusterRole with the following permissions:
 
@@ -796,10 +788,10 @@ Egress is not restricted — the operator needs to reach the Kubernetes API serv
     scheduler.go                # Shared in-operator scheduling + worker pool
     metrics.go                  # Shared Prometheus registry
     runner.go                   # Shared Job lifecycle management
-    resultstore.go              # ⚡ Result ConfigMap naming, parsing, and watch logic
+    resultstore.go              # Result ConfigMap naming, parsing, and watch logic
     certmanager.go              # Cert generation, rotation, reload
 /images
-  /results-writer               # ⚡ Small result writer image (wrapper or sidecar)
+  /results-writer               # Small result writer image (wrapper or sidecar)
 /charts
   /synthetics-operator          # Helm chart for the operator
 /dashboards
@@ -813,8 +805,6 @@ Egress is not restricted — the operator needs to reach the Kubernetes API serv
     rules.yaml                  # Recording rules + default alert rules
 /examples                       # Sample CRDs for each type
 ```
-
-⚡ Removed: `results.go` (HTTP result ingestion server). Replaced by owned result ConfigMaps + controller status projection.
 
 ---
 
@@ -862,7 +852,7 @@ groups:
         labels:
           severity: warning
 
-      - alert: ProbeConfigError           # ⚡
+      - alert: ProbeConfigError           #
         expr: synthetics_probe_config_error == 1
         for: 5m
         labels:
@@ -884,7 +874,7 @@ Pure Go, no cluster needed. Fast, run on every PR.
 - Probe result parsing (k6 summary JSON, Playwright output)
 - Metric recording logic
 - Webhook validation and defaulting functions — these are just Go functions, trivially testable
-- ⚡ Result ConfigMap naming, normalized payload generation, and controller-side status projection
+- Result ConfigMap naming, normalized payload generation, and controller-side status projection
 
 ### 7.2 Controller tests with envtest
 
@@ -893,16 +883,16 @@ envtest ships with controller-runtime and spins up a real API server and etcd lo
 What to cover:
 
 - Reconcile creates the correct CronJob from a `K6Test` or `PlaywrightTest` spec
-- ⚡ CronJob pods include result writer wiring with correct RBAC and result artifact naming
+- CronJob pods include result writer wiring with correct RBAC and result artifact naming
 - Updating a probe interval updates the CronJob schedule
 - Deleting a probe cleans up owned resources
 - `depends` suppression — create two probes, mark one unhealthy, verify the other is suppressed in metrics
-- ⚡ Result ConfigMap ingestion triggers CRD status update and metric emission
+- Result ConfigMap ingestion triggers CRD status update and metric emission
 - Status conditions updated correctly after reconcile
 - Webhook validation rejects invalid specs
 - Webhook defaulting fills missing fields
-- ⚡ `suspend: true` pauses in-operator probes and sets CronJob `suspend`
-- ⚡ `ttlAfterFinished` defaults applied by webhook
+- `suspend: true` pauses in-operator probes and sets CronJob `suspend`
+- `ttlAfterFinished` defaults applied by webhook
 
 Covers ~80% of operator behaviour, runs in CI in under a minute.
 
@@ -912,11 +902,11 @@ Full cluster, real Jobs running, real Playwright and k6 images. Slower but tests
 
 - `PlaywrightTest` CronJob runs, script executes, result ConfigMap is written, CRD status updates, metrics appear on `/metrics`
 - `K6Test` runs, thresholds evaluated, summary parsed correctly
-- ⚡ Result writer retries on transient API server error (simulate with network policy)
+- Result writer retries on transient API server error (simulate with network policy)
 - Cert rotation — force expiry, verify rotation happens, webhook continues working
 - HA — kill the leader replica, verify standby takes over and probes resume
 - `runOnDeploy` — trigger a deployment, verify `K6Test` fires
-- ⚡ Resource quota rejection — apply a tight ResourceQuota, verify operator records rejection metric and sets status condition
+- Resource quota rejection — apply a tight ResourceQuota, verify operator records rejection metric and sets status condition
 
 Run on merge to main, not every PR.
 
@@ -929,7 +919,7 @@ Installs the operator via Helm against a real cluster (kind in CI or staging), a
 Run nightly, not on every PR. Spin up 500+ HttpProbes and verify:
 
 - Even distribution is working correctly across the worker pool
-- ⚡ Even distribution handles rapid add/remove churn without degrading
+- Even distribution handles rapid add/remove churn without degrading
 - Worker pool is not exhausted
 - Operator memory stays within the defined footprint
 
@@ -975,28 +965,28 @@ No special Kubernetes version floor is introduced by result ingestion anymore. S
 | 4 CRDs, 2 prefixed | `HttpProbe` and `DnsProbe` are protocol-based and stay unprefixed. `PlaywrightTest` and `K6Test` are tool-coupled and prefixed explicitly — leaves room for alternatives like `GatlingTest` later. |
 | runner block on K6Test + PlaywrightTest | Pod-level config (env, envFrom, resources, affinity) isolated in a `runner` block, mirroring the k6 operator pattern. Separates test configuration from infrastructure configuration. `envFrom` supports bulk-loading from Secrets and ConfigMaps. |
 | Automatic VU distribution | K6Test operator divides total VUs by parallelism using k6 execution segments automatically. Users set total VUs in the script, not per-pod VUs. |
-| ⚡ Thresholds in script only | k6 thresholds defined in the script, not duplicated in the CRD. Avoids drift between two sources of truth. Operator parses threshold results from k6 summary output. |
+| Thresholds in script only | k6 thresholds defined in the script, not duplicated in the CRD. Avoids drift between two sources of truth. Operator parses threshold results from k6 summary output. |
 | No alerting in operator | Operator emits metrics only. Users own Alertmanager rules. Avoids duplicating alerting infrastructure and keeps operator scope focused. |
 | In-operator scheduling | HttpProbe and DnsProbe run as goroutines inside the operator. Sub-minute intervals required; pod-per-run would be wasteful. |
 | CronJobs for scripts | PlaywrightTest and K6Test need isolated runtimes and run at minute-or-longer intervals. CronJobs are the natural fit. |
 | Even distribution over jitter | Probes distributed deterministically using a gap-filling algorithm. Jitter is random and can still cluster; even distribution is guaranteed. |
 | Worker pool | Shared pool (default 50 workers) across all in-operator probes. Bounds concurrency, prevents goroutine explosion at scale. |
-| ⚡ Controller-owned status projection | CronJob pods write normalized per-run result summaries to owned ConfigMaps. The operator watches those artifacts plus Job state, then updates CR status and Prometheus metrics. Preserves the standard operator contract: controller owns status. |
-| ⚡ Result writer artifact pattern | Job pods include a small result writer (wrapper or sidecar) that only persists the run's ConfigMap artifact. Main container stays generic, and no runner pod needs permission to patch CRDs. |
+| Controller-owned status projection | CronJob pods write normalized per-run result summaries to owned ConfigMaps. The operator watches those artifacts plus Job state, then updates CR status and Prometheus metrics. Preserves the standard operator contract: controller owns status. |
+| Result writer artifact pattern | Job pods include a small result writer (wrapper or sidecar) that only persists the run's ConfigMap artifact. Main container stays generic, and no runner pod needs permission to patch CRDs. |
 | Re-export k6 metrics | Curated k6 summary metrics re-exported by operator rather than forwarding full k6 Prometheus output. Keeps schema clean. |
 | depends field | One level deep only. Suppresses failure metrics when a dependency is unhealthy. No orchestration, no chaining — purely noise reduction. |
 | CRD webhooks | Validating and defaulting webhooks implemented for all CRDs. Immediate feedback at apply time rather than errors surfacing via status conditions. |
-| Self-managed certs | Operator generates and rotates its own self-signed CA and serving certs. No cert-manager dependency. Follows KEDA's approach — certs stored in a Secret, caBundle injected into webhook config, rotation runs as a leader-only goroutine. ⚡ Reload via atomic pointer swap triggered by Secret informer watch. |
+| Self-managed certs | Operator generates and rotates its own self-signed CA and serving certs. No cert-manager dependency. Follows KEDA's approach — certs stored in a Secret, caBundle injected into webhook config, rotation runs as a leader-only goroutine. Reload via atomic pointer swap triggered by Secret informer watch. |
 | Grafana in repo | Dashboards and alert rules shipped in the repo, distributed via Helm ConfigMaps and grafana.com. Minimises time-to-value. |
-| Operator health metrics | Worker pool saturation, reconcile errors, CronJob failures, ⚡ Job rejections, result ingestion, and cert expiry all exposed as Prometheus metrics. Queue depth is the key saturation signal. |
+| Operator health metrics | Worker pool saturation, reconcile errors, CronJob failures, Job rejections, result ingestion, and cert expiry all exposed as Prometheus metrics. Queue depth is the key saturation signal. |
 | Custom metric labels | `spec.metricLabels` on all CRDs propagates to Prometheus metrics. Enables per-team alerting and dashboard filtering without separate namespaces. Deliberately separate from k8s metadata labels so observability labels can be managed independently and cardinality stays explicit. |
-| ⚡ suspend field | All CRDs support `spec.suspend` to pause probes without deletion. In-operator probes are unscheduled; CronJobs set `suspend: true`. |
+| suspend field | All CRDs support `spec.suspend` to pause probes without deletion. In-operator probes are unscheduled; CronJobs set `suspend: true`. |
 | Consistent interval syntax | All four CRDs use `interval` (duration string). For CronJob-backed probes the operator converts the interval to a CronJob schedule with a per-probe offset for even distribution. Sub-minute intervals (e.g. `10s`) only supported by HttpProbe and DnsProbe; minimum for PlaywrightTest and K6Test is `1m`. |
-| ⚡ Prometheus, not OTel | Prometheus-only export. OTel exporter can be added later without internal changes. Not planned for initial release. |
-| Testing layers | Unit tests for pure logic, envtest for controller/webhook behaviour, kind for full end-to-end. envtest covers ~80% of operator behaviour without needing a full cluster. ⚡ Scale tests include churn scenarios. |
+| Prometheus, not OTel | Prometheus-only export. OTel exporter can be added later without internal changes. Not planned for initial release. |
+| Testing layers | Unit tests for pure logic, envtest for controller/webhook behaviour, kind for full end-to-end. envtest covers ~80% of operator behaviour without needing a full cluster. Scale tests include churn scenarios. |
 | CI cadence | Unit + envtest on every PR (fast). kind integration + Helm e2e on merge to main. Scale tests and multi-version matrix nightly. |
-| Multi-version testing | Nightly suite runs against four most recent k8s minor versions. Support policy is derived from actual CI coverage, not from a native-sidecar requirement. |
-| ⚡ CRD graduation | `v1alpha1` initially. Graduation to `v1beta1` and `v1` driven by schema stability and adoption, with conversion webhooks at each transition. |
+| Multi-version testing | Nightly suite runs against the four most recent k8s minor versions. Support policy is derived from actual CI coverage. |
+| CRD graduation | `v1alpha1` initially. Graduation to `v1beta1` and `v1` driven by schema stability and adoption, with conversion webhooks at each transition. |
 | Idiomatic status schema | All CRDs expose `observedGeneration`, two stable condition types (`Ready`, `Suspended`), first-class `lastRunTime`/`lastSuccessTime`/`lastFailureTime`/`consecutiveFailures`, and a normalized `summary` block. Job rejection surfaces as `Ready=False` with `reason: JobCreationFailed` — a reason, not a separate condition type. Status is a clean operator-owned API; the run artifact (ConfigMap) is the transport layer. |
 | NetworkPolicy (opt-in) | Helm chart ships an opt-in NetworkPolicy restricting operator pod inbound to `:8080` from the monitoring namespace. Egress unrestricted. Disabled by default — not every cluster has an enforcing CNI. |
 | Cert reload via atomic pointer | Webhook `tls.Config` uses `GetCertificate` reading from `atomic.Pointer[tls.Certificate]`. Leader rotates and writes Secret; all replicas reload via Secret informer `OnUpdate`. No fsnotify, no polling, no restart. Startup re-injects `caBundle` if it diverges from Secret CA (self-heals after crashed rotation). |
@@ -1091,7 +1081,7 @@ Script runners depend on operator availability for reconciliation — if the ope
 - kind integration tests for full Job lifecycle (including result artifact persistence)
 - envtest for CronJob reconciliation
 
-**Usable because:** teams can replace CI-triggered k6 scripts with a fully in-cluster, declarative load testing setup. The primary use case (memory regression detection) is now fully covered.
+**Usable because:** teams can replace CI-triggered k6 scripts with a fully in-cluster, declarative load testing setup.
 
 ---
 
@@ -1137,39 +1127,3 @@ Script runners depend on operator availability for reconciliation — if the ope
 
 **Usable because:** project is now a first-class open source operator rather than an internal tool. Community adoption becomes viable.
 
----
-
-## Changelog from v1 ⚡
-
-**Architecture changes:**
-- **Result ingestion redesigned.** Replaced HTTP POST to internal operator endpoint with owned result ConfigMaps plus controller-owned status projection. Eliminates port 8081, results HTTP server, and auth token system without requiring runner pods to patch CRD status. See §4.4.
-- **Cert reload mechanism specified.** Atomic pointer swap triggered by Secret informer watch. See §4.6.
-
-**CRD changes:**
-- **`spec.suspend` added** to all CRDs for maintenance windows. See §2.1.
-- **`spec.request.body` and `spec.request.tls` added** to HttpProbe for POST bodies and mTLS. See §2.2.
-- **K6Test `schedule` → `interval`** for consistency with all other CRDs. Operator converts interval to CronJob schedule with even distribution offset. Minimum `1m`. See §2.5.
-- **PlaywrightTest reverted to `interval`** (was `schedule` in v1). Same even distribution behaviour as K6Test. See §2.4.
-- **K6Test `spec.thresholds` removed.** Single source of truth is the k6 script. See §2.5.
-- **`ttlAfterFinished` default (1h)** enforced by defaulting webhook. See §2.5.
-- **`maxResolvedAddresses` added** to DnsProbe to cap cardinality. See §2.3.
-- **CRD graduation strategy** documented (v1alpha1 → v1beta1 → v1). See §2.7.
-
-**Metrics changes:**
-- **`synthetics_probe_config_error`** added for misconfigured probes. See §3.2.
-- **`synthetics_probe_duration_ms` clarified** as pre-computed gauge with quantile label, not histogram. See §3.3.
-- **`synthetics_dns_resolved_truncated`** added for cardinality cap visibility. See §3.4.
-- **`synthetics_operator_cronjob_rejected_total`** added for Job rejection by API server. See §3.7.
-- **Result ingestion metrics updated** to reflect owned result ConfigMap processing instead of HTTP POST. See §3.7.
-
-**Phase changes:**
-- **Phase ordering revised.** HA (Phase 4) ships before K6Test (Phase 5) and PlaywrightTest (Phase 6). Webhooks included from Phase 1. Phase 2 (Full HttpProbe) and Phase 3 (DnsProbe + Observability) unbundled. Total phases: 8. See §9.
-
-**Operational changes:**
-- **RBAC summary added** for operator ClusterRole and result writer Role. See §4.9.
-- **NetworkPolicy added** as opt-in Helm value (`networkPolicy.enabled`, default false). Restricts operator pod inbound to `:8080` from monitoring namespace. See §4.10.
-- **Status schema formalised.** All CRDs now expose `observedGeneration`, stable `Ready`/`Suspended` conditions with documented reasons, first-class `lastRunTime`/`lastSuccessTime`/`lastFailureTime`/`consecutiveFailures`, and a normalized `summary` block. `status` is a clean operator-owned API; the per-run ConfigMap is the transport layer. See §4.4.
-- **Job rejection surfacing added.** Surfaces as `Ready=False` with `reason: JobCreationFailed` (a reason, not a separate condition type), `synthetics_operator_cronjob_rejected_total` metric, and a Kubernetes Event. Pre-flight quota check noted as follow-on. See §4.3.
-- **Cert reload mechanism fully specified.** `GetCertificate` + `atomic.Pointer`, Secret informer reload, caBundle divergence check on startup. See §4.6.
-- **Multi-version support policy clarified.** Support should be derived from nightly CI coverage across recent Kubernetes minors, not from the removed native-sidecar requirement. See §7.7.
-- **OpenTelemetry position documented.** Prometheus-only, OTel exporter deferred. See §1.3.
