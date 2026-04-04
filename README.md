@@ -26,7 +26,20 @@ The project is deliberately opinionated: Playwright for browser tests, k6 for lo
 - Not a generic script runner — Playwright and k6 only
 - Not a SaaS product — fully in-cluster
 
-### 1.3 Why OTel, exposed as Prometheus
+### 1.3 Why NATS
+
+CronJob pods are ephemeral and external to the operator process. When a Playwright or k6 test finishes, its result has to go somewhere — that somewhere must be a shared, stateful component reachable from inside an arbitrary pod. This is an unavoidable architectural constraint, not a choice.
+
+The alternatives all have the same problem in different forms:
+
+- **Kubernetes API (ConfigMaps)** — makes the API server the data plane. Every run creates a ConfigMap, triggers a watch event, and requires a reconcile + status patch. The scaling ceiling is the API server reconcile throughput, not the number of probes.
+- **HTTP endpoint on the operator** — the operator becomes the shared stateful component. A single replica is a bottleneck and availability risk; multiple replicas require coordinating who owns the metrics state.
+
+Given a shared stateful component is required, NATS is the right choice. It is purpose-built for exactly this — lightweight message routing between processes — and it keeps every other component stateless and independently scalable. The `results-writer` sidecar publishes and disconnects. Probe workers consume and scale freely. The metrics consumer reads the stream without any knowledge of who wrote to it.
+
+NATS ships as a single ~20MB binary with ~32Mi idle memory footprint. It is not a heavy dependency. With JetStream disabled (the default), it adds no persistence requirements. With JetStream enabled, it gains durability and the ability to buffer results across restarts — controlled entirely by Helm values.
+
+### 1.4 Why OTel, exposed as Prometheus
 
 The operator uses the OpenTelemetry Go SDK for all internal instrumentation and exports via the OTel Prometheus exporter on `/metrics`. This keeps the external interface compatible with the Prometheus ecosystem (Alertmanager, Grafana, recording rules, existing k8s monitoring stacks) while using OTel as the instrumentation layer. No OTel collector is required — the operator's `/metrics` endpoint is scraped directly by whatever Prometheus is already in the cluster.
 
@@ -1014,6 +1027,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | In-operator scheduling | HttpProbe and DnsProbe run as goroutines inside the operator. Sub-minute intervals required; pod-per-run would be wasteful. |
 | CronJobs for scripts | PlaywrightTest and K6Test need isolated runtimes and run at minute-or-longer intervals. CronJobs are the natural fit. |
 | Even distribution over jitter | Probes distributed deterministically using a gap-filling algorithm. Jitter is random and can still cluster; even distribution is guaranteed. |
+| NATS as the shared stateful component | CronJob results must go somewhere external to the operator process — a shared stateful component is unavoidable. NATS is the minimal right answer: purpose-built for message routing, ~32Mi idle, no persistence required by default, and keeps every other component stateless. ConfigMaps and an HTTP ingest endpoint were considered; both make either the API server or the operator a scaling bottleneck. See section 1.3. |
 | NATS work queue for probe scheduling | Controller publishes jobs to a NATS work queue; probe workers compete to consume. Workers are stateless — scale by adding replicas, no resharding. Controller restart causes a brief scheduling gap; workers drain existing jobs normally. |
 | NATS result stream | All results (probe workers + CronJob sidecars) flow through a single NATS result stream. Decouples writers from the metrics consumer. With JetStream enabled, results are buffered across restarts. |
 | Result writer sidecar pattern | Job pods include a native sidecar (`results-writer`) that normalizes runner output and publishes to NATS. Main container stays completely stock (official Playwright/k6 images). Runner pods need no Kubernetes API write permissions. Requires Kubernetes 1.33+. |
