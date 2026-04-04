@@ -180,7 +180,7 @@ spec:
         cpu: 500m
 ```
 
-All four CRD types use `interval` (duration string). For PlaywrightTest and K6Test, the operator converts the interval to a CronJob schedule string and applies a per-probe offset using the same gap-filling even distribution algorithm used for in-operator probes. This prevents clustering when multiple tests share the same interval. Minimum interval for CronJob-backed probes is `1m` (cron resolution limit); sub-minute intervals are only supported by HttpProbe and DnsProbe.
+All four CRD types use `interval` (duration string). For PlaywrightTest and K6Test, the operator converts the interval to a CronJob schedule string and applies a per-probe minute offset using `probeOffset()` — preventing clustering when multiple tests share the same interval. Minimum interval for CronJob-backed probes is `1m` (cron resolution limit); sub-minute intervals are only supported by HttpProbe and DnsProbe.
 
 ### 2.5 K6Test
 
@@ -432,9 +432,23 @@ NATS result stream  → metrics-consumer → /metrics
 
 The controller publishes a job to the NATS work queue at the scheduled time for each HttpProbe and DnsProbe. Probe workers compete to consume jobs — NATS delivers each job to exactly one worker. On ACK, the message is removed. On worker crash, NATS redelivers after a timeout.
 
-Rather than jitter (which is random and can still cluster), jobs are published using the same gap-filling even distribution algorithm — the controller staggers publish times deterministically across each interval.
+Rather than jitter (which is random and can still cluster), each probe's publish time is derived deterministically from a hash of its `namespace/name`:
 
-> **Example:** 6 probes on a 30s interval have jobs published at 0s, 5s, 10s, 15s, 20s, 25s — guaranteed even spread with no clustering.
+```go
+func probeOffset(namespace, name string, interval time.Duration) time.Duration {
+    h := fnv.New64a()
+    h.Write([]byte(namespace + "/" + name))
+    return time.Duration(h.Sum64() % uint64(interval))
+}
+```
+
+This gives each probe a stable offset within its interval that is independent of all other probes. Adding or removing a probe does not affect any other probe's schedule, and the operator restarting produces identical offsets — no stored state required.
+
+Probes with different intervals are bucketed independently. A 10s probe and a 30s probe cannot be distributed relative to each other and are not.
+
+Distribution quality: for N probes uniformly hashed across an interval, the expected maximum gap is approximately `interval × ln(N) / N`. At 100 probes on a 30s interval that is ~10ms — negligible. At 10 probes it is ~70ms — still fine for any realistic probe interval.
+
+> **Why not midpoint insertion?** Inserting each probe at the midpoint of the largest existing gap requires maintaining sorted global state and breaks on operator restart unless the assignment is persisted. It also clusters badly when probes are removed, leaving gaps that only partially fill when new probes arrive. Hash-based offsets are simpler, stateless, and stable.
 
 Workers are stateless — a plain Deployment. Scale by adding replicas; NATS distributes work automatically. No sharding, no StatefulSet, no rebalancing on scale changes.
 
@@ -442,7 +456,7 @@ If the controller restarts, no jobs are published during the gap (~5–10s). In-
 
 ### 4.3 CronJob management (PlaywrightTest + K6Test)
 
-The operator reconciles PlaywrightTest and K6Test CRDs into Kubernetes CronJobs. `spec.interval` is converted to a CronJob schedule string with a per-probe offset derived from the gap-filling even distribution algorithm — preventing clustering when many tests share the same interval. Key invariants:
+The operator reconciles PlaywrightTest and K6Test CRDs into Kubernetes CronJobs. `spec.interval` is converted to a CronJob schedule string with a per-probe offset derived from `probeOffset()` — preventing clustering when many tests share the same interval. Since cron has 1-minute resolution, the offset is `probeOffset() % interval_in_minutes`, giving a stable minute-level slot within the interval window. Key invariants:
 
 - Never run two Jobs concurrently for the same probe — controller checks for existing running Jobs before creating a new one
 - `ttlAfterFinished` defaults to 1h if omitted — enforced by the defaulting webhook to prevent pod accumulation
@@ -971,7 +985,7 @@ Testing an operator has unique challenges — the reconcile loop, CRD lifecycle,
 Pure Go, no cluster needed. Fast, run on every PR.
 
 - Cert generation and rotation logic
-- Gap-filling even distribution algorithm
+- Hash-based probe offset algorithm (`FNV64(namespace/name) % interval`)
 - Probe result parsing (k6 summary JSON, Playwright output)
 - Metric recording logic
 - Webhook validation and defaulting functions — these are just Go functions, trivially testable
@@ -1019,8 +1033,8 @@ Installs the operator via Helm against a real cluster (kind in CI or staging), a
 
 Run nightly, not on every PR. Spin up 500+ HttpProbes and verify:
 
-- Even distribution is working correctly across the worker pool
-- Even distribution handles rapid add/remove churn without degrading
+- Hash-based offsets are stable under rapid add/remove churn — existing probe schedules do not shift
+- Distribution quality stays acceptable (max gap ≤ 3× expected gap) at 500+ probes
 - Worker pool is not exhausted
 - Operator memory stays within the defined footprint
 
@@ -1071,7 +1085,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Assertions are stateless | CRD spec assertions (`status`, `latency.maxMs`, `body`, `resolvedAddresses`) evaluate the current run only — no sliding windows, no history, no aggregation. Anything that requires multiple results over time (p95 latency, consecutive failure rate) belongs in Alertmanager rules against the emitted metrics, not in the CRD schema. |
 | In-operator scheduling | HttpProbe and DnsProbe run as goroutines inside the operator. Sub-minute intervals required; pod-per-run would be wasteful. |
 | CronJobs for scripts | PlaywrightTest and K6Test need isolated runtimes and run at minute-or-longer intervals. CronJobs are the natural fit. |
-| Even distribution over jitter | Probes distributed deterministically using a gap-filling algorithm. Jitter is random and can still cluster; even distribution is guaranteed. |
+| Hash-based probe offset | Each probe's schedule offset is `FNV64(namespace/name) % interval`. Deterministic across restarts, independent per probe — adding or removing a probe does not affect any other. No global state. Jitter was rejected: random offsets can still cluster and change on restart. Midpoint insertion was rejected: requires sorted global state, breaks on restart without persistence, and degrades badly when probes are removed. |
 | NATS as the shared stateful component | CronJob results must go somewhere external to the operator process — a shared stateful component is unavoidable. NATS is the minimal right answer: purpose-built for message routing, ~32Mi idle, no persistence required by default, and keeps every other component stateless. ConfigMaps and an HTTP ingest endpoint were considered; both make either the API server or the operator a scaling bottleneck. See section 1.3. |
 | NATS work queue for probe scheduling | Controller publishes jobs to a NATS work queue; probe workers compete to consume. Workers are stateless — scale by adding replicas, no resharding. Controller restart causes a brief scheduling gap; workers drain existing jobs normally. |
 | NATS result stream | All results (probe workers + CronJob sidecars) flow through a single NATS result stream. Decouples writers from the metrics consumer. With JetStream enabled, results are buffered across restarts. |
