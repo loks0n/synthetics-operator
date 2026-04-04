@@ -3,6 +3,8 @@
 package v1alpha1
 
 import (
+	"maps"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -12,9 +14,7 @@ func (in *HTTPRequestSpec) DeepCopyInto(out *HTTPRequestSpec) {
 	if in.Headers != nil {
 		in, out := &in.Headers, &out.Headers
 		*out = make(map[string]string, len(*in))
-		for key, val := range *in {
-			(*out)[key] = val
-		}
+		maps.Copy(*out, *in)
 	}
 }
 

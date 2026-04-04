@@ -3,6 +3,7 @@ package webhookcerts
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"slices"
 	"testing"
 	"time"
 
@@ -28,14 +29,7 @@ func TestGenerateBundleProducesServiceDNSNames(t *testing.T) {
 	}
 
 	want := "synthetics-operator-webhook-service.default.svc"
-	found := false
-	for _, dnsName := range cert.DNSNames {
-		if dnsName == want {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(cert.DNSNames, want) {
 		t.Fatalf("expected DNS SAN %q, got %v", want, cert.DNSNames)
 	}
 }

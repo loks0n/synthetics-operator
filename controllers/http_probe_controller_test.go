@@ -56,8 +56,7 @@ func TestHttpProbeReconcileRegistersProbe(t *testing.T) {
 		t.Fatalf("create store: %v", err)
 	}
 	scheduler := internalprobes.NewScheduler(logr.Discard(), internalprobes.NewWorkerPool(logr.Discard(), 1, internalprobes.HTTPExecutor{}, store, k8sClient))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = scheduler.Start(ctx) }()
 
 	reconciler := &HttpProbeReconciler{

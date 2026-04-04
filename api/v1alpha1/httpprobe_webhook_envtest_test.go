@@ -1,7 +1,6 @@
 package v1alpha1
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,8 +68,7 @@ func TestHttpProbeWebhookRejectsInvalidMethod(t *testing.T) {
 		t.Fatalf("setup webhook: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() {
 		_ = mgr.Start(ctx)
 	}()

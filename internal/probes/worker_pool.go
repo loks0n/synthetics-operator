@@ -115,11 +115,8 @@ func NewWorkerPool(logger logr.Logger, concurrency int, executor Executor, metri
 
 func (p *WorkerPool) Start(ctx context.Context) error {
 	p.once.Do(func() {
-		workers := cap(p.queue) / 16
-		if workers < 1 {
-			workers = 1
-		}
-		for i := 0; i < workers; i++ {
+		workers := max(1, cap(p.queue)/16)
+		for range workers {
 			go p.worker(ctx)
 		}
 	})
