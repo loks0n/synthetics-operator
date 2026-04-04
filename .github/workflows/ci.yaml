@@ -14,9 +14,9 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.1
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6.0.0
         with:
           go-version-file: go.mod
 
@@ -36,9 +36,9 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.1
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v4.3.1
 
       - name: Lint chart
         run: helm lint charts/synthetics-operator
@@ -50,23 +50,23 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.1
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6.0.0
         with:
           go-version-file: go.mod
 
       - name: Install managed tools
         run: make tools
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v4.3.1
 
       - name: Build image with ko
         run: |
           IMAGE=$$(make -s ko-build-local)
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
-      - uses: helm/kind-action@v1.12.0
+      - uses: helm/kind-action@v1.13.0
         with:
           cluster_name: synthetics
           node_image: kindest/node:v1.33.0
@@ -165,23 +165,23 @@ jobs:
           - kindest/node:v1.33.0
           - kindest/node:v1.34.0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.1
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6.0.0
         with:
           go-version-file: go.mod
 
       - name: Install managed tools
         run: make tools
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v4.3.1
 
       - name: Build image with ko
         run: |
           IMAGE=$$(make -s ko-build-local)
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
-      - uses: helm/kind-action@v1.12.0
+      - uses: helm/kind-action@v1.13.0
         with:
           cluster_name: synthetics
           node_image: ${{ matrix.node_image }}
