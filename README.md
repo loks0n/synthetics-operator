@@ -195,7 +195,7 @@ metadata:
   name: api-load
 spec:
   interval: 2h              # optional, minimum 1m
-  runOnDeploy: false        # trigger on new deployment
+
   suspend: false            #
   parallelism: 4
   k6Version: "0.50.0"
@@ -961,7 +961,7 @@ Full cluster, real Jobs running, real Playwright and k6 images. Slower but tests
 - Sidecar retries on transient operator unavailability (simulate by scaling operator to zero briefly)
 - Cert rotation — force expiry, verify rotation happens, webhook continues working
 - Operator restart — kill the operator pod, verify it recovers and probes resume; verify webhook deployment remains available throughout
-- `runOnDeploy` — trigger a deployment, verify `K6Test` fires
+
 - Resource quota rejection — apply a tight ResourceQuota, verify operator records rejection metric and sets status condition
 
 Run on merge to main, not every PR.
@@ -1177,18 +1177,7 @@ In-process probe workers continue to update OTel instruments directly. NATS work
 
 ---
 
-### Phase 10 — K6Test `runOnDeploy`
-
-**Deliverable:** Trigger a k6 load test automatically when a new Deployment rolls out.
-
-- `spec.runOnDeploy` on K6Test — watches target Deployment and fires a one-off Job on rollout
-- kind integration tests for trigger behaviour
-
-**Usable because:** load tests that only run on a schedule miss regressions introduced by a specific deploy. `runOnDeploy` catches them at the point of change.
-
----
-
-### Phase 11 — PlaywrightTest
+### Phase 10 — PlaywrightTest
 
 **Deliverable:** Playwright browser tests defined as CRDs and run on a schedule.
 
@@ -1203,7 +1192,7 @@ In-process probe workers continue to update OTel instruments directly. NATS work
 
 ---
 
-### Phase 12 — `depends` field
+### Phase 11 — `depends` field
 
 **Deliverable:** Suppress failure alerts for probes whose dependencies are already unhealthy.
 
@@ -1215,7 +1204,7 @@ In-process probe workers continue to update OTel instruments directly. NATS work
 
 ---
 
-### Phase 13 — `metricLabels` field
+### Phase 12 — `metricLabels` field
 
 **Deliverable:** Propagate custom labels from CRD spec to all emitted Prometheus metrics.
 
@@ -1226,7 +1215,7 @@ In-process probe workers continue to update OTel instruments directly. NATS work
 
 ---
 
-### Phase 14 — Distribution
+### Phase 13 — Distribution
 
 **Deliverable:** Project ready for public release and community adoption.
 
@@ -1241,7 +1230,7 @@ In-process probe workers continue to update OTel instruments directly. NATS work
 
 ---
 
-### Phase 15 — Horizontal scaling
+### Phase 14 — Horizontal scaling
 
 **Deliverable:** Independent scaling of probe workers and metrics consumer for high probe counts.
 
