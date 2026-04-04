@@ -827,7 +827,52 @@ operator:
     replicas: 2   # all replicas serve identical /metrics
 ```
 
-### 5.2 Repository Structure
+### 5.2 Scheduling configuration
+
+Each deployment exposes the standard Kubernetes scheduling primitives. Defaults are empty (no constraints) except where noted.
+
+```yaml
+webhook:
+  priorityClassName: system-cluster-critical  # default: elevated — webhook down blocks all CRD applies
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+controller:
+  priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+probes:
+  priorityClassName: ""
+  nodeSelector: {}    # e.g. restrict to nodes with external network access
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+metrics:
+  priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+nats:
+  priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+```
+
+`priorityClassName` on the webhook defaults to `system-cluster-critical` — the same class used by CoreDNS and kube-proxy. If the cluster is under resource pressure and the webhook pod is evicted, `kubectl apply` fails cluster-wide for all CRD types. The other deployments default to empty (inheriting the namespace default) since probe gaps during pressure are acceptable.
+
+The `runner` block on `K6Test` and `PlaywrightTest` exposes the same fields for CronJob pods — see section 2.5.
+
+### 5.3 Repository Structure
 
 ```
 /api/v1alpha1                   # CRD type definitions
