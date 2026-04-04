@@ -1063,7 +1063,6 @@ Each phase ships a usable product. No phase is purely foundational.
 - `HttpProbe` CRD: URL, method, headers, status code assertion, `spec.suspend`
 - In-operator worker pool with even distribution scheduling
 - OTel instrumentation (`synthetics_probe_success`, `synthetics_probe_duration_ms`, `synthetics_consecutive_failures`, `synthetics_last_run_timestamp`, `synthetics_probe_config_error`) exported via Prometheus exporter on `/metrics`
-- `/metrics` endpoint on `:8080`
 - Validating and defaulting webhooks for HttpProbe (with self-managed certs)
 - Helm chart (operator deployment, RBAC, CRD install, webhook config)
 - Unit tests for worker pool, distribution algorithm, webhook functions
@@ -1082,19 +1081,19 @@ Each phase ships a usable product. No phase is purely foundational.
 - `synthetics_probe_assertion_passed` metric per assertion
 - Unit tests for assertion evaluation logic
 
-**Usable because:** teams can validate that endpoints return correct content and respond within an acceptable time, not just that they return 200. Percentile-based SLOs belong in Alertmanager rules against `synthetics_probe_duration_ms`.
+**Usable because:** teams can validate that endpoints return correct content and respond within acceptable time, not just that they return 200.
 
 ---
 
-### Phase 3 — HttpProbe advanced requests
+### Phase 3 — HttpProbe POST + mTLS
 
 **Deliverable:** Monitor POST endpoints and services that require mTLS.
 
 - `spec.request.body` — arbitrary request body for POST/PUT/PATCH
 - `spec.request.tls` — mTLS client cert via Secret reference
-- Unit tests for request construction, mTLS setup
+- Unit tests for request construction and mTLS setup
 
-**Usable because:** real API monitoring requires more than GET requests. POST health endpoints and mutual-TLS authenticated services are common in production.
+**Usable because:** real API monitoring requires more than GET requests. POST health endpoints and mTLS-authenticated services are common in production.
 
 ---
 
@@ -1125,7 +1124,7 @@ Each phase ships a usable product. No phase is purely foundational.
 
 ### Phase 6 — Grafana dashboards and alert rules
 
-**Deliverable:** Importable dashboards and sensible default alert rules for all probes shipped so far.
+**Deliverable:** Importable dashboards and default alert rules for HttpProbe and DnsProbe.
 
 - Grafana dashboards for HttpProbe and DnsProbe (overview + per-probe drilldown)
 - Default Prometheus alert rules (probe failure, high latency, SSL expiry, probe not running)
@@ -1137,37 +1136,35 @@ Each phase ships a usable product. No phase is purely foundational.
 
 ### Phase 7 — Webhook deployment split
 
-**Deliverable:** Separate `synthetics-operator-webhook` deployment for independent availability of CRD validation.
+**Deliverable:** Separate `synthetics-operator-webhook` deployment so `kubectl apply` stays available during operator restarts.
 
-- `--webhook-only` flag: disables reconcile loop, probe worker, and NATS connections
+- `--webhook-only` flag: disables reconcile loop, probe workers, and NATS connections
 - PodDisruptionBudget ensures at least one webhook replica is always up
-- Graceful shutdown — in-flight probe runs complete before the process exits
 
 **Usable because:** without this, operator restarts cause `kubectl apply` to fail for all CRD types.
 
 ---
 
-### Phase 8 — CronJob infrastructure + NATS
+### Phase 8 — NATS + CronJob result transport
 
-**Deliverable:** Shared infrastructure required by all CronJob-backed probe types. Introduces NATS as the result transport for CronJob pods.
+**Deliverable:** Shared result transport infrastructure required by all CronJob-backed probe types.
 
 - NATS deployment (single replica, no JetStream by default) added to Helm chart
 - `results-writer` sidecar image: normalizes runner output, publishes to NATS result stream with retry
-- Operator subscribes to NATS result stream and updates OTel instruments alongside existing in-process probe results — single `/metrics` endpoint, no deployment split yet
-- Helm values for NATS (replicas, JetStream, storage)
-- Scale testing suite (500+ in-operator probes, add/remove churn)
+- Operator subscribes to NATS result stream and updates OTel instruments — single `/metrics` endpoint, no deployment split yet
+- Helm values for NATS scaling tiers (replicas, JetStream, storage)
 
-In-operator probe workers (HttpProbe, DnsProbe) continue to run in-process and update OTel instruments directly. The NATS work queue and deployment split are deferred until scale demands them.
+In-process probe workers continue to update OTel instruments directly. NATS work queue and deployment split deferred to Phase 15.
 
-**Usable because:** K6Test and PlaywrightTest both depend on this infrastructure. Building and validating it independently reduces risk when those CRDs ship.
+**Usable because:** K6Test and PlaywrightTest both depend on this infrastructure. Validating it independently reduces risk when those CRDs ship.
 
 ---
 
 ### Phase 9 — K6Test
 
-**Deliverable:** k6 load tests defined as CRDs and run on a schedule or triggered from CI.
+**Deliverable:** k6 load tests defined as CRDs and run on a schedule.
 
-- `K6Test` CRD: script ConfigMap reference, `interval`, `runOnDeploy`, `parallelism`, `k6Version`, `ttlAfterFinished`, `runner` block
+- `K6Test` CRD: script ConfigMap reference, `interval`, `parallelism`, `k6Version`, `ttlAfterFinished`, `runner` block
 - CronJob reconciliation with even distribution offset
 - Automatic VU distribution across parallel pods using k6 execution segments
 - k6 summary JSON parsing in the results-writer sidecar
@@ -1176,39 +1173,37 @@ In-operator probe workers (HttpProbe, DnsProbe) continue to run in-process and u
 - kind integration tests for full Job lifecycle
 - envtest for CronJob reconciliation
 
-**Usable because:** teams can schedule load tests declaratively inside the cluster and alert on threshold failures via Prometheus, without managing k6 execution infrastructure separately.
+**Usable because:** teams can schedule load tests declaratively and alert on threshold failures via Prometheus.
 
 ---
 
-### Phase 10 — PlaywrightTest
+### Phase 10 — K6Test `runOnDeploy`
+
+**Deliverable:** Trigger a k6 load test automatically when a new Deployment rolls out.
+
+- `spec.runOnDeploy` on K6Test — watches target Deployment and fires a one-off Job on rollout
+- kind integration tests for trigger behaviour
+
+**Usable because:** load tests that only run on a schedule miss regressions introduced by a specific deploy. `runOnDeploy` catches them at the point of change.
+
+---
+
+### Phase 11 — PlaywrightTest
 
 **Deliverable:** Playwright browser tests defined as CRDs and run on a schedule.
 
 - `PlaywrightTest` CRD: script ConfigMap reference, `interval`, `playwrightVersion`, `ttlAfterFinished`, `runner` block
-- CronJob reconciliation with even distribution offset (reuses Phase 8 infrastructure)
+- CronJob reconciliation with even distribution offset
 - Playwright JSON reporter output parsing in the results-writer sidecar
 - Per-test metrics with `suite` and `test` labels; suite-level rollups
 - Playwright Grafana dashboard
 - kind integration tests with real Playwright image
 
-**Usable because:** multi-step browser flows and authenticated journeys can be monitored continuously inside the cluster without a separate Playwright infrastructure.
+**Usable because:** multi-step browser flows and authenticated journeys can be monitored continuously without a separate Playwright infrastructure.
 
 ---
 
-### Phase 11 — Horizontal scaling (deployment split)
-
-**Deliverable:** Independent scaling of probe workers and metrics consumer for high probe counts.
-
-- `synthetics-operator-probes` deployment: probe workers consume from NATS work queue, publish results to NATS result stream. Controller publishes scheduled jobs to the work queue.
-- `synthetics-operator-metrics` deployment: subscribes to NATS result stream, updates OTel instruments, serves `/metrics`. Multiple replicas all consume the full stream and serve identical metrics.
-- In-process probe execution removed from the main operator binary
-- Helm values for replica counts on each deployment
-
-**Usable because:** at high probe counts (1000+) the single operator process becomes a bottleneck. This phase unlocks horizontal scaling of both probe execution and metrics serving without any changes to the CRD API or result format.
-
----
-
-### Phase 11 — `depends` field
+### Phase 12 — `depends` field
 
 **Deliverable:** Suppress failure alerts for probes whose dependencies are already unhealthy.
 
@@ -1216,13 +1211,24 @@ In-operator probe workers (HttpProbe, DnsProbe) continue to run in-process and u
 - Suppression logic: probe still runs, failure metric replaced by `synthetics_probe_suppressed=1`
 - One level deep only — no chaining
 
-**Usable because:** a downstream service failing because its upstream dependency is down creates redundant alerts. Suppression reduces noise without hiding the original failure.
+**Usable because:** a downstream service failing because its upstream is down creates redundant alerts. Suppression reduces noise without hiding the root cause.
 
 ---
 
-### Phase 12 — Distribution
+### Phase 13 — `metricLabels` field
 
-**Deliverable:** Easy to discover, install, and contribute to.
+**Deliverable:** Propagate custom labels from CRD spec to all emitted Prometheus metrics.
+
+- `spec.metricLabels` on all CRDs — arbitrary key/value pairs added as OTel attributes
+- Webhook validation: rejects high-cardinality label values (e.g. UUIDs)
+
+**Usable because:** teams need to filter and group probe metrics by team, environment, or tier without creating separate namespaces.
+
+---
+
+### Phase 14 — Distribution
+
+**Deliverable:** Project ready for public release and community adoption.
 
 - Multi-version nightly CI matrix (four most recent Kubernetes minor versions)
 - goreleaser pipeline for versioned image and chart releases
@@ -1232,4 +1238,18 @@ In-operator probe workers (HttpProbe, DnsProbe) continue to run in-process and u
 - Contributing guide and development setup docs
 
 **Usable because:** the project moves from an internal tool to a publishable open source operator with stable release artifacts.
+
+---
+
+### Phase 15 — Horizontal scaling
+
+**Deliverable:** Independent scaling of probe workers and metrics consumer for high probe counts.
+
+- `synthetics-operator-probes` deployment: stateless workers consume jobs from NATS work queue, publish results to NATS result stream
+- `synthetics-operator-metrics` deployment: subscribes to full result stream, serves `/metrics`; multiple replicas serve identical data
+- Controller publishes scheduled probe jobs to NATS work queue
+- In-process probe execution removed from operator binary
+- Helm values for replica counts per deployment
+
+**Usable because:** at 1000+ probes the single operator process becomes a bottleneck. This unlocks horizontal scaling without any CRD API or result format changes.
 
