@@ -12,7 +12,7 @@ synthetics-operator is an open-source Kubernetes operator for unified synthetic 
 
 The project is deliberately opinionated: Playwright for browser tests, k6 for load tests. This constraint simplifies the operator, sets clear expectations for users, and avoids the complexity of supporting arbitrary runtimes.
 
-> **Primary motivation:** catch memory regressions from bad code via CI-triggered load tests, and support periodic rightsizing of Kubernetes pod resource requests using real utilisation data.
+> **Primary motivation:** replace paid SaaS monitoring products (BetterStack, Datadog Synthetics, etc.) with a fully in-cluster, open-source alternative that unifies uptime probes, DNS checks, scripted browser tests, and load tests under a single declarative API — with no per-seat pricing, no data leaving the cluster, and no proprietary query language.
 
 ### 1.1 Core Goals
 
