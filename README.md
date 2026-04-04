@@ -478,15 +478,15 @@ data:
 **Flow:**
 
 ```
-1. Main container runs test and writes raw output to /results/output.json
-2. A small in-pod writer creates/updates the per-run result ConfigMap with normalized summary JSON
-3. Job completes
+1. Main container runs test and writes raw output to /results/output.json (shared volume)
+2. Sidecar container watches /results/output.json, normalizes the result, and writes the per-run result ConfigMap
+3. Job completes (native sidecar terminates automatically with the main container — requires Kubernetes 1.33+)
 4. Operator watches Job + ConfigMap events, parses result.json, and updates parent CR status
 5. Operator emits Prometheus metrics from controller memory based on normalized result state
 6. TTL/garbage collection removes old Jobs and their owned result ConfigMaps
 ```
 
-The in-pod writer can be either a tiny wrapper binary or a lightweight sidecar, but it does not patch the parent CR and does not own status semantics. Its only cluster-facing responsibility is writing the run's result ConfigMap.
+A native Kubernetes sidecar (initContainer with `restartPolicy: Always`) handles result ingestion. This keeps the main container completely stock — users can pin to official `mcr.microsoft.com/playwright` or `grafana/k6` images without any modification. The operator owns a single small sidecar image (`results-writer`) that handles normalization and ConfigMap writes across all runner types. The sidecar does not patch the parent CR and does not own status semantics. Its only cluster-facing responsibility is writing the run's result ConfigMap.
 
 **CRD status structure:**
 
@@ -514,7 +514,7 @@ status:
     # probe-type-specific fields added here (see below)
 ```
 
-This is a clean operator-owned API. The operator is the sole writer. The sidecar/writer produces a run artifact; the operator translates that into the fields above. `summary` contains normalized, user-facing state — not raw runner output.
+This is a clean operator-owned API. The operator is the sole writer. The sidecar produces a run artifact; the operator translates that into the fields above. `summary` contains normalized, user-facing state — not raw runner output.
 
 **Condition set** — two conditions, stable across all CRD types:
 
@@ -790,7 +790,7 @@ Egress is not restricted — the operator needs to reach the Kubernetes API serv
     resultstore.go              # Result ConfigMap naming, parsing, and watch logic
     certmanager.go              # Cert generation, rotation, reload
 /images
-  /results-writer               # Small result writer image (wrapper or sidecar)
+  /results-writer               # Sidecar image for normalizing runner output and writing result ConfigMaps
 /charts
   /synthetics-operator          # Helm chart for the operator
 /dashboards
@@ -952,7 +952,7 @@ nodes:
     image: kindest/node:v1.31.0
 ```
 
-No special Kubernetes version floor is introduced by result ingestion anymore. Support should be validated against the four most recent minor versions and documented from actual CI coverage rather than inferred from an implementation detail.
+The native sidecar pattern (initContainer with `restartPolicy: Always`) requires Kubernetes 1.33+, where this feature is GA. This is the minimum supported version for the operator.
 
 ---
 
@@ -972,7 +972,7 @@ No special Kubernetes version floor is introduced by result ingestion anymore. S
 | Even distribution over jitter | Probes distributed deterministically using a gap-filling algorithm. Jitter is random and can still cluster; even distribution is guaranteed. |
 | Worker pool | Shared pool (default 50 workers) across all in-operator probes. Bounds concurrency, prevents goroutine explosion at scale. |
 | Controller-owned status projection | CronJob pods write normalized per-run result summaries to owned ConfigMaps. The operator watches those artifacts plus Job state, then updates CR status and Prometheus metrics. Preserves the standard operator contract: controller owns status. |
-| Result writer artifact pattern | Job pods include a small result writer (wrapper or sidecar) that only persists the run's ConfigMap artifact. Main container stays generic, and no runner pod needs permission to patch CRDs. |
+| Result writer artifact pattern | Job pods include a native sidecar (`results-writer`) that only persists the run's ConfigMap artifact. Main container stays completely stock (official Playwright/k6 images), and no runner pod needs permission to patch CRDs. Requires Kubernetes 1.33+. |
 | Re-export k6 metrics | Curated k6 summary metrics re-exported by operator rather than forwarding full k6 Prometheus output. Keeps schema clean. |
 | depends field | One level deep only. Suppresses failure metrics when a dependency is unhealthy. No orchestration, no chaining — purely noise reduction. |
 | CRD webhooks | Validating and defaulting webhooks implemented for all CRDs. Immediate feedback at apply time rather than errors surfacing via status conditions. |
