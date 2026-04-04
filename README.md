@@ -80,8 +80,7 @@ spec:
   assertions:
     status: 200
     latency:
-      p95Ms: 300
-      p99Ms: 500
+      maxMs: 300
     body:
       contains: "ok"
       json:
@@ -272,7 +271,7 @@ Plus any custom labels defined in `spec.metricLabels` — see section 3.8.
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_probe_duration_ms` | gauge | Pre-computed request latency percentiles with `quantile` label (p50, p95, p99). Gauge, not histogram — percentiles are computed in the operator from a sliding window, not by Prometheus. |
+| `synthetics_probe_duration_ms` | gauge | Response time of the current request in milliseconds. |
 | `synthetics_probe_status_code` | gauge | HTTP status code returned |
 | `synthetics_probe_assertion_passed` | gauge 0\|1 | Per-assertion result with assertion label |
 | `synthetics_ssl_expiry_days` | gauge | Days until SSL certificate expiry |
@@ -848,7 +847,7 @@ groups:
           severity: warning
 
       - alert: HighLatency
-        expr: synthetics_probe_duration_ms{quantile="0.99"} > 1000
+        expr: synthetics_probe_duration_ms > 1000
         labels:
           severity: warning
 
@@ -1017,14 +1016,14 @@ Each phase ships a usable product. No phase is purely foundational.
 
 ### Phase 2 — HttpProbe body and latency assertions
 
-**Deliverable:** Assert on response body content and latency percentiles, not just status code.
+**Deliverable:** Assert on response body content and single-request latency, not just status code.
 
 - Body assertions: `contains` string match and JSON path equality checks
-- Latency percentile assertions: `p95Ms`, `p99Ms`
+- Latency assertion: `maxMs` — fail the probe if this single response exceeds the threshold
 - `synthetics_probe_assertion_passed` metric per assertion
 - Unit tests for assertion evaluation logic
 
-**Usable because:** teams can validate that endpoints return correct content and meet latency SLOs, not just that they return 200.
+**Usable because:** teams can validate that endpoints return correct content and respond within an acceptable time, not just that they return 200. Percentile-based SLOs belong in Alertmanager rules against `synthetics_probe_duration_ms`.
 
 ---
 
