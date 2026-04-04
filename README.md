@@ -999,11 +999,10 @@ Each phase ships a usable product. No phase is purely foundational.
 
 ### Phase 1 — HttpProbe MVP
 
-**Deliverable:** Users can define HTTP checks as CRDs and see results in Prometheus.
+**Deliverable:** Users can define HTTP GET checks as CRDs and see pass/fail in Prometheus.
 
 - Project scaffold via Kubebuilder
-- `HttpProbe` CRD (URL, method, headers, status assertion only — no body/JSON assertions yet)
-- `spec.suspend` support
+- `HttpProbe` CRD: URL, method, headers, status code assertion, `spec.suspend`
 - In-operator worker pool with even distribution scheduling
 - Basic Prometheus metrics (`synthetics_probe_success`, `synthetics_probe_duration_ms`, `synthetics_consecutive_failures`, `synthetics_last_run_timestamp`, `synthetics_probe_config_error`)
 - `/metrics` endpoint on `:8080`
@@ -1012,118 +1011,151 @@ Each phase ships a usable product. No phase is purely foundational.
 - Unit tests for worker pool, distribution algorithm, webhook functions
 - envtest for reconcile loop and webhook behaviour
 
-**Usable because:** teams can replace basic uptime monitoring (Blackbox Exporter probes) with a declarative CRD-based equivalent from day one. Webhooks catch invalid CRDs immediately rather than silently failing.
+**Usable because:** teams can monitor HTTP endpoint availability with a declarative CRD. Webhooks catch invalid specs immediately.
 
 ---
 
-### Phase 2 — Full HttpProbe
+### Phase 2 — HttpProbe body and latency assertions
 
-**Deliverable:** Complete HTTP monitoring with all assertions, mTLS, and SSL certificate checks.
+**Deliverable:** Assert on response body content and latency percentiles, not just status code.
 
-- HttpProbe body assertions (contains, JSON path)
-- HttpProbe latency percentile assertions (p95, p99)
-- HttpProbe request body (`spec.request.body`) and mTLS client cert support (`spec.request.tls`)
-- SSL certificate checks as fields on HttpProbe (`ssl.enabled`, `expiryWarningDays`)
-- Full metrics schema for HttpProbe
-- Unit tests for body parsing, mTLS setup, SSL cert expiry logic
+- Body assertions: `contains` string match and JSON path equality checks
+- Latency percentile assertions: `p95Ms`, `p99Ms`
+- `synthetics_probe_assertion_passed` metric per assertion
+- Unit tests for assertion evaluation logic
 
-**Usable because:** covers real-world API monitoring — POST endpoints, authenticated services, and SSL expiry alerting — not just simple GET health checks.
+**Usable because:** teams can validate that endpoints return correct content and meet latency SLOs, not just that they return 200.
 
 ---
 
-### Phase 3 — DnsProbe + Observability
+### Phase 3 — HttpProbe advanced requests
 
-**Deliverable:** DNS monitoring, importable dashboards, and default alert rules.
+**Deliverable:** Monitor POST endpoints and services that require mTLS.
 
-- `DnsProbe` CRD with record type, resolver support, and `maxResolvedAddresses` cap
-- Full metrics schema for DnsProbe
+- `spec.request.body` — arbitrary request body for POST/PUT/PATCH
+- `spec.request.tls` — mTLS client cert via Secret reference
+- Unit tests for request construction, mTLS setup
+
+**Usable because:** real API monitoring requires more than GET requests. POST health endpoints and mutual-TLS authenticated services are common in production.
+
+---
+
+### Phase 4 — SSL certificate monitoring
+
+**Deliverable:** Track certificate expiry for any HTTPS endpoint already defined as an HttpProbe.
+
+- `spec.ssl.enabled`, `spec.ssl.expiryWarningDays`, `spec.ssl.expiryMinimumDays`, `spec.ssl.verifyChain`
+- `synthetics_ssl_expiry_days` and `synthetics_ssl_valid` metrics
+- Unit tests for cert expiry calculation
+
+**Usable because:** SSL expiry is a common cause of outages and is naturally co-located with the HTTP probe targeting the same URL.
+
+---
+
+### Phase 5 — DnsProbe
+
+**Deliverable:** DNS resolution checks as a first-class CRD.
+
+- `DnsProbe` CRD: hostname, record type, resolver, resolved address assertions, `maxResolvedAddresses` cap
+- Full DnsProbe metrics schema (`synthetics_dns_success`, `synthetics_dns_response_ms`, `synthetics_dns_resolved_address`, `synthetics_dns_resolved_truncated`)
 - Validating and defaulting webhooks for DnsProbe
-- Grafana dashboards for HttpProbe and DnsProbe
-- Default Prometheus alert rules
 - envtest for DnsProbe reconcile loop and webhook behaviour
 
-**Usable because:** covers the full HTTP and DNS monitoring story. Most teams running vanilla Blackbox Exporter can fully migrate. Dashboards and alerts are ready to import.
+**Usable because:** DNS failures are a distinct failure mode from HTTP failures and warrant their own probe type with dedicated assertions.
 
 ---
 
-### Phase 4 — HA + Production Hardening
+### Phase 6 — Grafana dashboards and alert rules
 
-**Deliverable:** Production-grade operator reliability. Required before shipping CronJob-based CRDs.
+**Deliverable:** Importable dashboards and sensible default alert rules for all probes shipped so far.
 
-Script runners depend on operator availability for reconciliation — if the operator is down, Jobs may fire without being reconciled and results will be lost. HA must ship before K6Test and PlaywrightTest.
+- Grafana dashboards for HttpProbe and DnsProbe (overview + per-probe drilldown)
+- Default Prometheus alert rules (probe failure, high latency, SSL expiry, probe not running)
+- Distributed via Helm ConfigMaps (Grafana sidecar auto-import) and grafana.com
 
-- Leader election and multi-replica support
-- Graceful shutdown — in-flight probe runs complete before exit
-- Cert rotation stability hardening (atomic pointer reload, Secret informer watch)
-- Results writer image (wrapper or sidecar, built and tested independently)
-- RBAC for result writer ServiceAccount
-- Scale testing suite (500+ probes, including add/remove churn)
-
-**Usable because:** operator is now production-hardened. Safe to build CronJob-based CRDs on top.
+**Usable because:** metrics without dashboards require users to build their own visualisation from scratch. Default rules cover the most common alert cases out of the box.
 
 ---
 
-### Phase 5 — K6Test
+### Phase 7 — High availability
 
-**Deliverable:** Load tests defined as CRDs, runnable on an interval or triggered from CI.
+**Deliverable:** Multiple operator replicas with leader election. Safe to run in production.
 
-- `K6Test` CRD
-- CronJob reconciliation for k6 scripts
-- Interval → CronJob schedule conversion with even distribution offset
-- Result writer injection/wrapping for Job pods
+- Leader election via controller-runtime — only the leader runs schedulers and cert rotation
+- Graceful shutdown — in-flight probe runs complete before the process exits
+- Non-leader replicas are hot standby — take over immediately on leader failure
+
+**Usable because:** a single-replica operator is a single point of failure. HA is required before adding CronJob-based probes, where operator downtime would cause missed reconciliations.
+
+---
+
+### Phase 8 — CronJob infrastructure
+
+**Deliverable:** Shared infrastructure required by all CronJob-backed probe types.
+
+- Result writer binary: runs inside Job pods, writes normalized summary JSON to a per-run ConfigMap
+- RBAC for result writer ServiceAccount (ConfigMap create/update only, namespaced)
+- Operator watches owned ConfigMaps and projects results into parent CR status
+- Scale testing suite (500+ in-operator probes, add/remove churn)
+
+**Usable because:** K6Test and PlaywrightTest both depend on this infrastructure. Building and validating it independently reduces risk when those CRDs ship.
+
+---
+
+### Phase 9 — K6Test
+
+**Deliverable:** k6 load tests defined as CRDs and run on a schedule or triggered from CI.
+
+- `K6Test` CRD: script ConfigMap reference, `interval`, `runOnDeploy`, `parallelism`, `k6Version`, `ttlAfterFinished`, `runner` block
+- CronJob reconciliation with even distribution offset
+- Automatic VU distribution across parallel pods using k6 execution segments
 - k6 summary JSON parsing from owned result ConfigMaps
-- Metric re-export from controller status projection
-- `interval` and `runOnDeploy` support
-- Parallelism with automatic VU distribution
-- `ttlAfterFinished` defaulting
-- Job rejection detection and status condition surfacing
-- Grafana dashboard for load test results and trends
-- kind integration tests for full Job lifecycle (including result artifact persistence)
+- Job rejection detection: `Ready=False` with `reason: JobCreationFailed`, metric, and Kubernetes Event
+- k6 Grafana dashboard
+- kind integration tests for full Job lifecycle
 - envtest for CronJob reconciliation
 
-**Usable because:** teams can replace CI-triggered k6 scripts with a fully in-cluster, declarative load testing setup.
+**Usable because:** teams can schedule load tests declaratively inside the cluster and alert on threshold failures via Prometheus, without managing k6 execution infrastructure separately.
 
 ---
 
-### Phase 6 — PlaywrightTest
+### Phase 10 — PlaywrightTest
 
-**Deliverable:** Scripted browser tests running on an interval inside the cluster.
+**Deliverable:** Playwright browser tests defined as CRDs and run on a schedule.
 
-- `PlaywrightTest` CRD
-- CronJob reconciliation for Playwright scripts (reuses result writer pattern from Phase 5)
-- Interval → CronJob schedule conversion with even distribution offset
+- `PlaywrightTest` CRD: script ConfigMap reference, `interval`, `playwrightVersion`, `ttlAfterFinished`, `runner` block
+- CronJob reconciliation with even distribution offset (reuses Phase 8 infrastructure)
 - Playwright JSON reporter output parsing
-- Per-test metrics with `suite` and `test` labels
-- Suite-level rollup metrics
-- Grafana dashboard for Playwright test results
+- Per-test metrics with `suite` and `test` labels; suite-level rollups
+- Playwright Grafana dashboard
 - kind integration tests with real Playwright image
 
-**Usable because:** teams can define multi-step browser flows and authenticated journeys as CRDs, monitored continuously inside the cluster.
+**Usable because:** multi-step browser flows and authenticated journeys can be monitored continuously inside the cluster without a separate Playwright infrastructure.
 
 ---
 
-### Phase 7 — `depends` field
+### Phase 11 — `depends` field
 
-**Deliverable:** Noise reduction for interdependent services.
+**Deliverable:** Suppress failure alerts for probes whose dependencies are already unhealthy.
 
-- `depends` field on all CRDs
-- Suppression logic and `synthetics_probe_suppressed` metric
-- Multi-version nightly CI matrix
+- `spec.depends` on all CRDs — list of probe references that must be healthy for a failure to be actionable
+- Suppression logic: probe still runs, failure metric replaced by `synthetics_probe_suppressed=1`
+- One level deep only — no chaining
 
-**Usable because:** dependency suppression meaningfully reduces alert noise for teams with interdependent services.
+**Usable because:** a downstream service failing because its upstream dependency is down creates redundant alerts. Suppression reduces noise without hiding the original failure.
 
 ---
 
-### Phase 8 — Distribution polish
+### Phase 12 — Distribution
 
-**Deliverable:** Easy to discover, easy to install, easy to contribute to.
+**Deliverable:** Easy to discover, install, and contribute to.
 
+- Multi-version nightly CI matrix (four most recent Kubernetes minor versions)
+- goreleaser pipeline for versioned image and chart releases
 - Grafana dashboard publication to grafana.com
 - OperatorHub / Artifact Hub listing
 - Full example library in `/examples`
 - Contributing guide and development setup docs
-- goreleaser pipeline for versioned image releases
-- Changelog and release notes automation
 
-**Usable because:** project is now a first-class open source operator rather than an internal tool. Community adoption becomes viable.
+**Usable because:** the project moves from an internal tool to a publishable open source operator with stable release artifacts.
 
