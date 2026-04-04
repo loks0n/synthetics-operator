@@ -134,6 +134,14 @@ jobs:
         run: |
           IMAGE=$(KO_DOCKER_REPO=ko.local ko build --local --bare .)
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          docker save "$IMAGE" -o /tmp/operator-image.tar
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: operator-image
+          path: /tmp/operator-image.tar
+          retention-days: 1
 
   kind-smoke:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -150,8 +158,16 @@ jobs:
 
       - uses: azure/setup-helm@v5.0.0
 
-      - name: Set image reference
-        run: echo "IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
+      - name: Download image artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: operator-image
+          path: /tmp
+
+      - name: Load image into Docker
+        run: |
+          IMAGE=$(docker load -i /tmp/operator-image.tar | awk '{print $NF}')
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       - uses: helm/kind-action@v1.13.0
         with:
