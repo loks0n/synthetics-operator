@@ -31,7 +31,7 @@ jobs:
           version: v2.11.4
 
       - name: Run go vet
-        run: make vet
+        run: go vet ./...
 
   fmt:
     if: github.event_name != 'schedule'
@@ -47,8 +47,11 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Check formatting
-        run: make fmt
+      - name: Run go fmt
+        run: go fmt ./...
+
+      - name: Verify formatting is clean
+        run: git diff --exit-code
 
   unit-test:
     if: github.event_name != 'schedule'
