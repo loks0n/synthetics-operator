@@ -408,7 +408,32 @@ These labels are distinct from Kubernetes metadata labels on the CRD — `spec.m
 
 ## 4. Controller Architecture
 
-### 4.1 Deployment architecture
+> This section describes both the Phase 1 shipping shape and the later target architecture. Phase 1 is intentionally smaller: one operator deployment, in-process HttpProbe execution, in-memory OTel instruments, and no NATS, CronJob runners, or deployment split yet.
+
+### 4.1 Phase 1 deployment architecture
+
+Phase 1 ships a single `synthetics-operator` Deployment created by the Helm chart.
+
+| Component | Replicas | Responsibilities in Phase 1 |
+|---|---|---|
+| `synthetics-operator` | 1 | Reconcile `HttpProbe`, run the in-process worker pool, expose `/metrics`, serve webhooks, and manage webhook certs |
+
+Phase 1 execution path is deliberately direct:
+
+```
+HttpProbe CRD → reconcile into in-memory schedule → worker pool executes HTTP GET → OTel instruments updated in process → /metrics
+```
+
+Deferred from Phase 1:
+
+- NATS work queue and result stream
+- Separate `controller`, `probes`, and `metrics` deployments
+- Separate `synthetics-operator-webhook` deployment
+- `DnsProbe`, `PlaywrightTest`, and `K6Test`
+
+This keeps the MVP aligned with the Phase 1 deliverable: declare an `HttpProbe`, scrape `/metrics`, alert on pass/fail.
+
+### 4.2 Target deployment architecture (Phase 8+)
 
 Four deployments with independent scaling characteristics:
 
@@ -428,7 +453,11 @@ probe-workers       → NATS result stream
 NATS result stream  → metrics-consumer → /metrics
 ```
 
-### 4.2 Probe scheduling via NATS work queue
+### 4.3 Probe scheduling
+
+In Phase 1, `HttpProbe` scheduling is in-process. The reconciler registers each probe with the local scheduler, which computes a stable offset using `probeOffset(namespace, name, interval)` and enqueues runs onto an in-memory worker pool. No external queue exists yet; a pod restart causes a brief scheduling gap until the operator rebuilds the schedule from watched CRDs.
+
+From Phase 15 onward, the same offset algorithm is reused with NATS as the transport. The controller publishes jobs to the NATS work queue at the scheduled time and probe workers compete to consume them.
 
 The controller publishes a job to the NATS work queue at the scheduled time for each HttpProbe and DnsProbe. Probe workers compete to consume jobs — NATS delivers each job to exactly one worker. On ACK, the message is removed. On worker crash, NATS redelivers after a timeout.
 
@@ -454,7 +483,7 @@ Workers are stateless — a plain Deployment. Scale by adding replicas; NATS dis
 
 If the controller restarts, no jobs are published during the gap (~5–10s). In-flight probe workers finish their current jobs normally; the work queue drains and sits idle until the controller recovers.
 
-### 4.3 CronJob management (PlaywrightTest + K6Test)
+### 4.4 CronJob management (PlaywrightTest + K6Test)
 
 The operator reconciles PlaywrightTest and K6Test CRDs into Kubernetes CronJobs. `spec.interval` is converted to a CronJob schedule string with a per-probe offset derived from `probeOffset()` — preventing clustering when many tests share the same interval. Since cron has 1-minute resolution, the offset is `probeOffset() % interval_in_minutes`, giving a stable minute-level slot within the interval window. Key invariants:
 
@@ -484,7 +513,11 @@ _Layer 2 — pre-flight check (add if users hit this in practice)._ On reconcile
 
 A troubleshooting section in the docs covers the common case: "if your K6Test never runs, check `kubectl describe k6test <name>` and look for `Ready=False` with `reason: JobCreationFailed`. Verify `runner.resources` fits within namespace quotas."
 
-### 4.4 Result ingestion via NATS
+### 4.5 Result ingestion
+
+In Phase 1 there is no result transport layer. The in-process HttpProbe worker updates OTel instruments directly after each run and the same process exposes `/metrics`.
+
+NATS-backed result ingestion is introduced later for CronJob-backed runners and independent scaling:
 
 All results flow through NATS — probe workers publish in-process results, CronJob sidecars publish after the test completes. The metrics consumer subscribes to the result stream and updates OTel instruments. No HTTP ingest endpoint, no shared in-memory state, no single-writer constraint.
 
@@ -554,9 +587,11 @@ Status conditions are updated by the controller's Job watch — not the result s
 - If the main container crashes before producing results, the sidecar has nothing to publish; the controller derives failure from Job/Pod status via the Job watch and sets `Ready=False`.
 - If the sidecar fails to connect to NATS, the result is lost. The next scheduled run restores state. Prometheus shows a gap in the affected metric. With JetStream enabled, NATS buffers messages across restarts — the sidecar retries until NATS is available.
 
-### 4.5 CRD webhooks
+### 4.6 CRD webhooks
 
-Validating and defaulting webhooks run in a **separate `synthetics-operator-webhook` deployment** — stateless, no leader election, 2+ replicas. This means `kubectl apply` remains available even while other operator components are restarting. The webhook deployment shares the same binary but starts with a `--webhook-only` flag.
+Phase 1 ships validating and defaulting webhooks in the same operator process as reconciliation, scheduling, and `/metrics`. This satisfies the MVP requirement for immediate spec validation without adding deployment split complexity on day one.
+
+In Phase 7, webhooks move to a **separate `synthetics-operator-webhook` deployment** — stateless, no leader election, 2+ replicas. This keeps `kubectl apply` available even while the main operator is restarting. The webhook deployment still shares the same binary, started with a `--webhook-only` flag.
 
 The webhook provides immediate feedback on invalid resources at apply time rather than surfacing errors later via status conditions.
 
@@ -590,11 +625,11 @@ func (k *K6Test) Default() {
 }
 ```
 
-### 4.6 Certificate management
+### 4.7 Certificate management
 
 Webhooks require TLS — the operator manages its own certificates with no external dependencies. cert-manager is explicitly not required.
 
-Cert management is split across the two deployments: the operator generates and rotates certs, writing them to a shared Secret. Webhook replicas watch that Secret and hot-reload certs on change via an atomic pointer swap.
+In Phase 1, the same operator process both serves the webhook and manages cert rotation. From Phase 7 onward, cert management is split across two deployments: the controller generates and rotates certs, writing them to a shared Secret, and webhook replicas watch that Secret and hot-reload certs via an atomic pointer swap.
 
 **Startup sequence (operator):**
 
@@ -626,7 +661,7 @@ synthetics-webhook-certs
 
 **Rotation** — a background goroutine wakes at a configurable threshold (default: when 20% of TTL remains) and regenerates certs without restarting the operator. Default cert TTL is 90 days.
 
-**Cert reload mechanism** — the webhook server's `tls.Config` never holds a cert directly. It uses `GetCertificate`, which reads from an `atomic.Pointer[tls.Certificate]`. No lock contention, no race, no restart.
+**Cert reload mechanism** — the webhook server's `tls.Config` never holds a cert directly. It uses `GetCertificate`, which reads from an `atomic.Pointer[tls.Certificate]`. A Secret informer reloads the in-memory serving cert on update. No lock contention, no race, no restart.
 
 ```go
 type CertManager struct {
@@ -662,13 +697,21 @@ tlsConfig := &tls.Config{
 4. Next TLS handshake picks up new cert automatically
 ```
 
-No fsnotify (fragile with Secret volume mounts), no polling, no restart. The informer is already running — controller-runtime watches Secrets for the webhook cert lifecycle. The only new code is the `OnUpdate` handler that parses and swaps.
+No fsnotify against Secret mounts, no pod restart. The informer watches the Secret through the Kubernetes API and the `OnUpdate` handler parses and swaps the in-memory certificate immediately. A periodic reconcile still rotates certs and re-injects the CA bundle before expiry.
 
 **caBundle divergence edge case** — if the operator rotates the cert but crashes before updating the WebhookConfiguration's `caBundle`, the new cert is signed by a CA the API server doesn't trust. Webhook calls fail. On startup, the operator checks whether the CA in the Secret matches the `caBundle` in the WebhookConfiguration and re-injects if they diverge. This self-heals on the next restart.
 
 Webhook replicas watch the Secret via informer and reload certs on change via atomic pointer swap.
 
-### 4.7 Availability
+### 4.8 Availability
+
+Phase 1 availability is intentionally simple:
+
+- One operator replica
+- Brief probe scheduling gap during restart
+- Webhooks unavailable during that restart window
+
+This is acceptable for the MVP and is the explicit reason Phase 7 exists.
 
 **`synthetics-operator-webhook` (2+ replicas)**
 - Stateless — any replica handles any webhook call
@@ -693,7 +736,9 @@ Webhook replicas watch the Secret via informer and reload certs on change via at
 - With JetStream + PVC: results buffered across restarts — no gaps during controller or metrics-consumer downtime
 - With 3 replicas: NATS cluster, survives single-node failure
 
-### 4.8 Resource footprint
+### 4.9 Resource footprint
+
+Phase 1 footprint is a single operator pod with enough headroom for reconciliation, webhook serving, metrics export, and the in-process worker pool. The per-deployment footprint below is the later split architecture.
 
 ```yaml
 # synthetics-operator-controller
@@ -742,7 +787,9 @@ resources:
     memory: 64Mi
 ```
 
-### 4.9 RBAC summary
+### 4.10 RBAC summary
+
+Phase 1 RBAC is a reduced subset of the target model: the single operator Deployment needs CRD, Secret, webhook configuration, Event, and leader-election style access, but not NATS-specific worker separation or CronJob runner permissions yet.
 
 **`synthetics-operator-controller` ClusterRole:**
 
@@ -888,6 +935,8 @@ The `runner` block on `K6Test` and `PlaywrightTest` exposes the same fields for 
 
 ### 5.3 Repository Structure
 
+Phase 1 only needs a subset of this layout: `HttpProbe` API types, a controller, in-process scheduler/worker code, shared metrics wiring, and the Helm chart. The tree below is the target repository structure after later phases land.
+
 ```
 /api/v1alpha1                   # CRD type definitions
 /controllers                    # Reconcile logic per CRD (runs in controller deployment)
@@ -1023,7 +1072,7 @@ Full cluster, real Jobs running, real Playwright and k6 images. Slower but tests
 
 - Resource quota rejection — apply a tight ResourceQuota, verify operator records rejection metric and sets status condition
 
-Run on merge to main, not every PR.
+Run on merge to main, not every PR. The current repo uses a kind smoke path for Phase 1: build image, install the Helm chart, apply an `HttpProbe`, and verify both status and `/metrics`.
 
 ### 7.4 e2e smoke tests
 
@@ -1087,12 +1136,12 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | CronJobs for scripts | PlaywrightTest and K6Test need isolated runtimes and run at minute-or-longer intervals. CronJobs are the natural fit. |
 | Hash-based probe offset | Each probe's schedule offset is `FNV64(namespace/name) % interval`. Deterministic across restarts, independent per probe — adding or removing a probe does not affect any other. No global state. Jitter was rejected: random offsets can still cluster and change on restart. Midpoint insertion was rejected: requires sorted global state, breaks on restart without persistence, and degrades badly when probes are removed. |
 | NATS as the shared stateful component | CronJob results must go somewhere external to the operator process — a shared stateful component is unavoidable. NATS is the minimal right answer: purpose-built for message routing, ~32Mi idle, no persistence required by default, and keeps every other component stateless. ConfigMaps and an HTTP ingest endpoint were considered; both make either the API server or the operator a scaling bottleneck. See section 1.3. |
-| NATS work queue for probe scheduling | Controller publishes jobs to a NATS work queue; probe workers compete to consume. Workers are stateless — scale by adding replicas, no resharding. Controller restart causes a brief scheduling gap; workers drain existing jobs normally. |
+| NATS work queue for probe scheduling | Deferred to Phase 15. Phase 1 uses the same hash-based offset algorithm with an in-memory worker pool inside the operator; later the controller publishes jobs to a NATS work queue and stateless probe workers compete to consume them. |
 | NATS result stream | All results (probe workers + CronJob sidecars) flow through a single NATS result stream. Decouples writers from the metrics consumer. With JetStream enabled, results are buffered across restarts. |
 | Result writer sidecar pattern | Job pods include a native sidecar (`results-writer`) that normalizes runner output and publishes to NATS. Main container stays completely stock (official Playwright/k6 images). Runner pods need no Kubernetes API write permissions. Requires Kubernetes 1.33+. |
 | Re-export k6 metrics | Curated k6 summary metrics re-exported by operator rather than forwarding full k6 Prometheus output. Keeps schema clean. |
 | depends field | One level deep only. Suppresses failure metrics when a dependency is unhealthy. No orchestration, no chaining — purely noise reduction. |
-| CRD webhooks | Validating and defaulting webhooks in a separate `synthetics-operator-webhook` deployment (2–3 replicas, stateless). Keeps `kubectl apply` available during operator restarts. Same binary, `--webhook-only` flag. |
+| CRD webhooks | Phase 1 ships validating and defaulting webhooks in the main operator process. Phase 7 moves them into a separate `synthetics-operator-webhook` deployment (2–3 replicas, stateless) so `kubectl apply` stays available during operator restarts. Same binary, `--webhook-only` flag. |
 | Self-managed certs | Operator generates and rotates self-signed CA + serving certs, stored in a Secret. Webhook replicas watch the Secret and hot-reload via atomic pointer swap. No cert-manager dependency. |
 | Grafana in repo | Dashboards and alert rules shipped in the repo, distributed via Helm ConfigMaps and grafana.com. Minimises time-to-value. |
 | Operator health metrics | NATS queue depth, reconcile errors, CronJob failures, Job rejections, result stream lag, and cert expiry all instrumented via OTel SDK. Exported as Prometheus on `/metrics` via OTel Prometheus exporter. NATS queue depth is the key saturation signal. |
@@ -1101,8 +1150,8 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Consistent interval syntax | All four CRDs use `interval` (duration string). For CronJob-backed probes the operator converts the interval to a CronJob schedule with a per-probe offset for even distribution. Sub-minute intervals (e.g. `10s`) only supported by HttpProbe and DnsProbe; minimum for PlaywrightTest and K6Test is `1m`. |
 | OTel SDK, Prometheus export | OTel Go SDK for all instrumentation, exported via OTel Prometheus exporter on `/metrics`. External interface stays Prometheus-compatible; no OTel collector required. |
 | Testing layers | Unit tests for pure logic, envtest for controller/webhook behaviour, kind for full end-to-end. envtest covers ~80% of operator behaviour without needing a full cluster. Scale tests include churn scenarios. |
-| CI cadence | Unit + envtest on every PR (fast). kind integration + Helm e2e on merge to main. Scale tests and multi-version matrix nightly. |
-| Multi-version testing | Nightly suite runs against the four most recent k8s minor versions. Support policy is derived from actual CI coverage. |
+| CI cadence | `gofmt`, `go vet`, unit tests, envtest, and Helm lint/render run on every PR. A kind smoke install runs on pushes to `main` and on demand. A nightly kind matrix covers currently-supported bootstrap versions and can expand as the project adds more phases. |
+| Multi-version testing | The nightly kind matrix currently covers Kubernetes 1.33 and 1.34 for the Phase 1 HttpProbe path. Expand the matrix as later phases add CronJob runners and more version-sensitive behaviour. |
 | CRD graduation | `v1alpha1` initially. Graduation to `v1beta1` and `v1` driven by schema stability and adoption, with conversion webhooks at each transition. |
 | Idiomatic status schema | All CRDs expose `observedGeneration`, two stable condition types (`Ready`, `Suspended`), first-class `lastRunTime`/`lastSuccessTime`/`lastFailureTime`/`consecutiveFailures`, and a normalized `summary` block. Job rejection surfaces as `Ready=False` with `reason: JobCreationFailed` — a reason, not a separate condition type. Status is a clean operator-owned API; the run artifact (ConfigMap) is the transport layer. |
 | NetworkPolicy (opt-in) | Helm chart ships per-deployment opt-in NetworkPolicies. NATS client port `:4222` restricted to operator + runner namespaces. Metrics `:8080` restricted to monitoring namespace. Webhook `:9443` open to API server. Disabled by default — not every cluster has an enforcing CNI. |
@@ -1118,7 +1167,7 @@ Each phase ships a usable product. No phase is purely foundational.
 
 **Deliverable:** Users can define HTTP GET checks as CRDs and see pass/fail in Prometheus.
 
-- Project scaffold via Kubebuilder
+- Project scaffold via controller-runtime with Kubebuilder-style APIs, markers, and CRD/webhook layout
 - `HttpProbe` CRD: URL, method, headers, status code assertion, `spec.suspend`
 - In-operator worker pool with even distribution scheduling
 - OTel instrumentation (`synthetics_probe_success`, `synthetics_probe_duration_ms`, `synthetics_consecutive_failures`, `synthetics_last_run_timestamp`, `synthetics_probe_config_error`) exported via Prometheus exporter on `/metrics`
@@ -1126,6 +1175,25 @@ Each phase ships a usable product. No phase is purely foundational.
 - Helm chart (operator deployment, RBAC, CRD install, webhook config)
 - Unit tests for worker pool, distribution algorithm, webhook functions
 - envtest for reconcile loop and webhook behaviour
+
+**Phase 1 implementation profile:**
+
+- Single `synthetics-operator` Deployment
+- `HttpProbe` only
+- HTTP `GET` only
+- In-process scheduler and worker pool
+- OTel instruments updated directly by probe execution
+- Webhooks served from the same binary and pod as the controller
+- No NATS, no CronJobs, no deployment split
+
+**Phase 1 exit criteria:**
+
+- Applying a valid `HttpProbe` creates no secondary resources beyond operator-owned webhook/cert objects
+- Applying an invalid `HttpProbe` is rejected at admission time
+- A healthy endpoint sets `synthetics_probe_success=1` and updates duration and timestamp metrics
+- A failing endpoint sets `synthetics_probe_success=0` and increments `synthetics_consecutive_failures`
+- `spec.suspend: true` stops future executions without deleting the CRD
+- Operator restart rebuilds schedules from the API server and resumes probing without manual intervention
 
 **Usable because:** teams can monitor HTTP endpoint availability with a declarative CRD. Webhooks catch invalid specs immediately.
 
@@ -1300,4 +1368,3 @@ In-process probe workers continue to update OTel instruments directly. NATS work
 - Helm values for replica counts per deployment
 
 **Usable because:** at 1000+ probes the single operator process becomes a bottleneck. This unlocks horizontal scaling without any CRD API or result format changes.
-

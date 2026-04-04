@@ -1,0 +1,93 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: httpprobes.synthetics.dev
+spec:
+  group: synthetics.dev
+  names:
+    kind: HttpProbe
+    listKind: HttpProbeList
+    plural: httpprobes
+    shortNames:
+      - hp
+    singular: httpprobe
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - request
+              properties:
+                interval:
+                  type: string
+                timeout:
+                  type: string
+                suspend:
+                  type: boolean
+                request:
+                  type: object
+                  required:
+                    - url
+                  properties:
+                    url:
+                      type: string
+                    method:
+                      type: string
+                    headers:
+                      type: object
+                      additionalProperties:
+                        type: string
+                assertions:
+                  type: object
+                  properties:
+                    status:
+                      type: integer
+            status:
+              type: object
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                consecutiveFailures:
+                  type: integer
+                  format: int64
+                lastRunTime:
+                  type: string
+                  format: date-time
+                lastSuccessTime:
+                  type: string
+                  format: date-time
+                lastFailureTime:
+                  type: string
+                  format: date-time
+                summary:
+                  type: object
+                  properties:
+                    success:
+                      type: boolean
+                    configError:
+                      type: boolean
+                    statusCode:
+                      type: integer
+                    message:
+                      type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+      subresources:
+        status: {}

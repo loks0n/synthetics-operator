@@ -1,0 +1,12 @@
+apiVersion: synthetics.dev/v1alpha1
+kind: HttpProbe
+metadata:
+  name: phase1-echo
+spec:
+  interval: 30s
+  timeout: 10s
+  request:
+    url: http://echo.default.svc.cluster.local
+    method: GET
+  assertions:
+    status: 200

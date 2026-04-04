@@ -1,0 +1,201 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  go:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Install managed tools
+        run: make tools
+
+      - name: Run Go CI targets
+        run: make ci
+
+      - name: Run golangci-lint
+        run: make lint
+
+  helm:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint charts/synthetics-operator
+
+      - name: Render chart
+        run: helm template synthetics-operator charts/synthetics-operator > /dev/null
+
+  kind-smoke:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install managed tools
+        run: make tools
+
+      - uses: azure/setup-helm@v4
+
+      - name: Build image with ko
+        run: |
+          IMAGE=$$(make -s ko-build-local)
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - uses: helm/kind-action@v1.12.0
+        with:
+          cluster_name: synthetics
+          node_image: kindest/node:v1.33.0
+
+      - name: Load image into kind
+        run: kind load docker-image "$IMAGE" --name synthetics
+
+      - name: Install chart
+        run: |
+          kubectl create namespace synthetics-system
+          helm upgrade --install synthetics-operator charts/synthetics-operator \
+            --namespace synthetics-system \
+            --set-string image.ref="$IMAGE" \
+            --set image.pullPolicy=IfNotPresent
+
+      - name: Wait for operator rollout
+        run: kubectl -n synthetics-system rollout status deployment/synthetics-operator --timeout=180s
+
+      - name: Deploy echo service
+        run: |
+          kubectl apply -f - <<'EOF'
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: echo
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: echo
+            template:
+              metadata:
+                labels:
+                  app: echo
+              spec:
+                containers:
+                  - name: echo
+                    image: hashicorp/http-echo:1.0.0
+                    args:
+                      - -text=ok
+                      - -listen=:5678
+                    ports:
+                      - containerPort: 5678
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: echo
+          spec:
+            selector:
+              app: echo
+            ports:
+              - port: 80
+                targetPort: 5678
+          EOF
+          kubectl rollout status deployment/echo --timeout=120s
+
+      - name: Apply probe
+        run: kubectl apply -f examples/phase1-httpprobe.yaml
+
+      - name: Wait for successful probe status
+        run: |
+          for i in $(seq 1 24); do
+            success=$(kubectl get httpprobe phase1-echo -o jsonpath='{.status.summary.success}' 2>/dev/null || true)
+            last_run=$(kubectl get httpprobe phase1-echo -o jsonpath='{.status.lastRunTime}' 2>/dev/null || true)
+            if [ "$success" = "true" ] && [ -n "$last_run" ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          kubectl get httpprobe phase1-echo -o yaml || true
+          exit 1
+
+      - name: Verify metrics
+        run: |
+          kubectl -n synthetics-system port-forward svc/synthetics-operator-webhook-service 8080:8080 >/tmp/port-forward.log 2>&1 &
+          PF_PID=$!
+          trap "kill $PF_PID" EXIT
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/metrics | grep -q 'synthetics_probe_success{name="phase1-echo",namespace="default",kind="HttpProbe"} 1'; then
+              exit 0
+            fi
+            sleep 3
+          done
+          cat /tmp/port-forward.log || true
+          curl -fsS http://127.0.0.1:8080/metrics || true
+          exit 1
+
+  nightly-kind:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node_image:
+          - kindest/node:v1.33.0
+          - kindest/node:v1.34.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install managed tools
+        run: make tools
+
+      - uses: azure/setup-helm@v4
+
+      - name: Build image with ko
+        run: |
+          IMAGE=$$(make -s ko-build-local)
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - uses: helm/kind-action@v1.12.0
+        with:
+          cluster_name: synthetics
+          node_image: ${{ matrix.node_image }}
+
+      - name: Load image into kind
+        run: kind load docker-image "$IMAGE" --name synthetics
+
+      - name: Install chart
+        run: |
+          kubectl create namespace synthetics-system
+          helm upgrade --install synthetics-operator charts/synthetics-operator \
+            --namespace synthetics-system \
+            --set-string image.ref="$IMAGE" \
+            --set image.pullPolicy=IfNotPresent
+
+      - name: Wait for operator rollout
+        run: kubectl -n synthetics-system rollout status deployment/synthetics-operator --timeout=180s

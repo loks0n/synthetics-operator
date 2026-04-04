@@ -1,0 +1,44 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errcheck
+    - errorlint
+    - gocritic
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+
+linters-settings:
+  errcheck:
+    check-type-assertions: false
+    check-blank: false
+  gocritic:
+    enable-all: false
+    enabled-checks:
+      - appendAssign
+      - boolExprSimplify
+      - builtinShadow
+      - emptyStringTest
+      - ifElseChain
+      - sloppyReassign
+      - weakCond
+  gosec:
+    excludes:
+      - G304
+      - G118
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synthetics-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synthetics-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synthetics-operator
+    spec:
+      serviceAccountName: synthetics-operator
+      containers:
+        - name: manager
+          image: ghcr.io/loks0n/synthetics-operator:latest
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          args:
+            - --metrics-bind-address=:8080
+            - --webhook-port=9443
+            - --webhook-namespace=$(POD_NAMESPACE)
+            - --webhook-service-name=synthetics-operator-webhook-service
+            - --webhook-secret-name=synthetics-webhook-certs
+            - --validating-webhook-configuration=synthetics-operator-validating-webhook-configuration
+            - --mutating-webhook-configuration=synthetics-operator-mutating-webhook-configuration
+          ports:
+            - containerPort: 8080
+              name: metrics
+            - containerPort: 9443
+              name: webhook
+            - containerPort: 8081
+              name: healthz
