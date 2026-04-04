@@ -25,14 +25,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Install managed tools
-        run: make tools
-
       - name: Run golangci-lint
-        run: make lint
+        uses: golangci/golangci-lint-action@v9.2.0
+        with:
+          version: v2.6.2
 
   test:
     if: github.event_name != 'schedule'
