@@ -26,9 +26,9 @@ The project is deliberately opinionated: Playwright for browser tests, k6 for lo
 - Not a generic script runner — Playwright and k6 only
 - Not a SaaS product — fully in-cluster
 
-### 1.3 Why Prometheus, not OpenTelemetry
+### 1.3 Why OTel, exposed as Prometheus
 
-The operator exports to Prometheus exclusively. OTel is gaining traction but the Prometheus ecosystem (Alertmanager, Grafana, recording rules) is mature and ubiquitous in Kubernetes environments today. If demand materialises, an OTel exporter can be added alongside Prometheus without changing the internal metrics model. Not planned for initial release.
+The operator uses the OpenTelemetry Go SDK for all internal instrumentation and exports via the OTel Prometheus exporter on `/metrics`. This keeps the external interface compatible with the Prometheus ecosystem (Alertmanager, Grafana, recording rules, existing k8s monitoring stacks) while using OTel as the instrumentation layer. No OTel collector is required — the operator's `/metrics` endpoint is scraped directly by whatever Prometheus is already in the cluster.
 
 ---
 
@@ -447,7 +447,7 @@ A troubleshooting section in the docs covers the common case: "if your K6Test ne
 
 ### 4.4 Result ingestion via HTTP ingest
 
-CronJob pods post normalized result JSON directly to an HTTP endpoint on the operator (`POST /ingest`). The operator updates its in-memory metrics state and emits Prometheus metrics immediately. No Kubernetes API writes occur in the result ingestion hot path.
+CronJob pods post normalized result JSON directly to an HTTP endpoint on the operator (`POST /ingest`). The operator updates its OTel metrics instruments immediately. No Kubernetes API writes occur in the result ingestion hot path.
 
 **Flow:**
 
@@ -484,7 +484,7 @@ The sidecar retries with exponential backoff for up to 30 seconds after posting.
 
 **In-memory metrics state:**
 
-The operator holds a `map[probeKey]RunResult` updated by the worker pool. Prometheus metrics are derived from this map at scrape time. On operator restart the map is empty until each probe's next run completes — typically within one interval. Prometheus shows a gap, not stale data.
+The operator records results directly into OTel instruments (gauges, counters) as they arrive. The OTel Prometheus exporter serves the current instrument state on `/metrics` at scrape time — no separate in-memory map needed. On operator restart, instrument state is lost until each probe's next run completes — typically within one interval. Prometheus shows a gap, not stale data.
 
 **Condition set** — two conditions, stable across all CRD types:
 
@@ -744,7 +744,7 @@ Egress is not restricted — the operator needs to reach the Kubernetes API serv
   k6_test_controller.go
   /internal
     scheduler.go                # Shared in-operator scheduling + worker pool
-    metrics.go                  # Shared Prometheus registry
+    metrics.go                  # Shared OTel meter, instrument definitions
     runner.go                   # Shared Job lifecycle management
     ingest.go                   # HTTP ingest handler, buffered channel, worker pool
     certmanager.go              # Cert generation, rotation, reload
@@ -845,7 +845,7 @@ What to cover:
 - Updating a probe interval updates the CronJob schedule
 - Deleting a probe cleans up owned resources
 - `depends` suppression — create two probes, mark one unhealthy, verify the other is suppressed in metrics
-- Posting to `/ingest` updates in-memory metrics state and emits correct Prometheus metrics
+- Posting to `/ingest` updates OTel instruments and values appear correctly on `/metrics`
 - Job watch updates status conditions correctly on Job success/failure
 - Webhook validation rejects invalid specs
 - Webhook defaulting fills missing fields
@@ -937,11 +937,11 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | CRD webhooks | Validating and defaulting webhooks in a separate `synthetics-operator-webhook` deployment (2–3 replicas, stateless). Keeps `kubectl apply` available during operator restarts. Same binary, `--webhook-only` flag. |
 | Self-managed certs | Operator generates and rotates self-signed CA + serving certs, stored in a Secret. Webhook replicas watch the Secret and hot-reload via atomic pointer swap. No cert-manager dependency. |
 | Grafana in repo | Dashboards and alert rules shipped in the repo, distributed via Helm ConfigMaps and grafana.com. Minimises time-to-value. |
-| Operator health metrics | Worker pool saturation, reconcile errors, CronJob failures, Job rejections, result ingestion, and cert expiry all exposed as Prometheus metrics. Queue depth is the key saturation signal. |
-| Custom metric labels | `spec.metricLabels` on all CRDs propagates to Prometheus metrics. Enables per-team alerting and dashboard filtering without separate namespaces. Deliberately separate from k8s metadata labels so observability labels can be managed independently and cardinality stays explicit. |
+| Operator health metrics | Worker pool saturation, reconcile errors, CronJob failures, Job rejections, result ingestion, and cert expiry all instrumented via OTel SDK. Exported as Prometheus on `/metrics` via OTel Prometheus exporter. Queue depth is the key saturation signal. |
+| Custom metric labels | `spec.metricLabels` on all CRDs propagates to OTel metric attributes (Prometheus labels). Enables per-team alerting and dashboard filtering without separate namespaces. Deliberately separate from k8s metadata labels so observability labels can be managed independently and cardinality stays explicit. |
 | suspend field | All CRDs support `spec.suspend` to pause probes without deletion. In-operator probes are unscheduled; CronJobs set `suspend: true`. |
 | Consistent interval syntax | All four CRDs use `interval` (duration string). For CronJob-backed probes the operator converts the interval to a CronJob schedule with a per-probe offset for even distribution. Sub-minute intervals (e.g. `10s`) only supported by HttpProbe and DnsProbe; minimum for PlaywrightTest and K6Test is `1m`. |
-| Prometheus, not OTel | Prometheus-only export. OTel exporter can be added later without internal changes. Not planned for initial release. |
+| OTel SDK, Prometheus export | OTel Go SDK for all instrumentation, exported via OTel Prometheus exporter on `/metrics`. External interface stays Prometheus-compatible; no OTel collector required. |
 | Testing layers | Unit tests for pure logic, envtest for controller/webhook behaviour, kind for full end-to-end. envtest covers ~80% of operator behaviour without needing a full cluster. Scale tests include churn scenarios. |
 | CI cadence | Unit + envtest on every PR (fast). kind integration + Helm e2e on merge to main. Scale tests and multi-version matrix nightly. |
 | Multi-version testing | Nightly suite runs against the four most recent k8s minor versions. Support policy is derived from actual CI coverage. |
@@ -963,7 +963,7 @@ Each phase ships a usable product. No phase is purely foundational.
 - Project scaffold via Kubebuilder
 - `HttpProbe` CRD: URL, method, headers, status code assertion, `spec.suspend`
 - In-operator worker pool with even distribution scheduling
-- Basic Prometheus metrics (`synthetics_probe_success`, `synthetics_probe_duration_ms`, `synthetics_consecutive_failures`, `synthetics_last_run_timestamp`, `synthetics_probe_config_error`)
+- OTel instrumentation (`synthetics_probe_success`, `synthetics_probe_duration_ms`, `synthetics_consecutive_failures`, `synthetics_last_run_timestamp`, `synthetics_probe_config_error`) exported via Prometheus exporter on `/metrics`
 - `/metrics` endpoint on `:8080`
 - Validating and defaulting webhooks for HttpProbe (with self-managed certs)
 - Helm chart (operator deployment, RBAC, CRD install, webhook config)
