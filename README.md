@@ -1147,14 +1147,17 @@ Each phase ships a usable product. No phase is purely foundational.
 
 ---
 
-### Phase 8 — CronJob infrastructure
+### Phase 8 — CronJob infrastructure + NATS
 
-**Deliverable:** Shared infrastructure required by all CronJob-backed probe types.
+**Deliverable:** Shared infrastructure required by all CronJob-backed probe types. Introduces NATS as the result transport for CronJob pods.
 
+- NATS deployment (single replica, no JetStream by default) added to Helm chart
 - `results-writer` sidecar image: normalizes runner output, publishes to NATS result stream with retry
-- NATS work queue consumer in probe-workers deployment
-- NATS result stream consumer in metrics deployment
+- Operator subscribes to NATS result stream and updates OTel instruments alongside existing in-process probe results — single `/metrics` endpoint, no deployment split yet
+- Helm values for NATS (replicas, JetStream, storage)
 - Scale testing suite (500+ in-operator probes, add/remove churn)
+
+In-operator probe workers (HttpProbe, DnsProbe) continue to run in-process and update OTel instruments directly. The NATS work queue and deployment split are deferred until scale demands them.
 
 **Usable because:** K6Test and PlaywrightTest both depend on this infrastructure. Building and validating it independently reduces risk when those CRDs ship.
 
@@ -1189,6 +1192,19 @@ Each phase ships a usable product. No phase is purely foundational.
 - kind integration tests with real Playwright image
 
 **Usable because:** multi-step browser flows and authenticated journeys can be monitored continuously inside the cluster without a separate Playwright infrastructure.
+
+---
+
+### Phase 11 — Horizontal scaling (deployment split)
+
+**Deliverable:** Independent scaling of probe workers and metrics consumer for high probe counts.
+
+- `synthetics-operator-probes` deployment: probe workers consume from NATS work queue, publish results to NATS result stream. Controller publishes scheduled jobs to the work queue.
+- `synthetics-operator-metrics` deployment: subscribes to NATS result stream, updates OTel instruments, serves `/metrics`. Multiple replicas all consume the full stream and serve identical metrics.
+- In-process probe execution removed from the main operator binary
+- Helm values for replica counts on each deployment
+
+**Usable because:** at high probe counts (1000+) the single operator process becomes a bottleneck. This phase unlocks horizontal scaling of both probe execution and metrics serving without any changes to the CRD API or result format.
 
 ---
 
