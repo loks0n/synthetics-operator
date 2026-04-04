@@ -30,6 +30,9 @@ jobs:
         with:
           version: v2.11.4
 
+      - name: Run go vet
+        run: make vet
+
   fmt:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
@@ -46,23 +49,6 @@ jobs:
 
       - name: Check formatting
         run: make fmt
-
-  vet:
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6.0.1
-
-      - uses: actions/setup-go@v6.4.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Run go vet
-        run: make vet
 
   unit-test:
     if: github.event_name != 'schedule'
@@ -123,7 +109,6 @@ jobs:
     needs:
       - lint
       - fmt
-      - vet
       - unit-test
       - envtest
       - helm
