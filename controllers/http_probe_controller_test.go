@@ -84,9 +84,9 @@ func TestHttpProbeReconcileRegistersProbe(t *testing.T) {
 	probe := &syntheticsv1alpha1.HttpProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "api-health", Namespace: "default"},
 		Spec: syntheticsv1alpha1.HttpProbeSpec{
-			Interval: metav1.Duration{Duration: 30 * time.Second},
-			Timeout:  metav1.Duration{Duration: 10 * time.Second},
-			Request:  syntheticsv1alpha1.HTTPRequestSpec{URL: "https://example.com", Method: "GET"},
+			Interval:   metav1.Duration{Duration: 30 * time.Second},
+			Timeout:    metav1.Duration{Duration: 10 * time.Second},
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: "https://example.com", Method: "GET"},
 			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: 200},
 		},
 	}
