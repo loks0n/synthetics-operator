@@ -1,7 +1,6 @@
 package probes
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -71,8 +70,7 @@ func TestSchedulerUnregisterRemovesProbe(t *testing.T) {
 	pool := NewWorkerPool(logr.Discard(), 1, fixedExecutor{}, nil, nil)
 	s := NewScheduler(logr.Discard(), pool)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = s.Start(ctx) }()
 	waitStarted(t, s)
 
@@ -96,8 +94,7 @@ func TestSchedulerReRegisterReplacesExisting(t *testing.T) {
 	pool := NewWorkerPool(logr.Discard(), 1, fixedExecutor{}, nil, nil)
 	s := NewScheduler(logr.Discard(), pool)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = s.Start(ctx) }()
 	waitStarted(t, s)
 
