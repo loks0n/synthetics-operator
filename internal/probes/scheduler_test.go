@@ -48,12 +48,12 @@ func TestInitialDelayWithinInterval(t *testing.T) {
 }
 
 func TestSchedulerRegisterBeforeStartDropsProbe(t *testing.T) {
-	pool := NewWorkerPool(logr.Discard(), 1, fixedExecutor{}, nil, nil)
-	s := NewScheduler(logr.Discard(), pool)
+	pool := NewWorkerPool(logr.Discard(), 1, nil, nil)
+	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool)
 
-	probe := &syntheticsv1alpha1.HttpProbe{
+	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-		Spec:       syntheticsv1alpha1.HttpProbeSpec{Interval: metav1.Duration{Duration: 30 * time.Second}},
+		Spec:       syntheticsv1alpha1.HTTPProbeSpec{Interval: metav1.Duration{Duration: 30 * time.Second}},
 	}
 	s.Register(probe)
 
@@ -67,17 +67,17 @@ func TestSchedulerRegisterBeforeStartDropsProbe(t *testing.T) {
 }
 
 func TestSchedulerUnregisterRemovesProbe(t *testing.T) {
-	pool := NewWorkerPool(logr.Discard(), 1, fixedExecutor{}, nil, nil)
-	s := NewScheduler(logr.Discard(), pool)
+	pool := NewWorkerPool(logr.Discard(), 1, nil, nil)
+	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool)
 
 	ctx := t.Context()
 	go func() { _ = s.Start(ctx) }()
 	waitStarted(t, s)
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
-	probe := &syntheticsv1alpha1.HttpProbe{
+	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-		Spec:       syntheticsv1alpha1.HttpProbeSpec{Interval: metav1.Duration{Duration: 30 * time.Second}},
+		Spec:       syntheticsv1alpha1.HTTPProbeSpec{Interval: metav1.Duration{Duration: 30 * time.Second}},
 	}
 	s.Register(probe)
 	s.Unregister(key)
@@ -91,17 +91,17 @@ func TestSchedulerUnregisterRemovesProbe(t *testing.T) {
 }
 
 func TestSchedulerReRegisterReplacesExisting(t *testing.T) {
-	pool := NewWorkerPool(logr.Discard(), 1, fixedExecutor{}, nil, nil)
-	s := NewScheduler(logr.Discard(), pool)
+	pool := NewWorkerPool(logr.Discard(), 1, nil, nil)
+	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool)
 
 	ctx := t.Context()
 	go func() { _ = s.Start(ctx) }()
 	waitStarted(t, s)
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
-	probe := &syntheticsv1alpha1.HttpProbe{
+	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-		Spec:       syntheticsv1alpha1.HttpProbeSpec{Interval: metav1.Duration{Duration: 30 * time.Second}},
+		Spec:       syntheticsv1alpha1.HTTPProbeSpec{Interval: metav1.Duration{Duration: 30 * time.Second}},
 	}
 
 	s.Register(probe)

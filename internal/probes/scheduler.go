@@ -15,6 +15,7 @@ import (
 
 type Scheduler struct {
 	logger   logr.Logger
+	executor Executor
 	pool     *WorkerPool
 	mu       sync.Mutex
 	probes   map[types.NamespacedName]*scheduledProbe
@@ -26,11 +27,12 @@ type scheduledProbe struct {
 	stop chan struct{}
 }
 
-func NewScheduler(logger logr.Logger, pool *WorkerPool) *Scheduler {
+func NewScheduler(logger logr.Logger, executor Executor, pool *WorkerPool) *Scheduler {
 	return &Scheduler{
-		logger: logger,
-		pool:   pool,
-		probes: make(map[types.NamespacedName]*scheduledProbe),
+		logger:   logger,
+		executor: executor,
+		pool:     pool,
+		probes:   make(map[types.NamespacedName]*scheduledProbe),
 	}
 }
 
@@ -55,7 +57,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *Scheduler) Register(probe *syntheticsv1alpha1.HttpProbe) {
+func (s *Scheduler) Register(probe *syntheticsv1alpha1.HTTPProbe) {
 	name := types.NamespacedName{Namespace: probe.Namespace, Name: probe.Name}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -82,18 +84,20 @@ func (s *Scheduler) Unregister(name types.NamespacedName) {
 	}
 }
 
-func (s *Scheduler) runProbe(ctx context.Context, probe *syntheticsv1alpha1.HttpProbe) {
+func (s *Scheduler) runProbe(ctx context.Context, probe *syntheticsv1alpha1.HTTPProbe) {
 	interval := probe.Spec.Interval.Duration
 	offset := ProbeOffset(probe.Namespace, probe.Name, interval)
 	timer := time.NewTimer(initialDelay(time.Now(), interval, offset))
 	defer timer.Stop()
+
+	job := newHTTPProbeJob(probe, s.executor)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			s.pool.Enqueue(ctx, probe.DeepCopy())
+			s.pool.Enqueue(ctx, job)
 			timer.Reset(interval)
 		}
 	}

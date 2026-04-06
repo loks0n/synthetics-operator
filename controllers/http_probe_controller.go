@@ -18,7 +18,7 @@ import (
 	internalprobes "github.com/loks0n/synthetics-operator/internal/probes"
 )
 
-type HttpProbeReconciler struct {
+type HTTPProbeReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
 	Scheduler *internalprobes.Scheduler
@@ -26,8 +26,8 @@ type HttpProbeReconciler struct {
 	Clock     func() time.Time
 }
 
-func (r *HttpProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var probe syntheticsv1alpha1.HttpProbe
+func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var probe syntheticsv1alpha1.HTTPProbe
 	if err := r.Get(ctx, req.NamespacedName, &probe); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.Scheduler.Unregister(req.NamespacedName)
@@ -78,13 +78,13 @@ func (r *HttpProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return ctrl.Result{}, nil
 }
 
-func (r *HttpProbeReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *HTTPProbeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&syntheticsv1alpha1.HttpProbe{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&syntheticsv1alpha1.HTTPProbe{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Complete(r)
 }
 
-func statusChanged(before, after *syntheticsv1alpha1.HttpProbe) bool {
+func statusChanged(before, after *syntheticsv1alpha1.HTTPProbe) bool {
 	if before.Status.ObservedGeneration != after.Status.ObservedGeneration {
 		return true
 	}
@@ -102,7 +102,7 @@ func statusChanged(before, after *syntheticsv1alpha1.HttpProbe) bool {
 	return (before.Status.LastRunTime == nil) != (after.Status.LastRunTime == nil)
 }
 
-func setSuspendedCondition(probe *syntheticsv1alpha1.HttpProbe, suspended bool, now metav1.Time) {
+func setSuspendedCondition(probe *syntheticsv1alpha1.HTTPProbe, suspended bool, now metav1.Time) {
 	condition := metav1.Condition{
 		Type:               syntheticsv1alpha1.ConditionSuspended,
 		ObservedGeneration: probe.Generation,

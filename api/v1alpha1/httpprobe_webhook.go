@@ -17,18 +17,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-var _ webhook.CustomDefaulter = &HttpProbe{}
-var _ webhook.CustomValidator = &HttpProbe{}
+var _ webhook.CustomDefaulter = &HTTPProbe{}
+var _ webhook.CustomValidator = &HTTPProbe{}
 
 func SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&HttpProbe{}).
-		WithDefaulter(&HttpProbe{}).
-		WithValidator(&HttpProbe{}).
+		For(&HTTPProbe{}).
+		WithDefaulter(&HTTPProbe{}).
+		WithValidator(&HTTPProbe{}).
 		Complete()
 }
 
-func (h *HttpProbe) Default(ctx context.Context, _ runtime.Object) error {
+func (h *HTTPProbe) Default(ctx context.Context, _ runtime.Object) error {
 	logger := log.FromContext(ctx)
 	if h.Spec.Interval.Duration == 0 {
 		h.Spec.Interval.Duration = 30 * time.Second
@@ -42,23 +42,23 @@ func (h *HttpProbe) Default(ctx context.Context, _ runtime.Object) error {
 	if h.Spec.Assertions.Status == 0 {
 		h.Spec.Assertions.Status = 200
 	}
-	logger.V(1).Info("defaulted HttpProbe", "name", h.Name)
+	logger.V(1).Info("defaulted HTTPProbe", "name", h.Name)
 	return nil
 }
 
-func (h *HttpProbe) ValidateCreate(ctx context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (h *HTTPProbe) ValidateCreate(ctx context.Context, _ runtime.Object) (admission.Warnings, error) {
 	return nil, h.validate()
 }
 
-func (h *HttpProbe) ValidateUpdate(ctx context.Context, _, _ runtime.Object) (admission.Warnings, error) {
+func (h *HTTPProbe) ValidateUpdate(ctx context.Context, _, _ runtime.Object) (admission.Warnings, error) {
 	return nil, h.validate()
 }
 
-func (h *HttpProbe) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
+func (h *HTTPProbe) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
-func (h *HttpProbe) validate() error {
+func (h *HTTPProbe) validate() error {
 	var allErrs field.ErrorList
 
 	if h.Spec.Interval.Duration <= 0 {
@@ -71,8 +71,12 @@ func (h *HttpProbe) validate() error {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "timeout"), h.Spec.Timeout.Duration.String(), "must be less than or equal to interval"))
 	}
 
-	if strings.ToUpper(h.Spec.Request.Method) != "GET" {
-		allErrs = append(allErrs, field.NotSupported(field.NewPath("spec", "request", "method"), h.Spec.Request.Method, []string{"GET"}))
+	method := strings.ToUpper(h.Spec.Request.Method)
+	if method != "GET" && method != "HEAD" {
+		allErrs = append(allErrs, field.NotSupported(field.NewPath("spec", "request", "method"), h.Spec.Request.Method, []string{"GET", "HEAD"}))
+	}
+	if method == "HEAD" && h.Spec.Assertions.Body != nil {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "assertions", "body"), nil, "body assertions cannot be used with HEAD method"))
 	}
 
 	parsedURL, err := url.Parse(h.Spec.Request.URL)
@@ -86,17 +90,29 @@ func (h *HttpProbe) validate() error {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "assertions", "status"), h.Spec.Assertions.Status, "must be a valid HTTP status code"))
 	}
 
+	if h.Spec.Assertions.Latency != nil && h.Spec.Assertions.Latency.MaxMs <= 0 {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "assertions", "latency", "maxMs"), h.Spec.Assertions.Latency.MaxMs, "must be greater than zero"))
+	}
+
+	if h.Spec.Assertions.Body != nil {
+		for i, ja := range h.Spec.Assertions.Body.JSON {
+			if !strings.HasPrefix(ja.Path, "$.") && ja.Path != "$" {
+				allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "assertions", "body", "json").Index(i).Child("path"), ja.Path, "must be a valid JSONPath expression starting with $"))
+			}
+		}
+	}
+
 	if len(allErrs) == 0 {
 		return nil
 	}
 
 	return apierrors.NewInvalid(
-		schema.GroupKind{Group: GroupVersion.Group, Kind: "HttpProbe"},
+		schema.GroupKind{Group: GroupVersion.Group, Kind: "HTTPProbe"},
 		h.Name,
 		allErrs,
 	)
 }
 
-func (h *HttpProbe) String() string {
+func (h *HTTPProbe) String() string {
 	return fmt.Sprintf("%s/%s", h.Namespace, h.Name)
 }

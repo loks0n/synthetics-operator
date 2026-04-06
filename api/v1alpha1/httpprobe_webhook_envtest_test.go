@@ -20,7 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
-func TestHttpProbeWebhookRejectsInvalidMethod(t *testing.T) {
+func TestHTTPProbeWebhookRejectsInvalidMethod(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("KUBEBUILDER_ASSETS not set")
 	}
@@ -81,16 +81,16 @@ func TestHttpProbeWebhookRejectsInvalidMethod(t *testing.T) {
 		t.Fatalf("create namespace: %v", err)
 	}
 
-	probe := &HttpProbe{
+	probe := &HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "invalid-method",
 			Namespace: "default",
 		},
-		Spec: HttpProbeSpec{
+		Spec: HTTPProbeSpec{
 			Interval: metav1.Duration{Duration: 30 * time.Second},
 			Timeout:  metav1.Duration{Duration: 10 * time.Second},
 			Request: HTTPRequestSpec{
-				URL:    "https://example.com/health",
+				URL:    "http://127.0.0.1/health",
 				Method: "POST",
 			},
 			Assertions: HTTPAssertions{Status: 200},

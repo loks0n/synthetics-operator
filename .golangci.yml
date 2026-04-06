@@ -7,18 +7,62 @@ run:
 linters:
   default: standard
   enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - copyloopvar
+    - dupword
+    - durationcheck
     - errname
+    - errorlint
     - exhaustive
+    - exptostd
+    - fatcontext
+    - gocheckcompilerdirectives
     - gomodguard
+    - gomoddirectives
+    - goprintffuncname
+    - intrange
+    - loggercheck
+    - makezero
+    - mirror
+    - misspell
     - modernize
+    - musttag
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - perfsprint
     - predeclared
+    - promlinter
+    - reassign
+    - recvcheck
     - revive
+    - staticcheck
+    - tagliatelle
+    - thelper
+    - unconvert
+    - unparam
+    - usetesting
+    - usestdlibvars
+    - wastedassign
   settings:
     exhaustive:
       check:
         - switch
         - map
       default-signifies-exhaustive: true
+    loggercheck:
+      logr: true
+    tagliatelle:
+      case:
+        rules:
+          json: camel
     gomodguard:
       blocked:
         modules:
@@ -26,15 +70,83 @@ linters:
               reason: Use stdlib errors.Join and fmt.Errorf with %w.
     revive:
       rules:
+        # Naming & style
         - name: blank-imports
-        - name: context-as-argument
-        - name: context-keys-type
+        - name: comment-spacings
+        - name: confusing-naming
+        - name: enforce-repeated-arg-type-style
+          arguments:
+            - "short"
+        - name: error-naming
         - name: error-return
         - name: error-strings
         - name: exported
+        - name: get-return
+        - name: import-alias-naming
         - name: increment-decrement
+        - name: package-naming
+        - name: package-directory-mismatch
+        - name: receiver-naming
+        - name: redundant-import-alias
+        - name: time-naming
+        - name: use-any
         - name: var-declaration
+        - name: var-naming
+        # Logic & control flow
+        - name: bool-literal-in-expr
+        - name: constant-logical-expr
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: early-return
+        - name: errorf
+        - name: identical-branches
+        - name: identical-ifelseif-branches
+        - name: identical-ifelseif-conditions
+        - name: identical-switch-branches
+        - name: identical-switch-conditions
+        - name: if-return
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: unnecessary-if
+        - name: unreachable-code
+        # Bug prevention
+        - name: atomic
+        - name: bare-return
+        - name: call-to-gc
+        - name: datarace
+        - name: defer
+        - name: modifies-value-receiver
+        - name: redefines-builtin-id
+        - name: string-of-int
+        - name: time-equal
+        - name: unconditional-recursion
+        - name: unexported-return
+        - name: waitgroup-by-value
+        # Code quality
+        - name: deep-exit
+        - name: duplicated-imports
+        - name: empty-block
+        - name: empty-lines
+        - name: import-shadowing
+        - name: inefficient-map-lookup
+        - name: range
+        - name: struct-tag
+          arguments:
+            - "json,inline"
+        - name: unnecessary-format
+        - name: unnecessary-stmt
+        - name: useless-break
+        - name: useless-fallthrough
+        # Modern Go (1.21+, 1.25+)
+        - name: forbidden-call-in-wg-go
+        - name: redundant-build-tag
+        - name: redundant-test-main-exit
+        - name: use-fmt-print
+        - name: use-slices-sort
+        - name: use-waitgroup-go
   exclusions:
+    paths:
+      - "zz_generated\\..*\\.go"
     presets:
       - comments
       - common-false-positives

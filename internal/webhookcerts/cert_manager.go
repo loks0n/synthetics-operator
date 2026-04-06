@@ -48,7 +48,7 @@ type Manager struct {
 func NewManager(
 	logger logr.Logger,
 	clientset kubernetes.Interface,
-	namespace, secretName, serviceName, _ string, validatingWebhookConfiguration, mutatingWebhookConfiguration string,
+	namespace, secretName, serviceName, _, validatingWebhookConfiguration, mutatingWebhookConfiguration string,
 ) *Manager {
 	return &Manager{
 		logger:                         logger,
@@ -72,10 +72,7 @@ func (m *Manager) Initialize(ctx context.Context) error {
 	if err := m.loadBundle(bundle); err != nil {
 		return err
 	}
-	if err := m.injectCABundle(ctx, bundle.CACertPEM); err != nil {
-		return err
-	}
-	return nil
+	return m.injectCABundle(ctx, bundle.CACertPEM)
 }
 
 func (m *Manager) Start(ctx context.Context) error {
@@ -360,7 +357,7 @@ func bundleFromSecret(secret *corev1.Secret) (*certBundle, error) {
 
 	block, _ := pem.Decode(servingCertPEM)
 	if block == nil {
-		return nil, fmt.Errorf("failed to decode serving certificate")
+		return nil, errors.New("failed to decode serving certificate")
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {

@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,37 +58,42 @@ func setupEnvtest(t *testing.T) (client.Client, func()) {
 	return k8sClient, func() { _ = testEnv.Stop() }
 }
 
-func newReconciler(t *testing.T, k8sClient client.Client) (*HttpProbeReconciler, *internalprobes.Scheduler) {
+func newReconciler(t *testing.T, k8sClient client.Client) *HTTPProbeReconciler {
 	t.Helper()
 	scheme := k8sClient.Scheme()
 	store, err := internalmetrics.NewStore()
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	scheduler := internalprobes.NewScheduler(logr.Discard(), internalprobes.NewWorkerPool(logr.Discard(), 1, internalprobes.HTTPExecutor{}, store, k8sClient))
+	scheduler := internalprobes.NewScheduler(logr.Discard(), internalprobes.HTTPExecutor{}, internalprobes.NewWorkerPool(logr.Discard(), 1, store, k8sClient))
 	ctx := t.Context()
 	go func() { _ = scheduler.Start(ctx) }()
 
-	return &HttpProbeReconciler{
+	return &HTTPProbeReconciler{
 		Client:    k8sClient,
 		Scheme:    scheme,
 		Scheduler: scheduler,
 		Metrics:   store,
 		Clock:     time.Now,
-	}, scheduler
+	}
 }
 
-func TestHttpProbeReconcileRegistersProbe(t *testing.T) {
+func TestHTTPProbeReconcileRegistersProbe(t *testing.T) {
 	k8sClient, stop := setupEnvtest(t)
 	defer stop()
-	reconciler, _ := newReconciler(t, k8sClient)
+	reconciler := newReconciler(t, k8sClient)
 
-	probe := &syntheticsv1alpha1.HttpProbe{
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "api-health", Namespace: "default"},
-		Spec: syntheticsv1alpha1.HttpProbeSpec{
+		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Interval:   metav1.Duration{Duration: 30 * time.Second},
 			Timeout:    metav1.Duration{Duration: 10 * time.Second},
-			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: "https://example.com", Method: "GET"},
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: "GET"},
 			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: 200},
 		},
 	}
@@ -97,7 +104,7 @@ func TestHttpProbeReconcileRegistersProbe(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	var updated syntheticsv1alpha1.HttpProbe
+	var updated syntheticsv1alpha1.HTTPProbe
 	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(probe), &updated); err != nil {
 		t.Fatalf("get updated probe: %v", err)
 	}
@@ -106,17 +113,22 @@ func TestHttpProbeReconcileRegistersProbe(t *testing.T) {
 	}
 }
 
-func TestHttpProbeReconcileInitializingCondition(t *testing.T) {
+func TestHTTPProbeReconcileInitializingCondition(t *testing.T) {
 	k8sClient, stop := setupEnvtest(t)
 	defer stop()
-	reconciler, _ := newReconciler(t, k8sClient)
+	reconciler := newReconciler(t, k8sClient)
 
-	probe := &syntheticsv1alpha1.HttpProbe{
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "init-probe", Namespace: "default"},
-		Spec: syntheticsv1alpha1.HttpProbeSpec{
+		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Interval:   metav1.Duration{Duration: 30 * time.Second},
 			Timeout:    metav1.Duration{Duration: 10 * time.Second},
-			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: "https://example.com", Method: "GET"},
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: "GET"},
 			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: 200},
 		},
 	}
@@ -127,7 +139,7 @@ func TestHttpProbeReconcileInitializingCondition(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	var updated syntheticsv1alpha1.HttpProbe
+	var updated syntheticsv1alpha1.HTTPProbe
 	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(probe), &updated); err != nil {
 		t.Fatalf("get probe: %v", err)
 	}
@@ -144,18 +156,23 @@ func TestHttpProbeReconcileInitializingCondition(t *testing.T) {
 	}
 }
 
-func TestHttpProbeReconcileSuspend(t *testing.T) {
+func TestHTTPProbeReconcileSuspend(t *testing.T) {
 	k8sClient, stop := setupEnvtest(t)
 	defer stop()
-	reconciler, _ := newReconciler(t, k8sClient)
+	reconciler := newReconciler(t, k8sClient)
 
-	probe := &syntheticsv1alpha1.HttpProbe{
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "suspended-probe", Namespace: "default"},
-		Spec: syntheticsv1alpha1.HttpProbeSpec{
+		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Interval:   metav1.Duration{Duration: 30 * time.Second},
 			Timeout:    metav1.Duration{Duration: 10 * time.Second},
 			Suspend:    true,
-			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: "https://example.com", Method: "GET"},
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: "GET"},
 			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: 200},
 		},
 	}
@@ -166,7 +183,7 @@ func TestHttpProbeReconcileSuspend(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	var updated syntheticsv1alpha1.HttpProbe
+	var updated syntheticsv1alpha1.HTTPProbe
 	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(probe), &updated); err != nil {
 		t.Fatalf("get probe: %v", err)
 	}
@@ -189,10 +206,10 @@ func TestHttpProbeReconcileSuspend(t *testing.T) {
 	}
 }
 
-func TestHttpProbeReconcileNotFound(t *testing.T) {
+func TestHTTPProbeReconcileNotFound(t *testing.T) {
 	k8sClient, stop := setupEnvtest(t)
 	defer stop()
-	reconciler, _ := newReconciler(t, k8sClient)
+	reconciler := newReconciler(t, k8sClient)
 
 	// Reconcile a probe that doesn't exist — should not error
 	key := types.NamespacedName{Namespace: "default", Name: "gone"}

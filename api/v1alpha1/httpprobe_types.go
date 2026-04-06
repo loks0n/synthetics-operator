@@ -23,10 +23,26 @@ type HTTPRequestSpec struct {
 }
 
 type HTTPAssertions struct {
-	Status int `json:"status,omitempty"`
+	Status  int              `json:"status,omitempty"`
+	Latency *LatencyAssertion `json:"latency,omitempty"`
+	Body    *BodyAssertion   `json:"body,omitempty"`
 }
 
-type HttpProbeSpec struct {
+type LatencyAssertion struct {
+	MaxMs int `json:"maxMs"`
+}
+
+type BodyAssertion struct {
+	Contains string          `json:"contains,omitempty"`
+	JSON     []JSONAssertion `json:"json,omitempty"`
+}
+
+type JSONAssertion struct {
+	Path  string `json:"path"`
+	Value string `json:"value"`
+}
+
+type HTTPProbeSpec struct {
 	Interval   metav1.Duration `json:"interval,omitempty"`
 	Timeout    metav1.Duration `json:"timeout,omitempty"`
 	Suspend    bool            `json:"suspend,omitempty"`
@@ -34,7 +50,7 @@ type HttpProbeSpec struct {
 	Assertions HTTPAssertions  `json:"assertions,omitempty"`
 }
 
-type HttpProbeStatus struct {
+type HTTPProbeStatus struct {
 	ObservedGeneration  int64              `json:"observedGeneration,omitempty"`
 	LastRunTime         *metav1.Time       `json:"lastRunTime,omitempty"`
 	LastSuccessTime     *metav1.Time       `json:"lastSuccessTime,omitempty"`
@@ -54,21 +70,21 @@ type ProbeSummary struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=httpprobes,scope=Namespaced,shortName=hp
-type HttpProbe struct {
+type HTTPProbe struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   HttpProbeSpec   `json:"spec,omitempty"`
-	Status HttpProbeStatus `json:"status,omitempty"`
+	Spec   HTTPProbeSpec   `json:"spec,omitempty"`
+	Status HTTPProbeStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
-type HttpProbeList struct {
+type HTTPProbeList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []HttpProbe `json:"items"`
+	Items           []HTTPProbe `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&HttpProbe{}, &HttpProbeList{})
+	SchemeBuilder.Register(&HTTPProbe{}, &HTTPProbeList{})
 }

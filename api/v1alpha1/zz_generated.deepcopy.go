@@ -29,6 +29,16 @@ func (in *HTTPRequestSpec) DeepCopy() *HTTPRequestSpec {
 
 func (in *HTTPAssertions) DeepCopyInto(out *HTTPAssertions) {
 	*out = *in
+	if in.Latency != nil {
+		in, out := &in.Latency, &out.Latency
+		*out = new(LatencyAssertion)
+		**out = **in
+	}
+	if in.Body != nil {
+		in, out := &in.Body, &out.Body
+		*out = new(BodyAssertion)
+		(*in).DeepCopyInto(*out)
+	}
 }
 
 func (in *HTTPAssertions) DeepCopy() *HTTPAssertions {
@@ -40,24 +50,68 @@ func (in *HTTPAssertions) DeepCopy() *HTTPAssertions {
 	return out
 }
 
-func (in *HttpProbeSpec) DeepCopyInto(out *HttpProbeSpec) {
+func (in *LatencyAssertion) DeepCopyInto(out *LatencyAssertion) {
 	*out = *in
-	in.Request.DeepCopyInto(&out.Request)
-	out.Assertions = in.Assertions
-	out.Interval = in.Interval
-	out.Timeout = in.Timeout
 }
 
-func (in *HttpProbeSpec) DeepCopy() *HttpProbeSpec {
+func (in *LatencyAssertion) DeepCopy() *LatencyAssertion {
 	if in == nil {
 		return nil
 	}
-	out := new(HttpProbeSpec)
+	out := new(LatencyAssertion)
 	in.DeepCopyInto(out)
 	return out
 }
 
-func (in *HttpProbeStatus) DeepCopyInto(out *HttpProbeStatus) {
+func (in *BodyAssertion) DeepCopyInto(out *BodyAssertion) {
+	*out = *in
+	if in.JSON != nil {
+		in, out := &in.JSON, &out.JSON
+		*out = make([]JSONAssertion, len(*in))
+		copy(*out, *in)
+	}
+}
+
+func (in *BodyAssertion) DeepCopy() *BodyAssertion {
+	if in == nil {
+		return nil
+	}
+	out := new(BodyAssertion)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *JSONAssertion) DeepCopyInto(out *JSONAssertion) {
+	*out = *in
+}
+
+func (in *JSONAssertion) DeepCopy() *JSONAssertion {
+	if in == nil {
+		return nil
+	}
+	out := new(JSONAssertion)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *HTTPProbeSpec) DeepCopyInto(out *HTTPProbeSpec) {
+	*out = *in
+	in.Request.DeepCopyInto(&out.Request)
+	in.Assertions.DeepCopyInto(&out.Assertions)
+	out.Interval = in.Interval
+	out.Timeout = in.Timeout
+}
+
+func (in *HTTPProbeSpec) DeepCopy() *HTTPProbeSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(HTTPProbeSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *HTTPProbeStatus) DeepCopyInto(out *HTTPProbeStatus) {
 	*out = *in
 	if in.LastRunTime != nil {
 		in, out := &in.LastRunTime, &out.LastRunTime
@@ -98,16 +152,16 @@ func (in *ProbeSummary) DeepCopy() *ProbeSummary {
 	return out
 }
 
-func (in *HttpProbeStatus) DeepCopy() *HttpProbeStatus {
+func (in *HTTPProbeStatus) DeepCopy() *HTTPProbeStatus {
 	if in == nil {
 		return nil
 	}
-	out := new(HttpProbeStatus)
+	out := new(HTTPProbeStatus)
 	in.DeepCopyInto(out)
 	return out
 }
 
-func (in *HttpProbe) DeepCopyInto(out *HttpProbe) {
+func (in *HTTPProbe) DeepCopyInto(out *HTTPProbe) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
@@ -115,45 +169,45 @@ func (in *HttpProbe) DeepCopyInto(out *HttpProbe) {
 	in.Status.DeepCopyInto(&out.Status)
 }
 
-func (in *HttpProbe) DeepCopy() *HttpProbe {
+func (in *HTTPProbe) DeepCopy() *HTTPProbe {
 	if in == nil {
 		return nil
 	}
-	out := new(HttpProbe)
+	out := new(HTTPProbe)
 	in.DeepCopyInto(out)
 	return out
 }
 
-func (in *HttpProbe) DeepCopyObject() runtime.Object {
+func (in *HTTPProbe) DeepCopyObject() runtime.Object {
 	if c := in.DeepCopy(); c != nil {
 		return c
 	}
 	return nil
 }
 
-func (in *HttpProbeList) DeepCopyInto(out *HttpProbeList) {
+func (in *HTTPProbeList) DeepCopyInto(out *HTTPProbeList) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ListMeta.DeepCopyInto(&out.ListMeta)
 	if in.Items != nil {
 		in, out := &in.Items, &out.Items
-		*out = make([]HttpProbe, len(*in))
+		*out = make([]HTTPProbe, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
 }
 
-func (in *HttpProbeList) DeepCopy() *HttpProbeList {
+func (in *HTTPProbeList) DeepCopy() *HTTPProbeList {
 	if in == nil {
 		return nil
 	}
-	out := new(HttpProbeList)
+	out := new(HTTPProbeList)
 	in.DeepCopyInto(out)
 	return out
 }
 
-func (in *HttpProbeList) DeepCopyObject() runtime.Object {
+func (in *HTTPProbeList) DeepCopyObject() runtime.Object {
 	if c := in.DeepCopy(); c != nil {
 		return c
 	}

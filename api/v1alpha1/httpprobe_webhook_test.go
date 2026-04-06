@@ -2,14 +2,15 @@ package v1alpha1
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestHttpProbeDefault(t *testing.T) {
-	probe := &HttpProbe{}
+func TestHTTPProbeDefault(t *testing.T) {
+	probe := &HTTPProbe{}
 	if err := probe.Default(context.Background(), nil); err != nil {
 		t.Fatalf("default failed: %v", err)
 	}
@@ -20,7 +21,7 @@ func TestHttpProbeDefault(t *testing.T) {
 	if probe.Spec.Timeout.Duration != 10*time.Second {
 		t.Fatalf("unexpected timeout: %v", probe.Spec.Timeout.Duration)
 	}
-	if probe.Spec.Request.Method != "GET" {
+	if probe.Spec.Request.Method != http.MethodGet {
 		t.Fatalf("unexpected method: %s", probe.Spec.Request.Method)
 	}
 	if probe.Spec.Assertions.Status != 200 {
@@ -31,9 +32,9 @@ func TestHttpProbeDefault(t *testing.T) {
 	}
 }
 
-func TestHttpProbeDefaultDoesNotOverwrite(t *testing.T) {
-	probe := &HttpProbe{
-		Spec: HttpProbeSpec{
+func TestHTTPProbeDefaultDoesNotOverwrite(t *testing.T) {
+	probe := &HTTPProbe{
+		Spec: HTTPProbeSpec{
 			Interval:   metav1.Duration{Duration: 60 * time.Second},
 			Timeout:    metav1.Duration{Duration: 5 * time.Second},
 			Request:    HTTPRequestSpec{Method: "GET"},
@@ -54,10 +55,10 @@ func TestHttpProbeDefaultDoesNotOverwrite(t *testing.T) {
 	}
 }
 
-func TestHttpProbeValidate(t *testing.T) {
-	probe := &HttpProbe{}
+func TestHTTPProbeValidate(t *testing.T) {
+	probe := &HTTPProbe{}
 	_ = probe.Default(context.Background(), nil)
-	probe.Spec.Request.URL = "https://example.com/health"
+	probe.Spec.Request.URL = "http://127.0.0.1/health"
 
 	if _, err := probe.ValidateCreate(context.Background(), nil); err != nil {
 		t.Fatalf("expected valid probe, got %v", err)
@@ -69,32 +70,32 @@ func TestHttpProbeValidate(t *testing.T) {
 	}
 }
 
-func TestHttpProbeValidateRules(t *testing.T) {
-	validBase := func() *HttpProbe {
-		p := &HttpProbe{}
+func TestHTTPProbeValidateRules(t *testing.T) {
+	validBase := func() *HTTPProbe {
+		p := &HTTPProbe{}
 		_ = p.Default(context.Background(), nil)
-		p.Spec.Request.URL = "https://example.com/health"
+		p.Spec.Request.URL = "http://127.0.0.1/health"
 		return p
 	}
 
 	cases := []struct {
 		name    string
-		mutate  func(*HttpProbe)
+		mutate  func(*HTTPProbe)
 		wantErr bool
 	}{
 		{
 			name:    "zero interval rejected",
-			mutate:  func(p *HttpProbe) { p.Spec.Interval.Duration = 0 },
+			mutate:  func(p *HTTPProbe) { p.Spec.Interval.Duration = 0 },
 			wantErr: true,
 		},
 		{
 			name:    "zero timeout rejected",
-			mutate:  func(p *HttpProbe) { p.Spec.Timeout.Duration = 0 },
+			mutate:  func(p *HTTPProbe) { p.Spec.Timeout.Duration = 0 },
 			wantErr: true,
 		},
 		{
 			name: "timeout greater than interval rejected",
-			mutate: func(p *HttpProbe) {
+			mutate: func(p *HTTPProbe) {
 				p.Spec.Interval.Duration = 5 * time.Second
 				p.Spec.Timeout.Duration = 10 * time.Second
 			},
@@ -102,37 +103,37 @@ func TestHttpProbeValidateRules(t *testing.T) {
 		},
 		{
 			name:    "empty URL rejected",
-			mutate:  func(p *HttpProbe) { p.Spec.Request.URL = "" },
+			mutate:  func(p *HTTPProbe) { p.Spec.Request.URL = "" },
 			wantErr: true,
 		},
 		{
 			name:    "relative URL rejected",
-			mutate:  func(p *HttpProbe) { p.Spec.Request.URL = "/health" },
+			mutate:  func(p *HTTPProbe) { p.Spec.Request.URL = "/health" },
 			wantErr: true,
 		},
 		{
 			name:    "non-http scheme rejected",
-			mutate:  func(p *HttpProbe) { p.Spec.Request.URL = "ftp://example.com" },
+			mutate:  func(p *HTTPProbe) { p.Spec.Request.URL = "ftp://127.0.0.1" },
 			wantErr: true,
 		},
 		{
 			name:    "status code below 100 rejected",
-			mutate:  func(p *HttpProbe) { p.Spec.Assertions.Status = 99 },
+			mutate:  func(p *HTTPProbe) { p.Spec.Assertions.Status = 99 },
 			wantErr: true,
 		},
 		{
 			name:    "status code above 599 rejected",
-			mutate:  func(p *HttpProbe) { p.Spec.Assertions.Status = 600 },
+			mutate:  func(p *HTTPProbe) { p.Spec.Assertions.Status = 600 },
 			wantErr: true,
 		},
 		{
 			name:    "http scheme accepted",
-			mutate:  func(p *HttpProbe) { p.Spec.Request.URL = "http://example.com/health" },
+			mutate:  func(p *HTTPProbe) { p.Spec.Request.URL = "http://127.0.0.1/health" },
 			wantErr: false,
 		},
 		{
 			name:    "status 404 accepted",
-			mutate:  func(p *HttpProbe) { p.Spec.Assertions.Status = 404 },
+			mutate:  func(p *HTTPProbe) { p.Spec.Assertions.Status = 404 },
 			wantErr: false,
 		},
 	}
@@ -152,16 +153,119 @@ func TestHttpProbeValidateRules(t *testing.T) {
 	}
 }
 
-func TestHttpProbeValidateUpdate(t *testing.T) {
-	valid := &HttpProbe{}
+func TestHTTPProbeValidatePhase2Rules(t *testing.T) {
+	validBase := func() *HTTPProbe {
+		p := &HTTPProbe{}
+		_ = p.Default(context.Background(), nil)
+		p.Spec.Request.URL = "http://127.0.0.1/health"
+		return p
+	}
+
+	cases := []struct {
+		name    string
+		mutate  func(*HTTPProbe)
+		wantErr bool
+	}{
+		{
+			name:    "HEAD method accepted",
+			mutate:  func(p *HTTPProbe) { p.Spec.Request.Method = "HEAD" },
+			wantErr: false,
+		},
+		{
+			name:    "POST method rejected",
+			mutate:  func(p *HTTPProbe) { p.Spec.Request.Method = "POST" },
+			wantErr: true,
+		},
+		{
+			name: "valid latency assertion",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions.Latency = &LatencyAssertion{MaxMs: 500}
+			},
+			wantErr: false,
+		},
+		{
+			name: "zero latency maxMs rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions.Latency = &LatencyAssertion{MaxMs: 0}
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative latency maxMs rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions.Latency = &LatencyAssertion{MaxMs: -1}
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid body contains assertion",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions.Body = &BodyAssertion{Contains: "ok"}
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid body json assertion",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions.Body = &BodyAssertion{
+					JSON: []JSONAssertion{{Path: "$.status", Value: "ok"}},
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "body json path without dollar rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions.Body = &BodyAssertion{
+					JSON: []JSONAssertion{{Path: "status", Value: "ok"}},
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "body json path with only dollar accepted",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions.Body = &BodyAssertion{
+					JSON: []JSONAssertion{{Path: "$", Value: "ok"}},
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "body assertions with HEAD rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Request.Method = "HEAD"
+				p.Spec.Assertions.Body = &BodyAssertion{Contains: "ok"}
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := validBase()
+			tc.mutate(p)
+			_, err := p.ValidateCreate(context.Background(), nil)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestHTTPProbeValidateUpdate(t *testing.T) {
+	valid := &HTTPProbe{}
 	_ = valid.Default(context.Background(), nil)
-	valid.Spec.Request.URL = "https://example.com/health"
+	valid.Spec.Request.URL = "http://127.0.0.1/health"
 
 	if _, err := valid.ValidateUpdate(context.Background(), nil, nil); err != nil {
 		t.Fatalf("expected valid update, got %v", err)
 	}
 
-	invalid := &HttpProbe{}
+	invalid := &HTTPProbe{}
 	_ = invalid.Default(context.Background(), nil)
 	invalid.Spec.Request.URL = "not-a-url"
 	if _, err := invalid.ValidateUpdate(context.Background(), nil, nil); err == nil {

@@ -15,12 +15,19 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+type AssertionResult struct {
+	Type   string
+	Name   string
+	Passed float64
+}
+
 type ProbeState struct {
 	Success              float64
 	DurationMilliseconds float64
 	ConsecutiveFailures  float64
 	LastRunTimestamp     float64
 	ConfigError          float64
+	AssertionResults     []AssertionResult
 }
 
 type Store struct {
@@ -67,6 +74,10 @@ func NewStore() (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	assertionPassedGauge, err := meter.Float64ObservableGauge("synthetics_probe_assertion_passed")
+	if err != nil {
+		return nil, err
+	}
 
 	_, err = meter.RegisterCallback(func(_ context.Context, observer apimetric.Observer) error {
 		store.mu.RLock()
@@ -75,16 +86,23 @@ func NewStore() (*Store, error) {
 			attrs := []attribute.KeyValue{
 				attribute.String("name", name.Name),
 				attribute.String("namespace", name.Namespace),
-				attribute.String("kind", "HttpProbe"),
+				attribute.String("kind", "HTTPProbe"),
 			}
 			observer.ObserveFloat64(successGauge, state.Success, apimetric.WithAttributes(attrs...))
 			observer.ObserveFloat64(durationGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
 			observer.ObserveFloat64(failuresGauge, state.ConsecutiveFailures, apimetric.WithAttributes(attrs...))
 			observer.ObserveFloat64(lastRunGauge, state.LastRunTimestamp, apimetric.WithAttributes(attrs...))
 			observer.ObserveFloat64(configErrorGauge, state.ConfigError, apimetric.WithAttributes(attrs...))
+			for _, ar := range state.AssertionResults {
+				assertionAttrs := append(attrs,
+					attribute.String("assertion_type", ar.Type),
+					attribute.String("assertion_name", ar.Name),
+				)
+				observer.ObserveFloat64(assertionPassedGauge, ar.Passed, apimetric.WithAttributes(assertionAttrs...))
+			}
 		}
 		return nil
-	}, successGauge, durationGauge, failuresGauge, lastRunGauge, configErrorGauge)
+	}, successGauge, durationGauge, failuresGauge, lastRunGauge, configErrorGauge, assertionPassedGauge)
 	if err != nil {
 		return nil, err
 	}

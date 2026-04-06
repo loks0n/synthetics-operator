@@ -4,17 +4,18 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -54,7 +55,9 @@ func main() {
 	flag.StringVar(&mutatingWebhookConfiguration, "mutating-webhook-configuration", "synthetics-operator-mutating-webhook-configuration", "MutatingWebhookConfiguration name to inject with the CA bundle.")
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
+	ctrl.SetLogger(logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
 
 	cfg := ctrl.GetConfigOrDie()
 	clientset, err := kubernetes.NewForConfig(cfg)
@@ -107,7 +110,7 @@ func main() {
 	}
 
 	if err := syntheticsv1alpha1.SetupWebhookWithManager(mgr); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to create webhook", "webhook", "HttpProbe")
+		ctrl.Log.WithName("setup").Error(err, "unable to create webhook", "webhook", "HTTPProbe")
 		os.Exit(1)
 	}
 
@@ -123,10 +126,10 @@ func main() {
 
 	scheduler := internalprobes.NewScheduler(
 		ctrl.Log.WithName("scheduler"),
+		internalprobes.HTTPExecutor{},
 		internalprobes.NewWorkerPool(
 			ctrl.Log.WithName("workers"),
 			probeConcurrency,
-			internalprobes.HTTPExecutor{},
 			store,
 			mgr.GetClient(),
 		),
@@ -136,7 +139,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	reconciler := &controllers.HttpProbeReconciler{
+	reconciler := &controllers.HTTPProbeReconciler{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		Scheduler: scheduler,
@@ -144,7 +147,7 @@ func main() {
 		Clock:     time.Now,
 	}
 	if err := reconciler.SetupWithManager(mgr); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to create controller", "controller", "HttpProbe")
+		ctrl.Log.WithName("setup").Error(err, "unable to create controller", "controller", "HTTPProbe")
 		os.Exit(1)
 	}
 
