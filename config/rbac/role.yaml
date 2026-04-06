@@ -10,7 +10,7 @@ rules:
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: ["synthetics.dev"]
-    resources: ["httpprobes", "httpprobes/status"]
+    resources: ["httpprobes", "httpprobes/status", "dnsprobes", "dnsprobes/status"]
     verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]

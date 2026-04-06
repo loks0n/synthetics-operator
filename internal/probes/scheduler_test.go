@@ -49,7 +49,7 @@ func TestInitialDelayWithinInterval(t *testing.T) {
 
 func TestSchedulerRegisterBeforeStartDropsProbe(t *testing.T) {
 	pool := NewWorkerPool(logr.Discard(), 1, nil)
-	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool)
+	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool, DNSExecutor{})
 
 	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
@@ -68,7 +68,7 @@ func TestSchedulerRegisterBeforeStartDropsProbe(t *testing.T) {
 
 func TestSchedulerUnregisterRemovesProbe(t *testing.T) {
 	pool := NewWorkerPool(logr.Discard(), 1, nil)
-	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool)
+	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool, DNSExecutor{})
 
 	ctx := t.Context()
 	go func() { _ = s.Start(ctx) }()
@@ -92,7 +92,7 @@ func TestSchedulerUnregisterRemovesProbe(t *testing.T) {
 
 func TestSchedulerReRegisterReplacesExisting(t *testing.T) {
 	pool := NewWorkerPool(logr.Discard(), 1, nil)
-	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool)
+	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool, DNSExecutor{})
 
 	ctx := t.Context()
 	go func() { _ = s.Start(ctx) }()

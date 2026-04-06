@@ -114,6 +114,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := syntheticsv1alpha1.SetupDNSWebhookWithManager(mgr); err != nil {
+		ctrl.Log.WithName("setup").Error(err, "unable to create webhook", "webhook", "DNSProbe")
+		os.Exit(1)
+	}
+
 	if err := mgr.Add(store.Server(metricsAddr)); err != nil {
 		ctrl.Log.WithName("setup").Error(err, "unable to add metrics server")
 		os.Exit(1)
@@ -132,6 +137,7 @@ func main() {
 			probeConcurrency,
 			store,
 		),
+		internalprobes.DNSExecutor{},
 	)
 	if err := mgr.Add(scheduler); err != nil {
 		ctrl.Log.WithName("setup").Error(err, "unable to add scheduler")
@@ -147,6 +153,18 @@ func main() {
 	}
 	if err := reconciler.SetupWithManager(mgr); err != nil {
 		ctrl.Log.WithName("setup").Error(err, "unable to create controller", "controller", "HTTPProbe")
+		os.Exit(1)
+	}
+
+	dnsReconciler := &controllers.DNSProbeReconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Scheduler: scheduler,
+		Metrics:   store,
+		Clock:     time.Now,
+	}
+	if err := dnsReconciler.SetupWithManager(mgr); err != nil {
+		ctrl.Log.WithName("setup").Error(err, "unable to create controller", "controller", "DNSProbe")
 		os.Exit(1)
 	}
 

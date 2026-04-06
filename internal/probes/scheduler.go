@@ -14,25 +14,27 @@ import (
 )
 
 type Scheduler struct {
-	logger   logr.Logger
-	executor Executor
-	pool     *WorkerPool
-	mu       sync.Mutex
-	probes   map[types.NamespacedName]*scheduledProbe
-	started  bool
-	startCtx context.Context
+	logger      logr.Logger
+	executor    Executor
+	dnsExecutor DNSExecutor
+	pool        *WorkerPool
+	mu          sync.Mutex
+	probes      map[types.NamespacedName]*scheduledProbe
+	started     bool
+	startCtx    context.Context
 }
 
 type scheduledProbe struct {
 	stop chan struct{}
 }
 
-func NewScheduler(logger logr.Logger, executor Executor, pool *WorkerPool) *Scheduler {
+func NewScheduler(logger logr.Logger, executor Executor, pool *WorkerPool, dnsExecutor DNSExecutor) *Scheduler {
 	return &Scheduler{
-		logger:   logger,
-		executor: executor,
-		pool:     pool,
-		probes:   make(map[types.NamespacedName]*scheduledProbe),
+		logger:      logger,
+		executor:    executor,
+		dnsExecutor: dnsExecutor,
+		pool:        pool,
+		probes:      make(map[types.NamespacedName]*scheduledProbe),
 	}
 }
 
@@ -81,6 +83,43 @@ func (s *Scheduler) Unregister(name types.NamespacedName) {
 	if scheduled, ok := s.probes[name]; ok {
 		close(scheduled.stop)
 		delete(s.probes, name)
+	}
+}
+
+func (s *Scheduler) RegisterDNS(probe *syntheticsv1alpha1.DNSProbe) {
+	name := types.NamespacedName{Namespace: probe.Namespace, Name: probe.Name}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if scheduled, ok := s.probes[name]; ok {
+		close(scheduled.stop)
+		delete(s.probes, name)
+	}
+	if !s.started {
+		return
+	}
+
+	scheduled := &scheduledProbe{stop: make(chan struct{})}
+	s.probes[name] = scheduled
+	go s.runDNSProbe(newStopContext(s.startCtx, scheduled.stop), probe.DeepCopy())
+}
+
+func (s *Scheduler) runDNSProbe(ctx context.Context, probe *syntheticsv1alpha1.DNSProbe) {
+	interval := probe.Spec.Interval.Duration
+	offset := ProbeOffset(probe.Namespace, probe.Name, interval)
+	timer := time.NewTimer(initialDelay(time.Now(), interval, offset))
+	defer timer.Stop()
+
+	job := newDNSProbeJob(probe, s.dnsExecutor)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			s.pool.Enqueue(ctx, job)
+			timer.Reset(interval)
+		}
 	}
 }
 

@@ -100,6 +100,11 @@ func (in *HTTPProbeSpec) DeepCopyInto(out *HTTPProbeSpec) {
 	in.Assertions.DeepCopyInto(&out.Assertions)
 	out.Interval = in.Interval
 	out.Timeout = in.Timeout
+	if in.TLS != nil {
+		in, out := &in.TLS, &out.TLS
+		*out = new(TLSConfig)
+		**out = **in
+	}
 }
 
 func (in *HTTPProbeSpec) DeepCopy() *HTTPProbeSpec {
@@ -208,6 +213,124 @@ func (in *HTTPProbeList) DeepCopy() *HTTPProbeList {
 }
 
 func (in *HTTPProbeList) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+// DNS types
+
+func (in *DNSQuery) DeepCopyInto(out *DNSQuery) {
+	*out = *in
+}
+
+func (in *DNSQuery) DeepCopy() *DNSQuery {
+	if in == nil {
+		return nil
+	}
+	out := new(DNSQuery)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *DNSAssertions) DeepCopyInto(out *DNSAssertions) {
+	*out = *in
+}
+
+func (in *DNSAssertions) DeepCopy() *DNSAssertions {
+	if in == nil {
+		return nil
+	}
+	out := new(DNSAssertions)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *DNSProbeSpec) DeepCopyInto(out *DNSProbeSpec) {
+	*out = *in
+	out.Interval = in.Interval
+	out.Timeout = in.Timeout
+	out.Query = in.Query
+	out.Assertions = in.Assertions
+}
+
+func (in *DNSProbeSpec) DeepCopy() *DNSProbeSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(DNSProbeSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *DNSProbeStatus) DeepCopyInto(out *DNSProbeStatus) {
+	*out = *in
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]metav1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+func (in *DNSProbeStatus) DeepCopy() *DNSProbeStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(DNSProbeStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *DNSProbe) DeepCopyInto(out *DNSProbe) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.Spec.DeepCopyInto(&out.Spec)
+	in.Status.DeepCopyInto(&out.Status)
+}
+
+func (in *DNSProbe) DeepCopy() *DNSProbe {
+	if in == nil {
+		return nil
+	}
+	out := new(DNSProbe)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *DNSProbe) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+func (in *DNSProbeList) DeepCopyInto(out *DNSProbeList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]DNSProbe, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+func (in *DNSProbeList) DeepCopy() *DNSProbeList {
+	if in == nil {
+		return nil
+	}
+	out := new(DNSProbeList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *DNSProbeList) DeepCopyObject() runtime.Object {
 	if c := in.DeepCopy(); c != nil {
 		return c
 	}

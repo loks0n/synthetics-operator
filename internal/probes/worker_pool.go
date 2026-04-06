@@ -268,6 +268,7 @@ func resultToProbeState(r Result) internalmetrics.ProbeState {
 		}
 	}
 	state := internalmetrics.ProbeState{
+		Kind:                 "HTTPProbe",
 		Success:              boolToFloat(r.Success && !r.ConfigError),
 		DurationMilliseconds: float64(r.Duration.Milliseconds()),
 		LastRunTimestamp:     float64(r.Completed.Unix()),
