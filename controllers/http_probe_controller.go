@@ -48,10 +48,7 @@ func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	probe.Status.ObservedGeneration = probe.Generation
 	setSuspendedCondition(&probe, probe.Spec.Suspend, now)
-	if probe.Status.LastRunTime == nil {
-		probe.Status.Summary = &syntheticsv1alpha1.ProbeSummary{
-			Message: "probe registered and waiting for first execution",
-		}
+	if len(probe.Status.Conditions) == 0 {
 		apimeta.SetStatusCondition(&probe.Status.Conditions, metav1.Condition{
 			Type:               syntheticsv1alpha1.ConditionReady,
 			Status:             metav1.ConditionUnknown,
@@ -88,9 +85,6 @@ func statusChanged(before, after *syntheticsv1alpha1.HTTPProbe) bool {
 	if before.Status.ObservedGeneration != after.Status.ObservedGeneration {
 		return true
 	}
-	if before.Status.ConsecutiveFailures != after.Status.ConsecutiveFailures {
-		return true
-	}
 	if len(before.Status.Conditions) != len(after.Status.Conditions) {
 		return true
 	}
@@ -99,7 +93,7 @@ func statusChanged(before, after *syntheticsv1alpha1.HTTPProbe) bool {
 			return true
 		}
 	}
-	return (before.Status.LastRunTime == nil) != (after.Status.LastRunTime == nil)
+	return false
 }
 
 func setSuspendedCondition(probe *syntheticsv1alpha1.HTTPProbe, suspended bool, now metav1.Time) {

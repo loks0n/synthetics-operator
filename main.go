@@ -131,7 +131,6 @@ func main() {
 			ctrl.Log.WithName("workers"),
 			probeConcurrency,
 			store,
-			mgr.GetClient(),
 		),
 	)
 	if err := mgr.Add(scheduler); err != nil {

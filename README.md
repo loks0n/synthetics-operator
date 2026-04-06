@@ -424,6 +424,8 @@ Phase 1 execution path is deliberately direct:
 HttpProbe CRD → reconcile into in-memory schedule → worker pool executes HTTP GET → OTel instruments updated in process → /metrics
 ```
 
+The worker pool never writes back to the Kubernetes API. Probe results update the in-memory metrics store only. CR status is written exclusively by the reconciler, and only on spec changes (`GenerationChangedPredicate`). This keeps API server write load proportional to the rate of configuration changes, not the rate of probe executions.
+
 Deferred from Phase 1:
 
 - NATS work queue and result stream
@@ -515,7 +517,7 @@ A troubleshooting section in the docs covers the common case: "if your K6Test ne
 
 ### 4.5 Result ingestion
 
-In Phase 1 there is no result transport layer. The in-process HttpProbe worker updates OTel instruments directly after each run and the same process exposes `/metrics`.
+In Phase 1 there is no result transport layer. The in-process HttpProbe worker updates OTel instruments directly after each run and the same process exposes `/metrics`. Results never flow back to the Kubernetes API — the CR is a config object, not a live status board. Runtime state (success, duration, consecutive failures, cert expiry) lives in the metrics store and is visible via Prometheus.
 
 NATS-backed result ingestion is introduced later for CronJob-backed runners and independent scaling:
 
@@ -572,15 +574,15 @@ The sidecar authenticates to NATS using its pod ServiceAccount token. NATS is co
 
 `Ready` reasons:
 
-| Reason | Set when |
-|--------|----------|
-| `ProbeSucceeded` | Last run passed all assertions |
-| `ProbeFailed` | Last run failed assertions or timed out |
-| `JobCreationFailed` | CronJob pod rejected by quota/LimitRange/admission webhook |
-| `ConfigError` | Probe spec is invalid (bad URL, unreachable resolver) |
-| `Initializing` | Probe registered, first run not yet complete |
+| Reason | Set when | Set by |
+|--------|----------|--------|
+| `Initializing` | Probe registered, first run not yet complete | Reconciler (on spec change) |
+| `JobCreationFailed` | CronJob pod rejected by quota/LimitRange/admission webhook | Reconciler (on Job watch) |
+| `ConfigError` | Probe spec is invalid (bad URL, unreachable resolver) | Reconciler (on Job watch) — future |
+| `ProbeSucceeded` | Last run passed all assertions | Future (status writes deferred) |
+| `ProbeFailed` | Last run failed assertions or timed out | Future (status writes deferred) |
 
-Status conditions are updated by the controller's Job watch — not the result stream — so they remain accurate even if a result message is lost.
+For HttpProbe and DnsProbe, `Ready` transitions to `ProbeSucceeded`/`ProbeFailed` are deferred. Runtime pass/fail state is available via `synthetics_probe_success` and `synthetics_consecutive_failures` metrics, which update on every run without touching the Kubernetes API. This keeps API server write load proportional to configuration changes, not probe execution frequency.
 
 **Crash handling:**
 
@@ -1153,7 +1155,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | CI cadence | `gofmt`, `go vet`, unit tests, envtest, and Helm lint/render run on every PR. A kind smoke install runs on pushes to `main` and on demand. A nightly kind matrix covers currently-supported bootstrap versions and can expand as the project adds more phases. |
 | Multi-version testing | The nightly kind matrix currently covers Kubernetes 1.33 and 1.34 for the Phase 1 HttpProbe path. Expand the matrix as later phases add CronJob runners and more version-sensitive behaviour. |
 | CRD graduation | `v1alpha1` initially. Graduation to `v1beta1` and `v1` driven by schema stability and adoption, with conversion webhooks at each transition. |
-| Idiomatic status schema | All CRDs expose `observedGeneration`, two stable condition types (`Ready`, `Suspended`), first-class `lastRunTime`/`lastSuccessTime`/`lastFailureTime`/`consecutiveFailures`, and a normalized `summary` block. Job rejection surfaces as `Ready=False` with `reason: JobCreationFailed` — a reason, not a separate condition type. Status is a clean operator-owned API; the run artifact (ConfigMap) is the transport layer. |
+| Status writes scoped to config changes | For HttpProbe/DnsProbe, the reconciler writes status only on spec changes (`GenerationChangedPredicate`): `observedGeneration`, `Suspended` condition, and the initial `Ready=Initializing` condition. The worker pool never patches the CR — runtime state (pass/fail, duration, consecutive failures) lives exclusively in the metrics store. This keeps API server write load proportional to configuration changes, not probe execution frequency. `lastRunTime`/`consecutiveFailures` in the CR schema are reserved for a future decision on when/whether to surface per-run state in kubectl output. |
 | NetworkPolicy (opt-in) | Helm chart ships per-deployment opt-in NetworkPolicies. NATS client port `:4222` restricted to operator + runner namespaces. Metrics `:8080` restricted to monitoring namespace. Webhook `:9443` open to API server. Disabled by default — not every cluster has an enforcing CNI. |
 | Cert reload via atomic pointer | Webhook `tls.Config` uses `GetCertificate` reading from `atomic.Pointer[tls.Certificate]`. Leader rotates and writes Secret; all replicas reload via Secret informer `OnUpdate`. No fsnotify, no polling, no restart. Startup re-injects `caBundle` if it diverges from Secret CA (self-heals after crashed rotation). |
 

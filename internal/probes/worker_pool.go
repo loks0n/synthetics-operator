@@ -2,6 +2,8 @@ package probes
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,11 +16,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
 	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
@@ -48,6 +46,7 @@ type Result struct {
 	Completed        time.Time
 	Message          string
 	AssertionResults []AssertionResult
+	CertExpiryTime   *time.Time
 }
 
 func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTTPProbe) Result {
@@ -62,7 +61,12 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(probe.Spec.Request.Method), probe.Spec.Request.URL, nil)
+	var bodyReader io.Reader
+	if probe.Spec.Request.Body != "" {
+		bodyReader = strings.NewReader(probe.Spec.Request.Body)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(probe.Spec.Request.Method), probe.Spec.Request.URL, bodyReader)
 	if err != nil {
 		return Result{
 			ConfigError: true,
@@ -76,6 +80,18 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 	}
 
 	httpClient := e.Client
+	if probe.Spec.TLS != nil {
+		tlsClient, tlsErr := e.buildTLSClient(probe)
+		if tlsErr != nil {
+			return Result{
+				ConfigError: true,
+				Completed:   time.Now(),
+				Duration:    time.Since(start),
+				Message:     fmt.Sprintf("build TLS client: %v", tlsErr),
+			}
+		}
+		httpClient = tlsClient
+	}
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -94,6 +110,12 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	duration := time.Since(start)
+
+	var certExpiry *time.Time
+	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
+		t := resp.TLS.PeerCertificates[0].NotAfter
+		certExpiry = &t
+	}
 
 	var assertions []AssertionResult
 	var failMessages []string
@@ -146,7 +168,27 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 		Duration:         duration,
 		Message:          message,
 		AssertionResults: assertions,
+		CertExpiryTime:   certExpiry,
 	}
+}
+
+// buildTLSClient constructs an *http.Client configured from the probe's TLS spec.
+func (e HTTPExecutor) buildTLSClient(probe *syntheticsv1alpha1.HTTPProbe) (*http.Client, error) {
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: probe.Spec.TLS.InsecureSkipVerify,
+	}
+
+	if probe.Spec.TLS.CACert != "" {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM([]byte(probe.Spec.TLS.CACert)) {
+			return nil, errors.New("tls.caCert contains no valid PEM certificates")
+		}
+		tlsCfg.RootCAs = pool
+	}
+
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.TLSClientConfig = tlsCfg
+	return &http.Client{Transport: base}, nil
 }
 
 // evalJSONPath evaluates a simple JSONPath expression against JSON bytes.
@@ -201,101 +243,41 @@ func evalJSONPath(body []byte, path string) (string, error) {
 }
 
 // probeJob is the unit the WorkerPool queue carries. It contains everything
-// needed to execute a probe and record results without the WorkerPool knowing
+// needed to execute a probe and record metrics without the WorkerPool knowing
 // about any specific CRD type. Future probe types (DnsProbe, K6Test) each
 // produce their own probeJob via a type-specific constructor.
 type probeJob struct {
 	key     types.NamespacedName
 	timeout time.Duration
-	// run executes the probe and returns a jobResult ready for the retry loop.
-	run func(ctx context.Context) jobResult
+	// run executes the probe and returns the resulting metrics state.
+	// ConsecutiveFailures is intentionally left at zero; runProbe fills it in
+	// from the previous store snapshot so the worker pool needs no k8s client.
+	run func(ctx context.Context) internalmetrics.ProbeState
 }
 
-// jobResult captures the execution output and knows how to apply it to the
-// live k8s object. Produced by probeJob.run; consumed inside runProbe's
-// retry.RetryOnConflict closure.
-type jobResult struct {
-	// newObject returns a fresh zero-value instance of the probe's CRD type
-	// for use as the target of client.Get inside the retry loop.
-	newObject func() client.Object
-	// applyStatus mutates the live object in-place (setting status fields,
-	// conditions, consecutive-failure counter) and returns the metrics state
-	// to record. Called inside retry.RetryOnConflict; must be idempotent when
-	// given the same live object.
-	applyStatus func(client.Object) internalmetrics.ProbeState
-}
-
-// httpProbeApplier applies an HTTP probe Result to a live HTTPProbe k8s object.
-// It is the HTTPProbe-specific half of the probe/metrics translation that was
-// previously embedded in runProbe.
-type httpProbeApplier struct {
-	result Result
-}
-
-func (a *httpProbeApplier) apply(obj client.Object) internalmetrics.ProbeState {
-	current := obj.(*syntheticsv1alpha1.HTTPProbe)
-	now := metav1.NewTime(a.result.Completed)
-
-	current.Status.ObservedGeneration = current.Generation
-	current.Status.LastRunTime = &now
-	current.Status.Summary = &syntheticsv1alpha1.ProbeSummary{
-		Success:     a.result.Success && !a.result.ConfigError,
-		ConfigError: a.result.ConfigError,
-		StatusCode:  a.result.StatusCode,
-		Message:     a.result.Message,
-	}
-
-	switch {
-	case a.result.Success && !a.result.ConfigError:
-		current.Status.ConsecutiveFailures = 0
-		current.Status.LastSuccessTime = &now
-		apimeta.SetStatusCondition(&current.Status.Conditions, metav1.Condition{
-			Type:               syntheticsv1alpha1.ConditionReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             syntheticsv1alpha1.ReasonProbeSucceeded,
-			Message:            a.result.Message,
-			LastTransitionTime: now,
-			ObservedGeneration: current.Generation,
-		})
-	case a.result.ConfigError:
-		apimeta.SetStatusCondition(&current.Status.Conditions, metav1.Condition{
-			Type:               syntheticsv1alpha1.ConditionReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             syntheticsv1alpha1.ReasonConfigError,
-			Message:            a.result.Message,
-			LastTransitionTime: now,
-			ObservedGeneration: current.Generation,
-		})
-	default:
-		current.Status.ConsecutiveFailures++
-		current.Status.LastFailureTime = &now
-		apimeta.SetStatusCondition(&current.Status.Conditions, metav1.Condition{
-			Type:               syntheticsv1alpha1.ConditionReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             syntheticsv1alpha1.ReasonProbeFailed,
-			Message:            a.result.Message,
-			LastTransitionTime: now,
-			ObservedGeneration: current.Generation,
-		})
-	}
-
-	assertionResults := make([]internalmetrics.AssertionResult, len(a.result.AssertionResults))
-	for i, ar := range a.result.AssertionResults {
+// resultToProbeState converts an HTTP probe Result into a ProbeState suitable
+// for the metrics store. ConsecutiveFailures is not computed here — it depends
+// on previous state and is filled in by runProbe.
+func resultToProbeState(r Result) internalmetrics.ProbeState {
+	assertionResults := make([]internalmetrics.AssertionResult, len(r.AssertionResults))
+	for i, ar := range r.AssertionResults {
 		assertionResults[i] = internalmetrics.AssertionResult{
 			Type:   ar.Type,
 			Name:   ar.Name,
 			Passed: boolToFloat(ar.Passed),
 		}
 	}
-
-	return internalmetrics.ProbeState{
-		Success:              boolToFloat(a.result.Success && !a.result.ConfigError),
-		DurationMilliseconds: float64(a.result.Duration.Milliseconds()),
-		LastRunTimestamp:     float64(a.result.Completed.Unix()),
-		ConfigError:          boolToFloat(a.result.ConfigError),
-		ConsecutiveFailures:  float64(current.Status.ConsecutiveFailures),
+	state := internalmetrics.ProbeState{
+		Success:              boolToFloat(r.Success && !r.ConfigError),
+		DurationMilliseconds: float64(r.Duration.Milliseconds()),
+		LastRunTimestamp:     float64(r.Completed.Unix()),
+		ConfigError:          boolToFloat(r.ConfigError),
 		AssertionResults:     assertionResults,
 	}
+	if r.CertExpiryTime != nil {
+		state.TLSCertExpiry = float64(r.CertExpiryTime.Unix())
+	}
+	return state
 }
 
 // newHTTPProbeJob constructs a probeJob for an HTTPProbe. This is the only
@@ -304,28 +286,24 @@ func newHTTPProbeJob(probe *syntheticsv1alpha1.HTTPProbe, exec Executor) probeJo
 	return probeJob{
 		key:     types.NamespacedName{Namespace: probe.Namespace, Name: probe.Name},
 		timeout: probe.Spec.Timeout.Duration,
-		run: func(ctx context.Context) jobResult {
-			result := exec.Execute(ctx, probe)
-			applier := &httpProbeApplier{result: result}
-			return jobResult{
-				newObject:   func() client.Object { return &syntheticsv1alpha1.HTTPProbe{} },
-				applyStatus: applier.apply,
-			}
+		run: func(ctx context.Context) internalmetrics.ProbeState {
+			return resultToProbeState(exec.Execute(ctx, probe))
 		},
 	}
 }
 
 // WorkerPool executes probeJobs concurrently. It has no knowledge of any
 // specific CRD type; all probe-type-specific logic lives in the probeJob.
+// The pool never writes to the Kubernetes API — all results flow into the
+// in-memory metrics store only.
 type WorkerPool struct {
 	logger  logr.Logger
 	queue   chan probeJob
 	metrics *internalmetrics.Store
-	client  client.Client
 	once    sync.Once
 }
 
-func NewWorkerPool(logger logr.Logger, concurrency int, metrics *internalmetrics.Store, kubeClient client.Client) *WorkerPool {
+func NewWorkerPool(logger logr.Logger, concurrency int, metrics *internalmetrics.Store) *WorkerPool {
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -333,7 +311,6 @@ func NewWorkerPool(logger logr.Logger, concurrency int, metrics *internalmetrics
 		logger:  logger,
 		queue:   make(chan probeJob, concurrency*16),
 		metrics: metrics,
-		client:  kubeClient,
 	}
 }
 
@@ -373,18 +350,19 @@ func (p *WorkerPool) runProbe(ctx context.Context, job probeJob) {
 	runCtx, cancel := context.WithTimeout(ctx, job.timeout)
 	defer cancel()
 
-	res := job.run(runCtx)
+	state := job.run(runCtx)
 
-	_ = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		current := res.newObject()
-		if err := p.client.Get(ctx, job.key, current); err != nil {
-			return client.IgnoreNotFound(err)
-		}
-		original := current.DeepCopyObject().(client.Object)
-		state := res.applyStatus(current)
-		p.metrics.Upsert(job.key, state)
-		return p.client.Status().Patch(ctx, current, client.MergeFrom(original))
-	})
+	prev, _ := p.metrics.Snapshot(job.key)
+	switch {
+	case state.Success == 1:
+		state.ConsecutiveFailures = 0
+	case state.ConfigError == 1:
+		state.ConsecutiveFailures = prev.ConsecutiveFailures
+	default:
+		state.ConsecutiveFailures = prev.ConsecutiveFailures + 1
+	}
+
+	p.metrics.Upsert(job.key, state)
 }
 
 func boolToFloat(v bool) float64 {

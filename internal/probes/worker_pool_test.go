@@ -2,6 +2,9 @@ package probes
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,10 +12,7 @@ import (
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
 	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
@@ -153,6 +153,168 @@ func TestHTTPExecutorSendsHeaders(t *testing.T) {
 
 	if received != "hello" {
 		t.Fatalf("expected header value 'hello', got %q", received)
+	}
+}
+
+func TestHTTPExecutorPOSTSendsBody(t *testing.T) {
+	var receivedBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		b, _ := io.ReadAll(r.Body)
+		receivedBody = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+		Spec: syntheticsv1alpha1.HTTPProbeSpec{
+			Request: syntheticsv1alpha1.HTTPRequestSpec{
+				URL:    server.URL,
+				Method: http.MethodPost,
+				Body:   `{"hello":"world"}`,
+			},
+			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: http.StatusOK},
+			Timeout:    metav1.Duration{Duration: time.Second},
+		},
+	})
+
+	if !result.Success {
+		t.Fatalf("expected success, got %+v", result)
+	}
+	if receivedBody != `{"hello":"world"}` {
+		t.Fatalf("expected body %q, got %q", `{"hello":"world"}`, receivedBody)
+	}
+}
+
+func TestHTTPExecutorTLSInsecureSkipVerify(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+		Spec: syntheticsv1alpha1.HTTPProbeSpec{
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
+			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: http.StatusOK},
+			Timeout:    metav1.Duration{Duration: time.Second},
+			TLS:        &syntheticsv1alpha1.TLSConfig{InsecureSkipVerify: true},
+		},
+	})
+
+	if !result.Success {
+		t.Fatalf("expected success with insecureSkipVerify, got %+v", result)
+	}
+}
+
+func TestHTTPExecutorTLSFailsWithoutConfig(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+		Spec: syntheticsv1alpha1.HTTPProbeSpec{
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
+			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: http.StatusOK},
+			Timeout:    metav1.Duration{Duration: time.Second},
+		},
+	})
+
+	if result.Success {
+		t.Fatal("expected TLS failure against self-signed cert with no TLS config")
+	}
+	if result.ConfigError {
+		t.Fatal("TLS verification failure is not a config error")
+	}
+}
+
+func TestHTTPExecutorTLSCustomCA(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	leaf, err := x509.ParseCertificate(server.TLS.Certificates[0].Certificate[0])
+	if err != nil {
+		t.Fatalf("parse server cert: %v", err)
+	}
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})
+
+	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+		Spec: syntheticsv1alpha1.HTTPProbeSpec{
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
+			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: http.StatusOK},
+			Timeout:    metav1.Duration{Duration: time.Second},
+			TLS:        &syntheticsv1alpha1.TLSConfig{CACert: string(caPEM)},
+		},
+	})
+
+	if !result.Success {
+		t.Fatalf("expected success with custom CA cert, got %+v", result)
+	}
+}
+
+func TestHTTPExecutorTLSCertExpiryPopulated(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+		Spec: syntheticsv1alpha1.HTTPProbeSpec{
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
+			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: http.StatusOK},
+			Timeout:    metav1.Duration{Duration: time.Second},
+			TLS:        &syntheticsv1alpha1.TLSConfig{InsecureSkipVerify: true},
+		},
+	})
+
+	if result.CertExpiryTime == nil {
+		t.Fatal("expected CertExpiryTime to be set for HTTPS probe")
+	}
+	if result.CertExpiryTime.IsZero() {
+		t.Fatal("expected non-zero CertExpiryTime")
+	}
+}
+
+func TestHTTPExecutorHTTPNoCertExpiry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+		Spec: syntheticsv1alpha1.HTTPProbeSpec{
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
+			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: http.StatusOK},
+			Timeout:    metav1.Duration{Duration: time.Second},
+		},
+	})
+
+	if result.CertExpiryTime != nil {
+		t.Fatal("expected CertExpiryTime to be nil for plain HTTP probe")
+	}
+}
+
+func TestHTTPExecutorTLSInvalidCACert(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+		Spec: syntheticsv1alpha1.HTTPProbeSpec{
+			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
+			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: http.StatusOK},
+			Timeout:    metav1.Duration{Duration: time.Second},
+			TLS:        &syntheticsv1alpha1.TLSConfig{CACert: "not-valid-pem"},
+		},
+	})
+
+	if !result.ConfigError {
+		t.Fatalf("expected config error for invalid CA cert PEM, got %+v", result)
 	}
 }
 
@@ -407,116 +569,60 @@ func TestEvalJSONPath(t *testing.T) {
 	}
 }
 
-// --- httpProbeApplier tests: pure tests of the state-transition logic ---
-// These require no k8s fake client and no HTTP server.
+// --- resultToProbeState tests: pure conversion of Result → ProbeState ---
 
-func TestHTTPProbeApplierSuccessResetsCounter(t *testing.T) {
-	applier := &httpProbeApplier{result: Result{
+func TestResultToProbeStateSuccess(t *testing.T) {
+	state := resultToProbeState(Result{
 		Success:   true,
 		Completed: time.Now(),
-		Message:   "received status 200",
-	}}
+		Duration:  50 * time.Millisecond,
+	})
 
-	current := &syntheticsv1alpha1.HTTPProbe{}
-	current.Status.ConsecutiveFailures = 3
-
-	state := applier.apply(current)
-
-	if current.Status.ConsecutiveFailures != 0 {
-		t.Fatalf("expected counter reset to 0, got %d", current.Status.ConsecutiveFailures)
-	}
-	if state.ConsecutiveFailures != 0 {
-		t.Fatalf("expected metrics ConsecutiveFailures=0, got %f", state.ConsecutiveFailures)
-	}
 	if state.Success != 1 {
 		t.Fatalf("expected Success=1, got %f", state.Success)
 	}
-	if current.Status.LastSuccessTime == nil {
-		t.Fatal("expected LastSuccessTime to be set on success")
+	if state.ConfigError != 0 {
+		t.Fatalf("expected ConfigError=0, got %f", state.ConfigError)
 	}
-	if current.Status.LastFailureTime != nil {
-		t.Fatal("expected LastFailureTime to be nil on success")
+	if state.DurationMilliseconds != 50 {
+		t.Fatalf("expected DurationMilliseconds=50, got %f", state.DurationMilliseconds)
+	}
+	// ConsecutiveFailures is not set by resultToProbeState; runProbe fills it in
+	if state.ConsecutiveFailures != 0 {
+		t.Fatalf("expected ConsecutiveFailures=0 from conversion, got %f", state.ConsecutiveFailures)
 	}
 }
 
-func TestHTTPProbeApplierFailureIncrementsCounter(t *testing.T) {
-	applier := &httpProbeApplier{result: Result{
-		Success:   false,
-		Completed: time.Now(),
-		Message:   "status 503 != 200",
-	}}
+func TestResultToProbeStateFailure(t *testing.T) {
+	state := resultToProbeState(Result{Success: false, Completed: time.Now()})
 
-	current := &syntheticsv1alpha1.HTTPProbe{}
-	current.Status.ConsecutiveFailures = 2
-
-	state := applier.apply(current)
-
-	if current.Status.ConsecutiveFailures != 3 {
-		t.Fatalf("expected 3, got %d", current.Status.ConsecutiveFailures)
+	if state.Success != 0 {
+		t.Fatal("expected Success=0")
 	}
-	if state.ConsecutiveFailures != 3 {
-		t.Fatalf("expected metrics ConsecutiveFailures=3, got %f", state.ConsecutiveFailures)
+	if state.ConfigError != 0 {
+		t.Fatal("expected ConfigError=0 for probe failure (not config error)")
+	}
+}
+
+func TestResultToProbeStateConfigError(t *testing.T) {
+	state := resultToProbeState(Result{ConfigError: true, Completed: time.Now()})
+
+	if state.ConfigError != 1 {
+		t.Fatal("expected ConfigError=1")
 	}
 	if state.Success != 0 {
-		t.Fatal("expected Success=0 on failure")
-	}
-	if current.Status.LastFailureTime == nil {
-		t.Fatal("expected LastFailureTime to be set on failure")
-	}
-	var cond *metav1.Condition
-	for i := range current.Status.Conditions {
-		if current.Status.Conditions[i].Type == syntheticsv1alpha1.ConditionReady {
-			cond = &current.Status.Conditions[i]
-		}
-	}
-	if cond == nil || cond.Reason != syntheticsv1alpha1.ReasonProbeFailed {
-		t.Fatalf("expected ProbeFailed condition, got %v", cond)
+		t.Fatal("expected Success=0 on config error")
 	}
 }
 
-func TestHTTPProbeApplierConfigErrorDoesNotIncrementCounter(t *testing.T) {
-	applier := &httpProbeApplier{result: Result{
-		ConfigError: true,
-		Completed:   time.Now(),
-		Message:     "invalid url",
-	}}
-
-	current := &syntheticsv1alpha1.HTTPProbe{}
-	current.Status.ConsecutiveFailures = 5
-
-	state := applier.apply(current)
-
-	if current.Status.ConsecutiveFailures != 5 {
-		t.Fatalf("expected counter unchanged at 5, got %d", current.Status.ConsecutiveFailures)
-	}
-	if state.ConsecutiveFailures != 5 {
-		t.Fatalf("expected metrics ConsecutiveFailures=5, got %f", state.ConsecutiveFailures)
-	}
-	if state.ConfigError != 1 {
-		t.Fatal("expected ConfigError=1 in metrics")
-	}
-	var cond *metav1.Condition
-	for i := range current.Status.Conditions {
-		if current.Status.Conditions[i].Type == syntheticsv1alpha1.ConditionReady {
-			cond = &current.Status.Conditions[i]
-		}
-	}
-	if cond == nil || cond.Reason != syntheticsv1alpha1.ReasonConfigError {
-		t.Fatalf("expected ConfigError condition, got %v", cond)
-	}
-}
-
-func TestHTTPProbeApplierAssertionResultsConverted(t *testing.T) {
-	applier := &httpProbeApplier{result: Result{
-		Success:   false,
+func TestResultToProbeStateAssertionsConverted(t *testing.T) {
+	state := resultToProbeState(Result{
 		Completed: time.Now(),
 		AssertionResults: []AssertionResult{
 			{Type: "status", Name: "status", Passed: false},
 			{Type: "latency", Name: "latency", Passed: true},
 		},
-	}}
-
-	state := applier.apply(&syntheticsv1alpha1.HTTPProbe{})
+	})
 
 	if len(state.AssertionResults) != 2 {
 		t.Fatalf("expected 2 assertion results, got %d", len(state.AssertionResults))
@@ -529,78 +635,48 @@ func TestHTTPProbeApplierAssertionResultsConverted(t *testing.T) {
 	}
 }
 
-func TestHTTPProbeApplierMetricsConsistentWithStatus(t *testing.T) {
-	// Verify that the ConsecutiveFailures value in the returned ProbeState
-	// always matches what was written to current.Status.
-	applier := &httpProbeApplier{result: Result{Success: false, Completed: time.Now()}}
+func TestResultToProbeStateTLSCertExpiry(t *testing.T) {
+	expiry := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	state := resultToProbeState(Result{
+		Success:        true,
+		Completed:      time.Now(),
+		CertExpiryTime: &expiry,
+	})
 
-	current := &syntheticsv1alpha1.HTTPProbe{}
-	current.Status.ConsecutiveFailures = 7
-
-	state := applier.apply(current)
-
-	if state.ConsecutiveFailures != float64(current.Status.ConsecutiveFailures) {
-		t.Fatalf("metrics ConsecutiveFailures (%f) out of sync with status (%d)",
-			state.ConsecutiveFailures, current.Status.ConsecutiveFailures)
+	if state.TLSCertExpiry != float64(expiry.Unix()) {
+		t.Fatalf("expected TLSCertExpiry %f, got %f", float64(expiry.Unix()), state.TLSCertExpiry)
 	}
 }
 
-// --- WorkerPool infrastructure tests ---
+func TestResultToProbeStateNoTLSCertExpiry(t *testing.T) {
+	state := resultToProbeState(Result{Success: true, Completed: time.Now()})
+
+	if state.TLSCertExpiry != 0 {
+		t.Fatalf("expected TLSCertExpiry=0 for non-TLS result, got %f", state.TLSCertExpiry)
+	}
+}
+
+// --- WorkerPool tests ---
 
 func TestNewWorkerPoolMinConcurrency(t *testing.T) {
 	store, err := internalmetrics.NewStore()
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	pool := NewWorkerPool(logr.Discard(), 0, store, nil)
+	pool := NewWorkerPool(logr.Discard(), 0, store)
 	if cap(pool.queue) != 16 {
 		t.Fatalf("expected queue cap 16 for min concurrency, got %d", cap(pool.queue))
 	}
 }
 
-func TestRunProbeProbeDeletedMidRun(t *testing.T) {
-	probe := &syntheticsv1alpha1.HTTPProbe{
-		ObjectMeta: metav1.ObjectMeta{Name: "gone", Namespace: "default"},
-		Spec:       syntheticsv1alpha1.HTTPProbeSpec{Timeout: metav1.Duration{Duration: time.Second}},
-	}
-	scheme := runtime.NewScheme()
-	utilruntime.Must(syntheticsv1alpha1.AddToScheme(scheme))
-	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	store, err := internalmetrics.NewStore()
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	pool := NewWorkerPool(logr.Discard(), 1, store, k8sClient)
-	job := newHTTPProbeJob(probe, fixedExecutor{result: Result{Success: true, Completed: time.Now()}})
-	pool.runProbe(context.Background(), job)
-}
-
-// --- WorkerPool integration tests (use fake k8s client) ---
-
-// newFakePool creates a WorkerPool backed by a fake k8s client preloaded with probe.
-func newFakePool(t *testing.T, probe *syntheticsv1alpha1.HTTPProbe) (*WorkerPool, *syntheticsv1alpha1.HTTPProbe) {
+// newFakePool creates a WorkerPool backed by an in-memory metrics store.
+func newFakePool(t *testing.T) *WorkerPool {
 	t.Helper()
-	scheme := runtime.NewScheme()
-	utilruntime.Must(syntheticsv1alpha1.AddToScheme(scheme))
-
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithStatusSubresource(&syntheticsv1alpha1.HTTPProbe{}).
-		WithObjects(probe.DeepCopy()).
-		Build()
-
 	store, err := internalmetrics.NewStore()
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-
-	pool := NewWorkerPool(logr.Discard(), 1, store, k8sClient)
-
-	updated := probe.DeepCopy()
-	if err := k8sClient.Get(context.Background(), types.NamespacedName{Namespace: probe.Namespace, Name: probe.Name}, updated); err != nil {
-		t.Fatalf("get probe: %v", err)
-	}
-	return pool, updated
+	return NewWorkerPool(logr.Discard(), 1, store)
 }
 
 type fixedExecutor struct{ result Result }
@@ -610,74 +686,73 @@ func (f fixedExecutor) Execute(_ context.Context, _ *syntheticsv1alpha1.HTTPProb
 }
 
 func TestRunProbeConsecutiveFailures(t *testing.T) {
+	pool := newFakePool(t)
 	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec:       syntheticsv1alpha1.HTTPProbeSpec{Timeout: metav1.Duration{Duration: time.Second}},
 	}
-	pool, p := newFakePool(t, probe)
 
-	job := newHTTPProbeJob(p, fixedExecutor{result: Result{Success: false, Completed: time.Now()}})
+	job := newHTTPProbeJob(probe, fixedExecutor{result: Result{Success: false, Completed: time.Now()}})
 	pool.runProbe(context.Background(), job)
 	pool.runProbe(context.Background(), job)
 
-	var updated syntheticsv1alpha1.HTTPProbe
-	if err := pool.client.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "test"}, &updated); err != nil {
-		t.Fatalf("get probe: %v", err)
+	state, ok := pool.metrics.Snapshot(types.NamespacedName{Namespace: "default", Name: "test"})
+	if !ok {
+		t.Fatal("expected state in metrics store")
 	}
-	if updated.Status.ConsecutiveFailures != 2 {
-		t.Fatalf("expected 2 consecutive failures, got %d", updated.Status.ConsecutiveFailures)
+	if state.ConsecutiveFailures != 2 {
+		t.Fatalf("expected 2 consecutive failures, got %f", state.ConsecutiveFailures)
 	}
 }
 
 func TestRunProbeConsecutiveFailuresResetOnSuccess(t *testing.T) {
+	pool := newFakePool(t)
 	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec:       syntheticsv1alpha1.HTTPProbeSpec{Timeout: metav1.Duration{Duration: time.Second}},
 	}
-	pool, p := newFakePool(t, probe)
 
-	failJob := newHTTPProbeJob(p, fixedExecutor{result: Result{Success: false, Completed: time.Now()}})
+	failJob := newHTTPProbeJob(probe, fixedExecutor{result: Result{Success: false, Completed: time.Now()}})
 	pool.runProbe(context.Background(), failJob)
 	pool.runProbe(context.Background(), failJob)
 
-	successJob := newHTTPProbeJob(p, fixedExecutor{result: Result{Success: true, Completed: time.Now()}})
+	successJob := newHTTPProbeJob(probe, fixedExecutor{result: Result{Success: true, Completed: time.Now()}})
 	pool.runProbe(context.Background(), successJob)
 
-	var updated syntheticsv1alpha1.HTTPProbe
-	if err := pool.client.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "test"}, &updated); err != nil {
-		t.Fatalf("get probe: %v", err)
+	state, ok := pool.metrics.Snapshot(types.NamespacedName{Namespace: "default", Name: "test"})
+	if !ok {
+		t.Fatal("expected state in metrics store")
 	}
-	if updated.Status.ConsecutiveFailures != 0 {
-		t.Fatalf("expected 0 consecutive failures after success, got %d", updated.Status.ConsecutiveFailures)
+	if state.ConsecutiveFailures != 0 {
+		t.Fatalf("expected 0 consecutive failures after success, got %f", state.ConsecutiveFailures)
 	}
 }
 
-func TestRunProbeConfigErrorCondition(t *testing.T) {
+func TestRunProbeConfigErrorDoesNotIncrementFailures(t *testing.T) {
+	pool := newFakePool(t)
 	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec:       syntheticsv1alpha1.HTTPProbeSpec{Timeout: metav1.Duration{Duration: time.Second}},
 	}
-	pool, p := newFakePool(t, probe)
+	key := types.NamespacedName{Namespace: "default", Name: "test"}
 
-	job := newHTTPProbeJob(p, fixedExecutor{result: Result{ConfigError: true, Message: "invalid url", Completed: time.Now()}})
-	pool.runProbe(context.Background(), job)
+	// Seed two prior failures
+	failJob := newHTTPProbeJob(probe, fixedExecutor{result: Result{Success: false, Completed: time.Now()}})
+	pool.runProbe(context.Background(), failJob)
+	pool.runProbe(context.Background(), failJob)
 
-	var updated syntheticsv1alpha1.HTTPProbe
-	if err := pool.client.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "test"}, &updated); err != nil {
-		t.Fatalf("get probe: %v", err)
-	}
+	// Config error should leave ConsecutiveFailures unchanged
+	configErrJob := newHTTPProbeJob(probe, fixedExecutor{result: Result{ConfigError: true, Completed: time.Now()}})
+	pool.runProbe(context.Background(), configErrJob)
 
-	var readyCondition *metav1.Condition
-	for i := range updated.Status.Conditions {
-		if updated.Status.Conditions[i].Type == syntheticsv1alpha1.ConditionReady {
-			readyCondition = &updated.Status.Conditions[i]
-			break
-		}
+	state, ok := pool.metrics.Snapshot(key)
+	if !ok {
+		t.Fatal("expected state in metrics store")
 	}
-	if readyCondition == nil {
-		t.Fatal("expected Ready condition to be set")
+	if state.ConsecutiveFailures != 2 {
+		t.Fatalf("expected ConsecutiveFailures unchanged at 2, got %f", state.ConsecutiveFailures)
 	}
-	if readyCondition.Reason != syntheticsv1alpha1.ReasonConfigError {
-		t.Fatalf("expected reason ConfigError, got %s", readyCondition.Reason)
+	if state.ConfigError != 1 {
+		t.Fatalf("expected ConfigError=1, got %f", state.ConfigError)
 	}
 }
