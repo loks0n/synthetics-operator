@@ -1,0 +1,19 @@
+# Example HTTPProbe for local development.
+# Apply with: kubectl apply -f hack/dev-probe.yaml
+# Check status: kubectl get httpprobe -A
+# Check metrics: curl http://localhost:8080/metrics | grep synthetics
+apiVersion: synthetics.dev/v1alpha1
+kind: HTTPProbe
+metadata:
+  name: httpbin-get
+  namespace: default
+spec:
+  interval: 30s
+  timeout: 10s
+  request:
+    url: https://httpbin.org/get
+    method: GET
+  assertions:
+    status: 200
+    latency:
+      maxMs: 2000

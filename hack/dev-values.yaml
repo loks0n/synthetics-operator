@@ -1,0 +1,6 @@
+# Helm value overrides for local development.
+# Applied by Tiltfile on top of charts/synthetics-operator/values.yaml.
+image:
+  repository: ko.local/synthetics-operator
+  tag: latest
+  pullPolicy: Never
