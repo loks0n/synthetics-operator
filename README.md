@@ -296,8 +296,7 @@ Plus any custom labels defined in `spec.metricLabels` — see section 3.8.
 |--------|------|-------------|
 | `synthetics_dns_success` | gauge 0\|1 | Whether DNS resolution succeeded |
 | `synthetics_dns_response_ms` | gauge | DNS response time in milliseconds |
-| `synthetics_dns_resolved_value` | gauge | One series per resolved value with a `value` label (value always 1). Works across all record types: IP for A/AAAA, hostname for CNAME/MX/NS/PTR, text for TXT. **Capped at `maxResolvedValues` (default 20)** to prevent cardinality explosion with CDN hostnames that rotate IPs. If the response exceeds the cap, results are truncated and `synthetics_dns_resolved_truncated` is set to 1. |
-| `synthetics_dns_resolved_truncated` | gauge 0\|1 | Set if resolved values exceeded the cap |
+| `synthetics_dns_response_first_answer_value` | gauge | Value of the first record in the DNS Answer section (value always 1), with a `value` label carrying the resolved string. Works across all record types: IP for A/AAAA, hostname for CNAME/MX/NS/PTR, text for TXT. One series per probe — no cardinality risk. |
 
 ### 3.5 PlaywrightTest metrics
 
@@ -1242,8 +1241,8 @@ Each phase ships a usable product. No phase is purely foundational.
 
 **Deliverable:** DNS resolution checks as a first-class CRD.
 
-- `DNSProbe` CRD: hostname, record type, resolver, resolved value assertions, `maxResolvedValues` cap
-- Full DNSProbe metrics schema (`synthetics_dns_success`, `synthetics_dns_response_ms`, `synthetics_dns_resolved_value`, `synthetics_dns_resolved_truncated`)
+- `DNSProbe` CRD: hostname, record type, resolver, answer value assertions
+- Full DNSProbe metrics schema (`synthetics_dns_success`, `synthetics_dns_response_ms`, `synthetics_dns_response_first_answer_value`)
 - Validating and defaulting webhooks for DnsProbe
 - envtest for DnsProbe reconcile loop and webhook behaviour
 
