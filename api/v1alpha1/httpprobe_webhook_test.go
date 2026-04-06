@@ -9,9 +9,37 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// TestWebhookHandlerObjectSplit verifies that the webhook methods operate on
+// the obj parameter, not the receiver. This mirrors how controller-runtime
+// calls them in production: the registered handler is always an empty
+// &HTTPProbe{}, and the actual incoming object arrives as the obj argument.
+func TestWebhookHandlerObjectSplit(t *testing.T) {
+	handler := &HTTPProbe{} // empty — like the instance passed to WithDefaulter/WithValidator
+	probe := &HTTPProbe{}   // the "incoming" object
+
+	if err := handler.Default(context.Background(), probe); err != nil {
+		t.Fatalf("Default failed: %v", err)
+	}
+	// Mutations must land on probe, not handler.
+	if probe.Spec.Interval.Duration != 30*time.Second {
+		t.Errorf("expected probe.Interval=30s, got %v", probe.Spec.Interval.Duration)
+	}
+	if handler.Spec.Interval.Duration != 0 {
+		t.Errorf("handler should be unchanged, got interval=%v", handler.Spec.Interval.Duration)
+	}
+
+	probe.Spec.Request.URL = "http://example.com"
+	if _, err := handler.ValidateCreate(context.Background(), probe); err != nil {
+		t.Fatalf("ValidateCreate failed on valid probe: %v", err)
+	}
+	if _, err := handler.ValidateUpdate(context.Background(), nil, probe); err != nil {
+		t.Fatalf("ValidateUpdate failed on valid probe: %v", err)
+	}
+}
+
 func TestHTTPProbeDefault(t *testing.T) {
 	probe := &HTTPProbe{}
-	if err := probe.Default(context.Background(), nil); err != nil {
+	if err := probe.Default(context.Background(), probe); err != nil {
 		t.Fatalf("default failed: %v", err)
 	}
 
@@ -41,7 +69,7 @@ func TestHTTPProbeDefaultDoesNotOverwrite(t *testing.T) {
 			Assertions: HTTPAssertions{Status: 201},
 		},
 	}
-	if err := probe.Default(context.Background(), nil); err != nil {
+	if err := probe.Default(context.Background(), probe); err != nil {
 		t.Fatalf("default failed: %v", err)
 	}
 	if probe.Spec.Interval.Duration != 60*time.Second {
@@ -57,15 +85,15 @@ func TestHTTPProbeDefaultDoesNotOverwrite(t *testing.T) {
 
 func TestHTTPProbeValidate(t *testing.T) {
 	probe := &HTTPProbe{}
-	_ = probe.Default(context.Background(), nil)
+	_ = probe.Default(context.Background(), probe)
 	probe.Spec.Request.URL = "http://127.0.0.1/health"
 
-	if _, err := probe.ValidateCreate(context.Background(), nil); err != nil {
+	if _, err := probe.ValidateCreate(context.Background(), probe); err != nil {
 		t.Fatalf("expected valid probe, got %v", err)
 	}
 
 	probe.Spec.Request.Method = "POST"
-	if _, err := probe.ValidateCreate(context.Background(), nil); err == nil {
+	if _, err := probe.ValidateCreate(context.Background(), probe); err == nil {
 		t.Fatal("expected POST validation to fail")
 	}
 }
@@ -73,7 +101,7 @@ func TestHTTPProbeValidate(t *testing.T) {
 func TestHTTPProbeValidateRules(t *testing.T) {
 	validBase := func() *HTTPProbe {
 		p := &HTTPProbe{}
-		_ = p.Default(context.Background(), nil)
+		_ = p.Default(context.Background(), p)
 		p.Spec.Request.URL = "http://127.0.0.1/health"
 		return p
 	}
@@ -142,7 +170,7 @@ func TestHTTPProbeValidateRules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := validBase()
 			tc.mutate(p)
-			_, err := p.ValidateCreate(context.Background(), nil)
+			_, err := p.ValidateCreate(context.Background(), p)
 			if tc.wantErr && err == nil {
 				t.Fatal("expected validation error, got nil")
 			}
@@ -156,7 +184,7 @@ func TestHTTPProbeValidateRules(t *testing.T) {
 func TestHTTPProbeValidatePhase2Rules(t *testing.T) {
 	validBase := func() *HTTPProbe {
 		p := &HTTPProbe{}
-		_ = p.Default(context.Background(), nil)
+		_ = p.Default(context.Background(), p)
 		p.Spec.Request.URL = "http://127.0.0.1/health"
 		return p
 	}
@@ -245,7 +273,7 @@ func TestHTTPProbeValidatePhase2Rules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := validBase()
 			tc.mutate(p)
-			_, err := p.ValidateCreate(context.Background(), nil)
+			_, err := p.ValidateCreate(context.Background(), p)
 			if tc.wantErr && err == nil {
 				t.Fatal("expected validation error, got nil")
 			}
@@ -258,17 +286,17 @@ func TestHTTPProbeValidatePhase2Rules(t *testing.T) {
 
 func TestHTTPProbeValidateUpdate(t *testing.T) {
 	valid := &HTTPProbe{}
-	_ = valid.Default(context.Background(), nil)
+	_ = valid.Default(context.Background(), valid)
 	valid.Spec.Request.URL = "http://127.0.0.1/health"
 
-	if _, err := valid.ValidateUpdate(context.Background(), nil, nil); err != nil {
+	if _, err := valid.ValidateUpdate(context.Background(), nil, valid); err != nil {
 		t.Fatalf("expected valid update, got %v", err)
 	}
 
 	invalid := &HTTPProbe{}
-	_ = invalid.Default(context.Background(), nil)
+	_ = invalid.Default(context.Background(), invalid)
 	invalid.Spec.Request.URL = "not-a-url"
-	if _, err := invalid.ValidateUpdate(context.Background(), nil, nil); err == nil {
+	if _, err := invalid.ValidateUpdate(context.Background(), nil, invalid); err == nil {
 		t.Fatal("expected ValidateUpdate to reject invalid URL")
 	}
 }

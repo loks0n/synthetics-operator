@@ -28,30 +28,31 @@ func SetupWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-func (h *HTTPProbe) Default(ctx context.Context, _ runtime.Object) error {
+func (h *HTTPProbe) Default(ctx context.Context, obj runtime.Object) error {
+	probe := obj.(*HTTPProbe)
 	logger := log.FromContext(ctx)
-	if h.Spec.Interval.Duration == 0 {
-		h.Spec.Interval.Duration = 30 * time.Second
+	if probe.Spec.Interval.Duration == 0 {
+		probe.Spec.Interval.Duration = 30 * time.Second
 	}
-	if h.Spec.Timeout.Duration == 0 {
-		h.Spec.Timeout.Duration = 10 * time.Second
+	if probe.Spec.Timeout.Duration == 0 {
+		probe.Spec.Timeout.Duration = 10 * time.Second
 	}
-	if h.Spec.Request.Method == "" {
-		h.Spec.Request.Method = "GET"
+	if probe.Spec.Request.Method == "" {
+		probe.Spec.Request.Method = "GET"
 	}
-	if h.Spec.Assertions.Status == 0 {
-		h.Spec.Assertions.Status = 200
+	if probe.Spec.Assertions.Status == 0 {
+		probe.Spec.Assertions.Status = 200
 	}
-	logger.V(1).Info("defaulted HTTPProbe", "name", h.Name)
+	logger.V(1).Info("defaulted HTTPProbe", "name", probe.Name)
 	return nil
 }
 
-func (h *HTTPProbe) ValidateCreate(ctx context.Context, _ runtime.Object) (admission.Warnings, error) {
-	return nil, h.validate()
+func (h *HTTPProbe) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, obj.(*HTTPProbe).validate()
 }
 
-func (h *HTTPProbe) ValidateUpdate(ctx context.Context, _, _ runtime.Object) (admission.Warnings, error) {
-	return nil, h.validate()
+func (h *HTTPProbe) ValidateUpdate(_ context.Context, _, obj runtime.Object) (admission.Warnings, error) {
+	return nil, obj.(*HTTPProbe).validate()
 }
 
 func (h *HTTPProbe) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {

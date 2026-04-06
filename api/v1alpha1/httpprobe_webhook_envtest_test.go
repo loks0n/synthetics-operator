@@ -1,6 +1,8 @@
 package v1alpha1
 
 import (
+	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -20,9 +23,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
-func TestHTTPProbeWebhookRejectsInvalidMethod(t *testing.T) {
+var webhookClient client.Client
+
+func TestMain(m *testing.M) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS not set")
+		m.Run() // unit tests still run; envtest tests self-skip
+		return
 	}
 
 	scheme := runtime.NewScheme()
@@ -42,18 +48,13 @@ func TestHTTPProbeWebhookRejectsInvalidMethod(t *testing.T) {
 
 	cfg, err := testEnv.Start()
 	if err != nil {
-		t.Fatalf("start envtest: %v", err)
+		panic("start envtest: " + err.Error())
 	}
-	defer func() {
-		_ = testEnv.Stop()
-	}()
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 scheme,
 		HealthProbeBindAddress: "0",
-		Metrics: metricsserver.Options{
-			BindAddress: "0",
-		},
+		Metrics:                metricsserver.Options{BindAddress: "0"},
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Host:    testEnv.WebhookInstallOptions.LocalServingHost,
 			Port:    testEnv.WebhookInstallOptions.LocalServingPort,
@@ -61,58 +62,123 @@ func TestHTTPProbeWebhookRejectsInvalidMethod(t *testing.T) {
 		}),
 	})
 	if err != nil {
-		t.Fatalf("create manager: %v", err)
+		panic("create manager: " + err.Error())
 	}
 
 	if err := SetupWebhookWithManager(mgr); err != nil {
-		t.Fatalf("setup webhook: %v", err)
+		panic("setup webhook: " + err.Error())
 	}
 
-	ctx := t.Context()
-	go func() {
-		_ = mgr.Start(ctx)
-	}()
+	mgrCtx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
+	go func() { _ = mgr.Start(mgrCtx) }()
 
-	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	webhookClient, err = client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
-		t.Fatalf("create client: %v", err)
+		panic("create client: " + err.Error())
 	}
-	if err := k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}); err != nil && !apierrors.IsAlreadyExists(err) {
-		t.Fatalf("create namespace: %v", err)
+	if err := webhookClient.Create(mgrCtx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}); err != nil && !apierrors.IsAlreadyExists(err) {
+		panic("create namespace: " + err.Error())
+	}
+
+	code := m.Run()
+	cancel()
+	_ = testEnv.Stop()
+	os.Exit(code)
+}
+
+// waitForWebhook retries until the webhook server accepts connections.
+func waitForWebhook(t *testing.T, create func() error) error {
+	t.Helper()
+	var err error
+	for range 20 {
+		err = create()
+		if err == nil || (!strings.Contains(err.Error(), "connect") && !strings.Contains(err.Error(), "EOF")) {
+			return err
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return err
+}
+
+func TestWebhookAcceptsValidProbe(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS not set")
 	}
 
 	probe := &HTTPProbe{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "invalid-method",
-			Namespace: "default",
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "valid-probe", Namespace: "default"},
 		Spec: HTTPProbeSpec{
-			Interval: metav1.Duration{Duration: 30 * time.Second},
-			Timeout:  metav1.Duration{Duration: 10 * time.Second},
-			Request: HTTPRequestSpec{
-				URL:    "http://127.0.0.1/health",
-				Method: "POST",
-			},
+			Interval:   metav1.Duration{Duration: 30 * time.Second},
+			Timeout:    metav1.Duration{Duration: 10 * time.Second},
+			Request:    HTTPRequestSpec{URL: "https://example.com/health", Method: "GET"},
 			Assertions: HTTPAssertions{Status: 200},
 		},
 	}
 
-	var createErr error
-	for range 20 {
-		createErr = k8sClient.Create(ctx, probe.DeepCopy())
-		if createErr == nil {
-			t.Fatal("expected webhook rejection, create succeeded")
-		}
-		if !strings.Contains(createErr.Error(), "connect") && !strings.Contains(createErr.Error(), "EOF") {
-			break
-		}
-		time.Sleep(250 * time.Millisecond)
+	if err := waitForWebhook(t, func() error {
+		return webhookClient.Create(t.Context(), probe.DeepCopy())
+	}); err != nil {
+		t.Fatalf("expected valid probe to be accepted, got: %v", err)
+	}
+}
+
+func TestWebhookAppliesDefaults(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS not set")
 	}
 
-	if createErr == nil {
-		t.Fatal("expected webhook rejection, got nil error")
+	minimal := &HTTPProbe{
+		ObjectMeta: metav1.ObjectMeta{Name: "defaulted-probe", Namespace: "default"},
+		Spec: HTTPProbeSpec{
+			Request:    HTTPRequestSpec{URL: "https://example.com/health"},
+			Assertions: HTTPAssertions{Status: 200},
+		},
 	}
-	if !strings.Contains(createErr.Error(), "supported values") && !strings.Contains(createErr.Error(), "Unsupported value") {
-		t.Fatalf("expected webhook validation error, got %v", createErr)
+
+	if err := waitForWebhook(t, func() error {
+		return webhookClient.Create(t.Context(), minimal.DeepCopy())
+	}); err != nil {
+		t.Fatalf("expected minimal probe to be accepted, got: %v", err)
+	}
+
+	persisted := &HTTPProbe{}
+	if err := webhookClient.Get(t.Context(), types.NamespacedName{Name: "defaulted-probe", Namespace: "default"}, persisted); err != nil {
+		t.Fatalf("get probe: %v", err)
+	}
+
+	if persisted.Spec.Interval.Duration != 30*time.Second {
+		t.Errorf("expected default interval 30s, got %v", persisted.Spec.Interval.Duration)
+	}
+	if persisted.Spec.Timeout.Duration != 10*time.Second {
+		t.Errorf("expected default timeout 10s, got %v", persisted.Spec.Timeout.Duration)
+	}
+	if persisted.Spec.Request.Method != http.MethodGet {
+		t.Errorf("expected default method GET, got %q", persisted.Spec.Request.Method)
+	}
+}
+
+func TestWebhookRejectsInvalidMethod(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS not set")
+	}
+
+	probe := &HTTPProbe{
+		ObjectMeta: metav1.ObjectMeta{Name: "invalid-method", Namespace: "default"},
+		Spec: HTTPProbeSpec{
+			Interval:   metav1.Duration{Duration: 30 * time.Second},
+			Timeout:    metav1.Duration{Duration: 10 * time.Second},
+			Request:    HTTPRequestSpec{URL: "http://127.0.0.1/health", Method: "POST"},
+			Assertions: HTTPAssertions{Status: 200},
+		},
+	}
+
+	err := waitForWebhook(t, func() error {
+		return webhookClient.Create(t.Context(), probe.DeepCopy())
+	})
+	if err == nil {
+		t.Fatal("expected webhook to reject POST method, got nil error")
+	}
+	if !strings.Contains(err.Error(), "Unsupported value") && !strings.Contains(err.Error(), "supported values") {
+		t.Fatalf("expected unsupported value error, got: %v", err)
 	}
 }

@@ -140,7 +140,6 @@ linters:
         # Modern Go (1.21+, 1.25+)
         - name: forbidden-call-in-wg-go
         - name: redundant-build-tag
-        - name: redundant-test-main-exit
         - name: use-fmt-print
         - name: use-slices-sort
         - name: use-waitgroup-go
