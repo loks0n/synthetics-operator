@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"net/url"
 	"strings"
@@ -73,11 +74,14 @@ func (h *HTTPProbe) validate() error {
 	}
 
 	method := strings.ToUpper(h.Spec.Request.Method)
-	if method != "GET" && method != "HEAD" {
-		allErrs = append(allErrs, field.NotSupported(field.NewPath("spec", "request", "method"), h.Spec.Request.Method, []string{"GET", "HEAD"}))
+	if method != "GET" && method != "HEAD" && method != "POST" {
+		allErrs = append(allErrs, field.NotSupported(field.NewPath("spec", "request", "method"), h.Spec.Request.Method, []string{"GET", "HEAD", "POST"}))
 	}
 	if method == "HEAD" && h.Spec.Assertions.Body != nil {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "assertions", "body"), nil, "body assertions cannot be used with HEAD method"))
+	}
+	if method == "HEAD" && h.Spec.Request.Body != "" {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "request", "body"), nil, "request body cannot be used with HEAD method"))
 	}
 
 	parsedURL, err := url.Parse(h.Spec.Request.URL)
@@ -100,6 +104,13 @@ func (h *HTTPProbe) validate() error {
 			if !strings.HasPrefix(ja.Path, "$.") && ja.Path != "$" {
 				allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "assertions", "body", "json").Index(i).Child("path"), ja.Path, "must be a valid JSONPath expression starting with $"))
 			}
+		}
+	}
+
+	if h.Spec.TLS != nil && h.Spec.TLS.CACert != "" {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM([]byte(h.Spec.TLS.CACert)) {
+			allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "tls", "caCert"), "<pem>", "must be a valid PEM-encoded certificate"))
 		}
 	}
 

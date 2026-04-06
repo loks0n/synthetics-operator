@@ -28,6 +28,7 @@ type ProbeState struct {
 	LastRunTimestamp     float64
 	ConfigError          float64
 	AssertionResults     []AssertionResult
+	TLSCertExpiry        float64 // Unix timestamp of leaf cert NotAfter; 0 if no TLS
 }
 
 type Store struct {
@@ -78,6 +79,10 @@ func NewStore() (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	tlsCertExpiryGauge, err := meter.Float64ObservableGauge("synthetics_probe_tls_cert_expiry_timestamp_seconds")
+	if err != nil {
+		return nil, err
+	}
 
 	_, err = meter.RegisterCallback(func(_ context.Context, observer apimetric.Observer) error {
 		store.mu.RLock()
@@ -100,9 +105,12 @@ func NewStore() (*Store, error) {
 				)
 				observer.ObserveFloat64(assertionPassedGauge, ar.Passed, apimetric.WithAttributes(assertionAttrs...))
 			}
+			if state.TLSCertExpiry > 0 {
+				observer.ObserveFloat64(tlsCertExpiryGauge, state.TLSCertExpiry, apimetric.WithAttributes(attrs...))
+			}
 		}
 		return nil
-	}, successGauge, durationGauge, failuresGauge, lastRunGauge, configErrorGauge, assertionPassedGauge)
+	}, successGauge, durationGauge, failuresGauge, lastRunGauge, configErrorGauge, assertionPassedGauge, tlsCertExpiryGauge)
 	if err != nil {
 		return nil, err
 	}

@@ -120,4 +120,44 @@ func TestStoreMetricsScrape(t *testing.T) {
 			t.Errorf("metrics output missing %q", want)
 		}
 	}
+
+	if strings.Contains(text, "synthetics_probe_tls_cert_expiry") {
+		t.Error("tls_cert_expiry metric should not be present when TLSCertExpiry is 0")
+	}
+}
+
+func TestStoreTLSCertExpiryMetric(t *testing.T) {
+	store, err := NewStore()
+	if err != nil {
+		t.Fatalf("NewStore() error: %v", err)
+	}
+
+	key := types.NamespacedName{Namespace: "default", Name: "tls-probe"}
+	store.Upsert(key, ProbeState{
+		Success:       1,
+		TLSCertExpiry: 1800000000,
+	})
+
+	srv := httptest.NewServer(store.Server("").handler)
+	defer srv.Close()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("scrape metrics: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+
+	if !strings.Contains(text, "synthetics_probe_tls_cert_expiry_timestamp_seconds") {
+		t.Error("expected synthetics_probe_tls_cert_expiry_timestamp_seconds in metrics output")
+	}
+	if !strings.Contains(text, "1.8e+09") && !strings.Contains(text, "1800000000") {
+		t.Errorf("expected cert expiry value 1800000000 in metrics output, got:\n%s", text)
+	}
 }

@@ -20,6 +20,17 @@ type HTTPRequestSpec struct {
 	URL     string            `json:"url"`
 	Method  string            `json:"method,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
+	Body    string            `json:"body,omitempty"`
+}
+
+// TLSConfig controls TLS verification for the probe request.
+type TLSConfig struct {
+	// InsecureSkipVerify disables server certificate verification. Use for
+	// self-signed certificates in dev/test environments.
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+	// CACert is a PEM-encoded CA certificate to trust in addition to the
+	// system roots. Use for internal PKI or self-signed CA certificates.
+	CACert string `json:"caCert,omitempty"`
 }
 
 type HTTPAssertions struct {
@@ -48,6 +59,7 @@ type HTTPProbeSpec struct {
 	Suspend    bool            `json:"suspend,omitempty"`
 	Request    HTTPRequestSpec `json:"request"`
 	Assertions HTTPAssertions  `json:"assertions,omitempty"`
+	TLS        *TLSConfig      `json:"tls,omitempty"`
 }
 
 type HTTPProbeStatus struct {

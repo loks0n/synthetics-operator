@@ -2,12 +2,39 @@ package v1alpha1
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"net/http"
 	"testing"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// validTestCACert is a real self-signed CA certificate generated at test init time.
+var validTestCACert = func() string {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic("generate test key: " + err.Error())
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test-ca"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IsCA:         true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		panic("create test cert: " + err.Error())
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}()
 
 // TestWebhookHandlerObjectSplit verifies that the webhook methods operate on
 // the obj parameter, not the receiver. This mirrors how controller-runtime
@@ -92,9 +119,9 @@ func TestHTTPProbeValidate(t *testing.T) {
 		t.Fatalf("expected valid probe, got %v", err)
 	}
 
-	probe.Spec.Request.Method = "POST"
+	probe.Spec.Request.Method = "DELETE"
 	if _, err := probe.ValidateCreate(context.Background(), probe); err == nil {
-		t.Fatal("expected POST validation to fail")
+		t.Fatal("expected DELETE validation to fail")
 	}
 }
 
@@ -200,8 +227,29 @@ func TestHTTPProbeValidatePhase2Rules(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "POST method rejected",
+			name:    "POST method accepted",
 			mutate:  func(p *HTTPProbe) { p.Spec.Request.Method = "POST" },
+			wantErr: false,
+		},
+		{
+			name:    "DELETE method rejected",
+			mutate:  func(p *HTTPProbe) { p.Spec.Request.Method = "DELETE" },
+			wantErr: true,
+		},
+		{
+			name: "POST with request body accepted",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Request.Method = "POST"
+				p.Spec.Request.Body = `{"key":"value"}`
+			},
+			wantErr: false,
+		},
+		{
+			name: "HEAD with request body rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Request.Method = "HEAD"
+				p.Spec.Request.Body = "some body"
+			},
 			wantErr: true,
 		},
 		{
@@ -264,6 +312,27 @@ func TestHTTPProbeValidatePhase2Rules(t *testing.T) {
 			mutate: func(p *HTTPProbe) {
 				p.Spec.Request.Method = "HEAD"
 				p.Spec.Assertions.Body = &BodyAssertion{Contains: "ok"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "tls insecureSkipVerify accepted",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.TLS = &TLSConfig{InsecureSkipVerify: true}
+			},
+			wantErr: false,
+		},
+		{
+			name: "tls valid CA cert accepted",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.TLS = &TLSConfig{CACert: validTestCACert}
+			},
+			wantErr: false,
+		},
+		{
+			name: "tls invalid CA cert rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.TLS = &TLSConfig{CACert: "not-valid-pem"}
 			},
 			wantErr: true,
 		},
