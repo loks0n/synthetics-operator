@@ -23,9 +23,9 @@ type HTTPRequestSpec struct {
 }
 
 type HTTPAssertions struct {
-	Status  int              `json:"status,omitempty"`
+	Status  int               `json:"status,omitempty"`
 	Latency *LatencyAssertion `json:"latency,omitempty"`
-	Body    *BodyAssertion   `json:"body,omitempty"`
+	Body    *BodyAssertion    `json:"body,omitempty"`
 }
 
 type LatencyAssertion struct {

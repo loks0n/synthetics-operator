@@ -13,10 +13,17 @@ SETUP_ENVTEST_VERSION ?= latest
 ENVTEST_K8S_VERSION ?= 1.34.x
 KUBEBUILDER_ASSETS ?= $(shell [ -x "$(TOOLS_BIN)/setup-envtest" ] && $(TOOLS_BIN)/setup-envtest use -p path $(ENVTEST_K8S_VERSION) 2>/dev/null)
 
-.PHONY: tools lint test test-envtest helm-lint helm-template ko-build-local
+KIND_CLUSTER ?= synthetics-dev
+
+.PHONY: tools generate lint test test-envtest helm-lint helm-template ko-build-local \
+        kind-create kind-delete dev
 
 tools:
 	TOOLS_BIN=$(TOOLS_BIN) GOLANGCI_LINT_VERSION=$(GOLANGCI_LINT_VERSION) KO_VERSION=$(KO_VERSION) SETUP_ENVTEST_VERSION=$(SETUP_ENVTEST_VERSION) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) ./hack/install-tools.sh
+
+generate:
+	controller-gen crd paths="./api/..." output:crd:artifacts:config=config/crd/bases
+	cp config/crd/bases/synthetics.dev_httpprobes.yaml charts/synthetics-operator/crds/synthetics.dev_httpprobes.yaml
 
 lint: tools
 	GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(TOOLS_BIN)/golangci-lint run --timeout=5m
@@ -33,6 +40,16 @@ helm-lint:
 helm-template:
 	helm template synthetics-operator charts/synthetics-operator >/dev/null
 
+kind-create:
+	kind get clusters 2>/dev/null | grep -q "^$(KIND_CLUSTER)$$" || \
+		kind create cluster --name $(KIND_CLUSTER) --config hack/kind-config.yaml
+
+kind-delete:
+	kind delete cluster --name $(KIND_CLUSTER)
+
+dev: tools kind-create
+	tilt up
+
 ko-build-local:
 	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
-	@KO_DOCKER_REPO=ko.local $(TOOLS_BIN)/ko build --local --bare .
+	@KO_DOCKER_REPO=ko.local/synthetics-operator $(TOOLS_BIN)/ko build --bare .
