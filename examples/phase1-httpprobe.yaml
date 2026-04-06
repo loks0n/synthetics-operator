@@ -1,5 +1,5 @@
 apiVersion: synthetics.dev/v1alpha1
-kind: HttpProbe
+kind: HTTPProbe
 metadata:
   name: phase1-echo
 spec:

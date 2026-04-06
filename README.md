@@ -72,7 +72,7 @@ HTTP checks with assertions on status code, response latency, and body content. 
 
 ```yaml
 apiVersion: synthetics.dev/v1alpha1
-kind: HttpProbe
+kind: HTTPProbe
 metadata:
   name: api-health
 spec:
@@ -105,7 +105,7 @@ spec:
     expiryMinimumDays: 7
     verifyChain: true
   depends:
-    - kind: DnsProbe
+    - kind: DNSProbe
       name: api-dns
   metricLabels:
     team: payments
@@ -119,7 +119,7 @@ DNS resolution checks targeting a hostname. Supports all common record types. An
 
 ```yaml
 apiVersion: synthetics.dev/v1alpha1
-kind: DnsProbe
+kind: DNSProbe
 metadata:
   name: api-dns
 spec:
@@ -156,7 +156,7 @@ spec:
   playwrightVersion: "1.42.0"
   ttlAfterFinished: 1h       # explicit, defaults to 1h if omitted
   depends:
-    - kind: HttpProbe
+    - kind: HTTPProbe
       name: auth-service
 
   runner:
@@ -240,9 +240,9 @@ Deliberately limited to one level of depth — no chaining, no orchestration. Pu
 
 ```yaml
 depends:
-  - kind: HttpProbe
+  - kind: HTTPProbe
     name: auth-service
-  - kind: DnsProbe
+  - kind: DNSProbe
     name: api-dns
 ```
 
@@ -375,7 +375,7 @@ The operator exposes its own health metrics alongside probe metrics, giving visi
 All CRDs support a `spec.metricLabels` field that propagates to every Prometheus metric emitted for that probe. This enables per-team alerting, per-environment dashboard filtering, and criticality tiering without requiring separate namespaces.
 
 ```yaml
-kind: HttpProbe
+kind: HTTPProbe
 metadata:
   name: checkout-api
 spec:
@@ -390,7 +390,7 @@ spec:
 All metrics for this probe include those labels:
 
 ```
-synthetics_probe_success{name="checkout-api", namespace="default", kind="HttpProbe", team="payments", env="production", tier="critical"} 1
+synthetics_probe_success{name="checkout-api", namespace="default", kind="HTTPProbe", team="payments", env="production", tier="critical"} 1
 ```
 
 This unlocks per-team Alertmanager rules:
@@ -601,7 +601,7 @@ The webhook provides immediate feedback on invalid resources at apply time rathe
 
 ```yaml
 # Rejected immediately at kubectl apply
-kind: HttpProbe
+kind: HTTPProbe
 spec:
   interval: 0s          # nonsensical
   request:
