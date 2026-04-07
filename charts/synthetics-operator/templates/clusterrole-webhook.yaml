@@ -1,0 +1,11 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-webhook
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["synthetics.dev"]
+    resources: ["httpprobes", "dnsprobes"]
+    verbs: ["get", "list", "watch"]

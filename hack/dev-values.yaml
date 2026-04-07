@@ -4,3 +4,8 @@ image:
   repository: ko.local/synthetics-operator
   tag: latest
   pullPolicy: Never
+
+webhookDeployment:
+  replicaCount: 1
+  # No priority class needed in the local dev cluster.
+  priorityClassName: ""

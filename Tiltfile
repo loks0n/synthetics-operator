@@ -1,5 +1,7 @@
 # -*- mode: Python -*-
 
+load('ext://helm_resource', 'helm_resource', 'helm_repo')
+
 # Restrict to the local dev cluster — prevents accidental deploys to production.
 allow_k8s_contexts('kind-synthetics-dev')
 
@@ -56,6 +58,17 @@ k8s_resource(
     ],
 )
 
+k8s_resource(
+    'synthetics-operator-webhook',
+    labels=['operator'],
+    objects=[
+        'synthetics-operator-webhook:clusterrole',
+        'synthetics-operator-webhook:clusterrolebinding',
+        'synthetics-operator-webhook:serviceaccount',
+        'synthetics-operator-webhook:poddisruptionbudget',
+    ],
+)
+
 # ── Metrics server (enables kubectl top / k9s resource usage) ────────────────
 
 helm_repo('metrics-server-repo', 'https://kubernetes-sigs.github.io/metrics-server/', labels=['operator'])
@@ -72,8 +85,6 @@ helm_resource(
 )
 
 # ── Monitoring stack (Prometheus + Grafana) ───────────────────────────────────
-
-load('ext://helm_resource', 'helm_resource', 'helm_repo')
 
 MONITORING_NAMESPACE = 'monitoring'
 HACK_DIR = config.main_dir + '/hack'

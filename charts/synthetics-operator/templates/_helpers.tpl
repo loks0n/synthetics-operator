@@ -25,3 +25,7 @@ synthetics-operator
 {{ include "synthetics-operator.fullname" . }}
 {{- end -}}
 {{- end -}}
+
+{{- define "synthetics-operator.webhookServiceAccountName" -}}
+{{ include "synthetics-operator.fullname" . }}-webhook
+{{- end -}}

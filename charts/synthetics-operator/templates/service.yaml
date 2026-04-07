@@ -5,10 +5,8 @@ metadata:
 spec:
   selector:
     app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+    app.kubernetes.io/component: webhook
   ports:
-    - name: metrics
-      port: 8080
-      targetPort: metrics
     - name: webhook
       port: 443
       targetPort: webhook
@@ -27,6 +25,7 @@ metadata:
 spec:
   selector:
     app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+    app.kubernetes.io/component: controller
   ports:
     - name: metrics
       port: 8080

@@ -14,6 +14,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -37,6 +38,7 @@ func main() {
 	var metricsAddr string
 	var probeConcurrency int
 	var webhookPort int
+	var webhookOnly bool
 	var enableLeaderElection bool
 	var webhookNamespace string
 	var webhookServiceName string
@@ -47,6 +49,7 @@ func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.IntVar(&probeConcurrency, "probe-concurrency", 4, "Number of concurrent HTTP probes.")
 	flag.IntVar(&webhookPort, "webhook-port", 9443, "Webhook server port.")
+	flag.BoolVar(&webhookOnly, "webhook-only", false, "Run only the webhook server (no reconciler, no probe workers, no cert rotation).")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager.")
 	flag.StringVar(&webhookNamespace, "webhook-namespace", namespaceFromEnv(), "Namespace containing the webhook service and certificate secret.")
 	flag.StringVar(&webhookServiceName, "webhook-service-name", "synthetics-operator-webhook-service", "Webhook service name used in serving certificates.")
@@ -76,6 +79,84 @@ func main() {
 		validatingWebhookConfiguration,
 		mutatingWebhookConfiguration,
 	)
+
+	if webhookOnly {
+		runWebhookOnly(cfg, certManager, webhookPort)
+	} else {
+		runController(cfg, certManager, metricsAddr, probeConcurrency, enableLeaderElection)
+	}
+}
+
+// runWebhookOnly starts only the webhook server. It reads the cert Secret
+// written by the controller deployment and watches it for hot-reload. No
+// reconcilers, probe workers, metrics server, or cert rotation run here.
+func runWebhookOnly(cfg *rest.Config, certManager *internalwebhookcerts.Manager, webhookPort int) {
+	if err := certManager.InitializeReadOnly(context.Background()); err != nil {
+		ctrl.Log.WithName("setup").Error(err, "unable to load webhook certificates")
+		os.Exit(1)
+	}
+
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:                 scheme,
+		HealthProbeBindAddress: ":8081",
+		Metrics: metricsserver.Options{
+			BindAddress: "0",
+		},
+		WebhookServer: webhook.NewServer(webhook.Options{
+			Port: webhookPort,
+			TLSOpts: []func(*tls.Config){
+				func(c *tls.Config) {
+					c.GetCertificate = certManager.GetCertificate
+				},
+			},
+		}),
+	})
+	if err != nil {
+		ctrl.Log.WithName("setup").Error(err, "unable to start manager")
+		os.Exit(1)
+	}
+
+	if err := syntheticsv1alpha1.SetupWebhookWithManager(mgr); err != nil {
+		ctrl.Log.WithName("setup").Error(err, "unable to create webhook", "webhook", "HTTPProbe")
+		os.Exit(1)
+	}
+
+	if err := syntheticsv1alpha1.SetupDNSWebhookWithManager(mgr); err != nil {
+		ctrl.Log.WithName("setup").Error(err, "unable to create webhook", "webhook", "DNSProbe")
+		os.Exit(1)
+	}
+
+	if err := mgr.Add(certManager); err != nil {
+		ctrl.Log.WithName("setup").Error(err, "unable to add cert watcher")
+		os.Exit(1)
+	}
+
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		ctrl.Log.WithName("setup").Error(err, "unable to set up health check")
+		os.Exit(1)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		ctrl.Log.WithName("setup").Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+
+	ctrl.Log.WithName("setup").Info("starting webhook-only manager")
+	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+		ctrl.Log.WithName("setup").Error(err, "problem running manager")
+		os.Exit(1)
+	}
+}
+
+// runController starts the full operator: cert rotation, metrics server,
+// probe scheduler, and reconcilers. It does not serve webhooks — those run
+// in a separate synthetics-operator-webhook deployment.
+func runController(
+	cfg *rest.Config,
+	certManager *internalwebhookcerts.Manager,
+	metricsAddr string,
+	probeConcurrency int,
+	enableLeaderElection bool,
+) {
 	if err := certManager.Initialize(context.Background()); err != nil {
 		ctrl.Log.WithName("setup").Error(err, "unable to initialize webhook certificates")
 		os.Exit(1)
@@ -95,27 +176,9 @@ func main() {
 		Metrics: metricsserver.Options{
 			BindAddress: "0",
 		},
-		WebhookServer: webhook.NewServer(webhook.Options{
-			Port: webhookPort,
-			TLSOpts: []func(*tls.Config){
-				func(cfg *tls.Config) {
-					cfg.GetCertificate = certManager.GetCertificate
-				},
-			},
-		}),
 	})
 	if err != nil {
 		ctrl.Log.WithName("setup").Error(err, "unable to start manager")
-		os.Exit(1)
-	}
-
-	if err := syntheticsv1alpha1.SetupWebhookWithManager(mgr); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to create webhook", "webhook", "HTTPProbe")
-		os.Exit(1)
-	}
-
-	if err := syntheticsv1alpha1.SetupDNSWebhookWithManager(mgr); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to create webhook", "webhook", "DNSProbe")
 		os.Exit(1)
 	}
 

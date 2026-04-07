@@ -43,6 +43,7 @@ type Manager struct {
 	rotateBefore                   time.Duration
 	checkInterval                  time.Duration
 	currentCert                    atomic.Pointer[tls.Certificate]
+	readOnly                       bool
 }
 
 func NewManager(
@@ -75,9 +76,44 @@ func (m *Manager) Initialize(ctx context.Context) error {
 	return m.injectCABundle(ctx, bundle.CACertPEM)
 }
 
+// InitializeReadOnly loads the serving cert from an existing Secret. Used by
+// webhook-only replicas that read certs written by the controller; they never
+// generate or rotate certs themselves. Retries for up to 30 s to handle the
+// startup race where the controller has not yet created the Secret.
+func (m *Manager) InitializeReadOnly(ctx context.Context) error {
+	m.readOnly = true
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		secret, err := m.clientset.CoreV1().Secrets(m.namespace).Get(ctx, m.secretName, metav1.GetOptions{})
+		if err == nil {
+			bundle, parseErr := bundleFromSecret(secret)
+			if parseErr != nil {
+				return parseErr
+			}
+			return m.loadBundle(bundle)
+		}
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		m.logger.Info("waiting for webhook certificate secret", "namespace", m.namespace, "name", m.secretName)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+	return fmt.Errorf("timed out waiting for webhook certificate secret %s/%s", m.namespace, m.secretName)
+}
+
 func (m *Manager) Start(ctx context.Context) error {
 	if err := m.startSecretInformer(ctx); err != nil {
 		return err
+	}
+
+	// Webhook-only replicas: informer handles hot-reload; no rotation needed.
+	if m.readOnly {
+		<-ctx.Done()
+		return nil
 	}
 
 	ticker := time.NewTicker(m.checkInterval)

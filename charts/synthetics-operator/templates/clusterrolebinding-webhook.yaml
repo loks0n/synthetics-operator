@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "synthetics-operator.fullname" . }}-webhook
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "synthetics-operator.webhookServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

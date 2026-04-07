@@ -1,22 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "synthetics-operator.fullname" . }}
+  name: {{ include "synthetics-operator.fullname" . }}-webhook
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.webhookDeployment.replicaCount }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
-      app.kubernetes.io/component: controller
+      app.kubernetes.io/component: webhook
   template:
     metadata:
       labels:
         app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
-        app.kubernetes.io/component: controller
+        app.kubernetes.io/component: webhook
     spec:
-      serviceAccountName: {{ include "synthetics-operator.serviceAccountName" . }}
+      serviceAccountName: {{ include "synthetics-operator.webhookServiceAccountName" . }}
+      {{- with .Values.webhookDeployment.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
       containers:
-        - name: manager
+        - name: webhook
           image: {{ include "synthetics-operator.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
@@ -25,17 +28,14 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
           args:
-            - --webhook-only=false
-            - --metrics-bind-address=:8080
+            - --webhook-only=true
+            - --webhook-port=9443
             - --webhook-namespace=$(POD_NAMESPACE)
-            - --webhook-service-name={{ include "synthetics-operator.webhookServiceName" . }}
             - --webhook-secret-name={{ .Values.webhook.secretName }}
-            - --validating-webhook-configuration={{ .Values.webhook.validatingWebhookConfigurationName }}
-            - --mutating-webhook-configuration={{ .Values.webhook.mutatingWebhookConfigurationName }}
           ports:
-            - name: metrics
-              containerPort: 8080
+            - name: webhook
+              containerPort: 9443
             - name: healthz
               containerPort: 8081
           resources:
-{{ toYaml .Values.resources | indent 12 }}
+{{ toYaml .Values.webhookDeployment.resources | indent 12 }}

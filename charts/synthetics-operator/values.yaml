@@ -12,6 +12,13 @@ serviceAccount:
 
 resources: {}
 
+webhookDeployment:
+  replicaCount: 2
+  # Elevated priority keeps the webhook available under node pressure.
+  # If evicted, kubectl apply fails for all CRD types cluster-wide.
+  priorityClassName: system-cluster-critical
+  resources: {}
+
 metrics:
   serviceMonitor:
     enabled: false
