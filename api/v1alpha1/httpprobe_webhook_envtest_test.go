@@ -155,17 +155,17 @@ func TestWebhookAppliesDefaults(t *testing.T) {
 	}
 }
 
-func TestWebhookRejectsInvalidMethod(t *testing.T) {
+func TestWebhookRejectsEmptyMethod(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("KUBEBUILDER_ASSETS not set")
 	}
 
 	probe := &HTTPProbe{
-		ObjectMeta: metav1.ObjectMeta{Name: "invalid-method", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "empty-method", Namespace: "default"},
 		Spec: HTTPProbeSpec{
 			Interval: metav1.Duration{Duration: 30 * time.Second},
 			Timeout:  metav1.Duration{Duration: 10 * time.Second},
-			Request:  HTTPRequestSpec{URL: "http://127.0.0.1/health", Method: "DELETE"},
+			Request:  HTTPRequestSpec{URL: "http://127.0.0.1/health", Method: ""},
 		},
 	}
 
@@ -173,9 +173,9 @@ func TestWebhookRejectsInvalidMethod(t *testing.T) {
 		return webhookClient.Create(t.Context(), probe.DeepCopy())
 	})
 	if err == nil {
-		t.Fatal("expected webhook to reject POST method, got nil error")
+		t.Fatal("expected webhook to reject empty method, got nil error")
 	}
-	if !strings.Contains(err.Error(), "Unsupported value") && !strings.Contains(err.Error(), "supported values") {
-		t.Fatalf("expected unsupported value error, got: %v", err)
+	if !strings.Contains(err.Error(), "Required") && !strings.Contains(err.Error(), "required") {
+		t.Fatalf("expected required field error, got: %v", err)
 	}
 }
