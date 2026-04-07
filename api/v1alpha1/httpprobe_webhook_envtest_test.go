@@ -155,17 +155,18 @@ func TestWebhookAppliesDefaults(t *testing.T) {
 	}
 }
 
-func TestWebhookRejectsEmptyMethod(t *testing.T) {
+func TestWebhookRejectsInvalidURL(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("KUBEBUILDER_ASSETS not set")
 	}
 
+	// The mutating webhook cannot fix an invalid URL, so validation must reject it.
 	probe := &HTTPProbe{
-		ObjectMeta: metav1.ObjectMeta{Name: "empty-method", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "invalid-url", Namespace: "default"},
 		Spec: HTTPProbeSpec{
 			Interval: metav1.Duration{Duration: 30 * time.Second},
 			Timeout:  metav1.Duration{Duration: 10 * time.Second},
-			Request:  HTTPRequestSpec{URL: "http://127.0.0.1/health", Method: ""},
+			Request:  HTTPRequestSpec{URL: "not-a-url", Method: "GET"},
 		},
 	}
 
@@ -173,9 +174,9 @@ func TestWebhookRejectsEmptyMethod(t *testing.T) {
 		return webhookClient.Create(t.Context(), probe.DeepCopy())
 	})
 	if err == nil {
-		t.Fatal("expected webhook to reject empty method, got nil error")
+		t.Fatal("expected webhook to reject invalid URL, got nil error")
 	}
-	if !strings.Contains(err.Error(), "Required") && !strings.Contains(err.Error(), "required") {
-		t.Fatalf("expected required field error, got: %v", err)
+	if !strings.Contains(err.Error(), "Invalid") && !strings.Contains(err.Error(), "invalid") {
+		t.Fatalf("expected invalid field error, got: %v", err)
 	}
 }

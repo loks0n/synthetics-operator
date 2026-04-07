@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -80,20 +81,24 @@ func main() {
 		mutatingWebhookConfiguration,
 	)
 
+	var runErr error
 	if webhookOnly {
-		runWebhookOnly(cfg, certManager, webhookPort)
+		runErr = runWebhookOnly(cfg, certManager, webhookPort)
 	} else {
-		runController(cfg, certManager, metricsAddr, probeConcurrency, enableLeaderElection)
+		runErr = runController(cfg, certManager, metricsAddr, probeConcurrency, enableLeaderElection)
+	}
+	if runErr != nil {
+		ctrl.Log.WithName("setup").Error(runErr, "manager exited with error")
+		os.Exit(1)
 	}
 }
 
 // runWebhookOnly starts only the webhook server. It reads the cert Secret
 // written by the controller deployment and watches it for hot-reload. No
 // reconcilers, probe workers, metrics server, or cert rotation run here.
-func runWebhookOnly(cfg *rest.Config, certManager *internalwebhookcerts.Manager, webhookPort int) {
+func runWebhookOnly(cfg *rest.Config, certManager *internalwebhookcerts.Manager, webhookPort int) error {
 	if err := certManager.InitializeReadOnly(context.Background()); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to load webhook certificates")
-		os.Exit(1)
+		return fmt.Errorf("loading webhook certificates: %w", err)
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -112,39 +117,30 @@ func runWebhookOnly(cfg *rest.Config, certManager *internalwebhookcerts.Manager,
 		}),
 	})
 	if err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to start manager")
-		os.Exit(1)
+		return fmt.Errorf("creating manager: %w", err)
 	}
 
 	if err := syntheticsv1alpha1.SetupWebhookWithManager(mgr); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to create webhook", "webhook", "HTTPProbe")
-		os.Exit(1)
+		return fmt.Errorf("registering HTTPProbe webhook: %w", err)
 	}
 
 	if err := syntheticsv1alpha1.SetupDNSWebhookWithManager(mgr); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to create webhook", "webhook", "DNSProbe")
-		os.Exit(1)
+		return fmt.Errorf("registering DNSProbe webhook: %w", err)
 	}
 
 	if err := mgr.Add(certManager); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to add cert watcher")
-		os.Exit(1)
+		return fmt.Errorf("adding cert watcher: %w", err)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to set up health check")
-		os.Exit(1)
+		return fmt.Errorf("setting up health check: %w", err)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to set up ready check")
-		os.Exit(1)
+		return fmt.Errorf("setting up ready check: %w", err)
 	}
 
 	ctrl.Log.WithName("setup").Info("starting webhook-only manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "problem running manager")
-		os.Exit(1)
-	}
+	return mgr.Start(ctrl.SetupSignalHandler())
 }
 
 // runController starts the full operator: cert rotation, metrics server,
@@ -156,16 +152,14 @@ func runController(
 	metricsAddr string,
 	probeConcurrency int,
 	enableLeaderElection bool,
-) {
+) error {
 	if err := certManager.Initialize(context.Background()); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to initialize webhook certificates")
-		os.Exit(1)
+		return fmt.Errorf("initializing webhook certificates: %w", err)
 	}
 
 	store, err := internalmetrics.NewStore()
 	if err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to create metrics store")
-		os.Exit(1)
+		return fmt.Errorf("creating metrics store: %w", err)
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -178,18 +172,15 @@ func runController(
 		},
 	})
 	if err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to start manager")
-		os.Exit(1)
+		return fmt.Errorf("creating manager: %w", err)
 	}
 
 	if err := mgr.Add(store.Server(metricsAddr)); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to add metrics server")
-		os.Exit(1)
+		return fmt.Errorf("adding metrics server: %w", err)
 	}
 
 	if err := mgr.Add(certManager); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to add webhook certificate manager")
-		os.Exit(1)
+		return fmt.Errorf("adding cert manager: %w", err)
 	}
 
 	scheduler := internalprobes.NewScheduler(
@@ -203,8 +194,7 @@ func runController(
 		internalprobes.DNSExecutor{},
 	)
 	if err := mgr.Add(scheduler); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to add scheduler")
-		os.Exit(1)
+		return fmt.Errorf("adding scheduler: %w", err)
 	}
 
 	reconciler := &controllers.HTTPProbeReconciler{
@@ -215,8 +205,7 @@ func runController(
 		Clock:     time.Now,
 	}
 	if err := reconciler.SetupWithManager(mgr); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to create controller", "controller", "HTTPProbe")
-		os.Exit(1)
+		return fmt.Errorf("creating HTTPProbe controller: %w", err)
 	}
 
 	dnsReconciler := &controllers.DNSProbeReconciler{
@@ -227,24 +216,18 @@ func runController(
 		Clock:     time.Now,
 	}
 	if err := dnsReconciler.SetupWithManager(mgr); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to create controller", "controller", "DNSProbe")
-		os.Exit(1)
+		return fmt.Errorf("creating DNSProbe controller: %w", err)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to set up health check")
-		os.Exit(1)
+		return fmt.Errorf("setting up health check: %w", err)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "unable to set up ready check")
-		os.Exit(1)
+		return fmt.Errorf("setting up ready check: %w", err)
 	}
 
 	ctrl.Log.WithName("setup").Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		ctrl.Log.WithName("setup").Error(err, "problem running manager")
-		os.Exit(1)
-	}
+	return mgr.Start(ctrl.SetupSignalHandler())
 }
 
 func namespaceFromEnv() string {
