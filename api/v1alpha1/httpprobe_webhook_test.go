@@ -79,9 +79,6 @@ func TestHTTPProbeDefault(t *testing.T) {
 	if probe.Spec.Request.Method != http.MethodGet {
 		t.Fatalf("unexpected method: %s", probe.Spec.Request.Method)
 	}
-	if probe.Spec.Assertions.Status != 200 {
-		t.Fatalf("unexpected status assertion: %d", probe.Spec.Assertions.Status)
-	}
 	if probe.Status.Summary != nil {
 		t.Fatal("defaulting should not mutate status")
 	}
@@ -90,10 +87,9 @@ func TestHTTPProbeDefault(t *testing.T) {
 func TestHTTPProbeDefaultDoesNotOverwrite(t *testing.T) {
 	probe := &HTTPProbe{
 		Spec: HTTPProbeSpec{
-			Interval:   metav1.Duration{Duration: 60 * time.Second},
-			Timeout:    metav1.Duration{Duration: 5 * time.Second},
-			Request:    HTTPRequestSpec{Method: "GET"},
-			Assertions: HTTPAssertions{Status: 201},
+			Interval: metav1.Duration{Duration: 60 * time.Second},
+			Timeout:  metav1.Duration{Duration: 5 * time.Second},
+			Request:  HTTPRequestSpec{Method: "GET"},
 		},
 	}
 	if err := probe.Default(context.Background(), probe); err != nil {
@@ -104,9 +100,6 @@ func TestHTTPProbeDefaultDoesNotOverwrite(t *testing.T) {
 	}
 	if probe.Spec.Timeout.Duration != 5*time.Second {
 		t.Fatalf("timeout should not be overwritten, got %v", probe.Spec.Timeout.Duration)
-	}
-	if probe.Spec.Assertions.Status != 201 {
-		t.Fatalf("status should not be overwritten, got %d", probe.Spec.Assertions.Status)
 	}
 }
 
@@ -119,9 +112,9 @@ func TestHTTPProbeValidate(t *testing.T) {
 		t.Fatalf("expected valid probe, got %v", err)
 	}
 
-	probe.Spec.Request.Method = "DELETE"
+	probe.Spec.Request.Method = ""
 	if _, err := probe.ValidateCreate(context.Background(), probe); err == nil {
-		t.Fatal("expected DELETE validation to fail")
+		t.Fatal("expected empty method validation to fail")
 	}
 }
 
@@ -172,23 +165,8 @@ func TestHTTPProbeValidateRules(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "status code below 100 rejected",
-			mutate:  func(p *HTTPProbe) { p.Spec.Assertions.Status = 99 },
-			wantErr: true,
-		},
-		{
-			name:    "status code above 599 rejected",
-			mutate:  func(p *HTTPProbe) { p.Spec.Assertions.Status = 600 },
-			wantErr: true,
-		},
-		{
 			name:    "http scheme accepted",
 			mutate:  func(p *HTTPProbe) { p.Spec.Request.URL = "http://127.0.0.1/health" },
-			wantErr: false,
-		},
-		{
-			name:    "status 404 accepted",
-			mutate:  func(p *HTTPProbe) { p.Spec.Assertions.Status = 404 },
 			wantErr: false,
 		},
 	}
@@ -232,87 +210,59 @@ func TestHTTPProbeValidatePhase2Rules(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "DELETE method rejected",
+			name:    "DELETE method accepted",
 			mutate:  func(p *HTTPProbe) { p.Spec.Request.Method = "DELETE" },
-			wantErr: true,
+			wantErr: false,
 		},
 		{
-			name: "POST with request body accepted",
+			name:    "PUT method accepted",
+			mutate:  func(p *HTTPProbe) { p.Spec.Request.Method = "PUT" },
+			wantErr: false,
+		},
+		{
+			name:    "PATCH method accepted",
+			mutate:  func(p *HTTPProbe) { p.Spec.Request.Method = "PATCH" },
+			wantErr: false,
+		},
+		{
+			name: "POST with JSON body accepted",
 			mutate: func(p *HTTPProbe) {
 				p.Spec.Request.Method = "POST"
 				p.Spec.Request.Body = `{"key":"value"}`
+				p.Spec.Request.Headers = map[string]string{"Content-Type": "application/json"}
 			},
 			wantErr: false,
 		},
 		{
-			name: "HEAD with request body rejected",
+			name: "PUT with JSON body accepted",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Request.Method = "PUT"
+				p.Spec.Request.Body = `{"key":"value"}`
+				p.Spec.Request.Headers = map[string]string{"Content-Type": "application/json"}
+			},
+			wantErr: false,
+		},
+		{
+			name: "HEAD with body accepted",
 			mutate: func(p *HTTPProbe) {
 				p.Spec.Request.Method = "HEAD"
 				p.Spec.Request.Body = "some body"
 			},
-			wantErr: true,
-		},
-		{
-			name: "valid latency assertion",
-			mutate: func(p *HTTPProbe) {
-				p.Spec.Assertions.Latency = &LatencyAssertion{MaxMs: 500}
-			},
 			wantErr: false,
 		},
 		{
-			name: "zero latency maxMs rejected",
+			name: "custom headers accepted",
 			mutate: func(p *HTTPProbe) {
-				p.Spec.Assertions.Latency = &LatencyAssertion{MaxMs: 0}
-			},
-			wantErr: true,
-		},
-		{
-			name: "negative latency maxMs rejected",
-			mutate: func(p *HTTPProbe) {
-				p.Spec.Assertions.Latency = &LatencyAssertion{MaxMs: -1}
-			},
-			wantErr: true,
-		},
-		{
-			name: "valid body contains assertion",
-			mutate: func(p *HTTPProbe) {
-				p.Spec.Assertions.Body = &BodyAssertion{Contains: "ok"}
-			},
-			wantErr: false,
-		},
-		{
-			name: "valid body json assertion",
-			mutate: func(p *HTTPProbe) {
-				p.Spec.Assertions.Body = &BodyAssertion{
-					JSON: []JSONAssertion{{Path: "$.status", Value: "ok"}},
+				p.Spec.Request.Headers = map[string]string{
+					"Authorization": "Bearer token",
+					"X-Custom":      "value",
 				}
 			},
 			wantErr: false,
 		},
 		{
-			name: "body json path without dollar rejected",
-			mutate: func(p *HTTPProbe) {
-				p.Spec.Assertions.Body = &BodyAssertion{
-					JSON: []JSONAssertion{{Path: "status", Value: "ok"}},
-				}
-			},
-			wantErr: true,
-		},
-		{
-			name: "body json path with only dollar accepted",
-			mutate: func(p *HTTPProbe) {
-				p.Spec.Assertions.Body = &BodyAssertion{
-					JSON: []JSONAssertion{{Path: "$", Value: "ok"}},
-				}
-			},
-			wantErr: false,
-		},
-		{
-			name: "body assertions with HEAD rejected",
-			mutate: func(p *HTTPProbe) {
-				p.Spec.Request.Method = "HEAD"
-				p.Spec.Assertions.Body = &BodyAssertion{Contains: "ok"}
-			},
+			name:    "empty method rejected",
+			mutate:  func(p *HTTPProbe) { p.Spec.Request.Method = "" },
 			wantErr: true,
 		},
 		{
@@ -333,6 +283,98 @@ func TestHTTPProbeValidatePhase2Rules(t *testing.T) {
 			name: "tls invalid CA cert rejected",
 			mutate: func(p *HTTPProbe) {
 				p.Spec.TLS = &TLSConfig{CACert: "not-valid-pem"}
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := validBase()
+			tc.mutate(p)
+			_, err := p.ValidateCreate(context.Background(), p)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestHTTPProbeAssertionValidation(t *testing.T) {
+	validBase := func() *HTTPProbe {
+		p := &HTTPProbe{}
+		_ = p.Default(context.Background(), p)
+		p.Spec.Request.URL = "http://127.0.0.1/health"
+		return p
+	}
+
+	cases := []struct {
+		name    string
+		mutate  func(*HTTPProbe)
+		wantErr bool
+	}{
+		{
+			name: "valid status_code assertion accepted",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "ok", Expr: "status_code = 200"}}
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid duration_ms assertion accepted",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "fast", Expr: "duration_ms < 500"}}
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid ssl_expiry_days assertion accepted",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"}}
+			},
+			wantErr: false,
+		},
+		{
+			name: "unknown variable rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "bad", Expr: "answer_count > 0"}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid expression rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "bad", Expr: "not an expression"}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty assertion name rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "", Expr: "status_code = 200"}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "multiple valid assertions accepted",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions = []Assertion{
+					{Name: "status_ok", Expr: "status_code = 200"},
+					{Name: "fast", Expr: "duration_ms < 500"},
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "second assertion invalid rejects whole probe",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Assertions = []Assertion{
+					{Name: "status_ok", Expr: "status_code = 200"},
+					{Name: "bad", Expr: "answer_count > 0"},
+				}
 			},
 			wantErr: true,
 		},

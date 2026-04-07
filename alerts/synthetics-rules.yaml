@@ -1,0 +1,117 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: synthetics-operator-rules
+  labels:
+    app: synthetics-operator
+    # Set this label to match your Prometheus operator's ruleSelector if needed.
+    # prometheus: kube-prometheus
+spec:
+  groups:
+    - name: synthetics.probes
+      interval: 60s
+      rules:
+        # ── Probe down ──────────────────────────────────────────────────────────
+        - alert: SyntheticProbeDown
+          expr: synthetics_probe_up == 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Synthetic probe {{ $labels.name }} is failing"
+            description: >
+              Probe {{ $labels.namespace }}/{{ $labels.name }} ({{ $labels.kind }})
+              has been failing for at least 2 minutes.
+
+        # ── Sustained failures ──────────────────────────────────────────────────
+        # Fires when a probe has been failing for every scrape in the past 5 minutes.
+        - alert: SyntheticProbeSustainedFailure
+          expr: min_over_time(synthetics_probe_up[5m]) == 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Synthetic probe {{ $labels.name }} has been failing for 5 minutes"
+            description: >
+              Probe {{ $labels.namespace }}/{{ $labels.name }} ({{ $labels.kind }})
+              has returned success=0 on every scrape in the past 5 minutes.
+
+        # ── Probe not running ────────────────────────────────────────────────────
+        # Fires when a probe has not been executed for more than 5 minutes.
+        # This can happen if the scheduler is stuck or the pod has restarted.
+        - alert: SyntheticProbeNotRunning
+          expr: (time() - synthetics_last_run_timestamp) > 300
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Synthetic probe {{ $labels.name }} has not run in > 5 minutes"
+            description: >
+              Probe {{ $labels.namespace }}/{{ $labels.name }} ({{ $labels.kind }})
+              last ran {{ $value | humanizeDuration }} ago.
+
+        # ── Config error ─────────────────────────────────────────────────────────
+        - alert: SyntheticProbeConfigError
+          expr: synthetics_probe_config_error == 1
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Synthetic probe {{ $labels.name }} has a configuration error"
+            description: >
+              Probe {{ $labels.namespace }}/{{ $labels.name }} ({{ $labels.kind }})
+              has a configuration error and will not be retried until the spec is
+              corrected.
+
+        # ── Slow probe ───────────────────────────────────────────────────────────
+        # Fires when an HTTP probe consistently takes > 5 seconds. Adjust the
+        # threshold to match your SLO.
+        - alert: SyntheticHTTPProbeSlow
+          expr: synthetics_probe_duration_ms{kind="HTTPProbe"} > 5000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "HTTP probe {{ $labels.name }} is slow ({{ $value }}ms)"
+            description: >
+              Probe {{ $labels.namespace }}/{{ $labels.name }} has been responding
+              in over 5 seconds for the past 5 minutes.
+
+        # ── TLS certificate expiry ───────────────────────────────────────────────
+        # Fires when a TLS certificate will expire within 14 days.
+        - alert: SyntheticProbeTLSCertExpiringSoon
+          expr: |
+            (synthetics_probe_tls_cert_expiry_timestamp_seconds - time()) / 86400 < 14
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "TLS certificate for {{ $labels.name }} expires in {{ $value | printf \"%.0f\" }} days"
+            description: >
+              The TLS certificate observed by probe {{ $labels.namespace }}/{{ $labels.name }}
+              expires in {{ $value | printf "%.0f" }} days.
+
+        # ── TLS certificate expiry (critical) ────────────────────────────────────
+        - alert: SyntheticProbeTLSCertExpiringCritical
+          expr: |
+            (synthetics_probe_tls_cert_expiry_timestamp_seconds - time()) / 86400 < 3
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "TLS certificate for {{ $labels.name }} expires in {{ $value | printf \"%.0f\" }} days"
+            description: >
+              The TLS certificate observed by probe {{ $labels.namespace }}/{{ $labels.name }}
+              expires in {{ $value | printf "%.0f" }} days. Immediate action required.
+
+        # ── DNS probe slow ───────────────────────────────────────────────────────
+        - alert: SyntheticDNSProbeSlow
+          expr: synthetics_dns_response_ms > 500
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "DNS probe {{ $labels.name }} is slow ({{ $value }}ms)"
+            description: >
+              Probe {{ $labels.namespace }}/{{ $labels.name }} DNS response time has
+              exceeded 500ms for the past 5 minutes.

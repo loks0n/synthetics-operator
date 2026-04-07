@@ -1,0 +1,866 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [
+    {
+      "title": "Overview",
+      "url": "/d/synthetics-overview",
+      "type": "link",
+      "icon": "arrow-left",
+      "targetBlank": false
+    },
+    {
+      "title": "Create Alert",
+      "url": "/alerting/new/alerting?defaults=%7B%22name%22%3A%20%22HTTP%20Probe%20-%20${url}%22%2C%20%22folder%22%3A%20%7B%22title%22%3A%20%22Synthetics%22%7D%2C%20%22queries%22%3A%20%5B%7B%22refId%22%3A%20%22A%22%2C%20%22datasourceUid%22%3A%20%22prometheus%22%2C%20%22relativeTimeRange%22%3A%20%7B%22from%22%3A%20300%2C%20%22to%22%3A%200%7D%2C%20%22model%22%3A%20%7B%22expr%22%3A%20%22synthetics_probe_http_status_code%7Burl%3D%5C%22${url}%5C%22%7D%20%3E%3D%20500%22%2C%20%22instant%22%3A%20true%2C%20%22refId%22%3A%20%22A%22%7D%7D%5D%7D",
+      "type": "link",
+      "icon": "bell",
+      "tooltip": "Create a new alert rule for the selected probe",
+      "targetBlank": false
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": [
+    "synthetics",
+    "http"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Namespace",
+        "multi": false,
+        "name": "namespace",
+        "options": [],
+        "query": {
+          "query": "label_values(synthetics_probe_up{kind=\"HTTPProbe\"}, namespace)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        }
+      },
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "URL",
+        "multi": false,
+        "name": "url",
+        "options": [],
+        "query": "label_values(synthetics_probe_http_status_code{namespace=\"$namespace\"}, url)",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        }
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Synthetics / HTTP Probe",
+  "uid": "synthetics-http-probe",
+  "version": 1,
+  "panels": [
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Method",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 3,
+        "h": 3
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "orientation": "auto",
+        "textMode": "name",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {}
+      },
+      "targets": [
+        {
+          "expr": "synthetics_probe_http_info{namespace=\"$namespace\", url=\"$url\"}",
+          "legendFormat": "{{method}}",
+          "instant": true,
+          "refId": "A",
+          "interval": "30s"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "URL",
+      "gridPos": {
+        "x": 3,
+        "y": 0,
+        "w": 21,
+        "h": 3
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "orientation": "auto",
+        "textMode": "name",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {}
+      },
+      "targets": [
+        {
+          "expr": "synthetics_probe_http_info{namespace=\"$namespace\", url=\"$url\"}",
+          "legendFormat": "{{url}}",
+          "instant": true,
+          "refId": "A",
+          "interval": "30s"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Status",
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "textMode": "value and name",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN"
+                },
+                "1": {
+                  "text": "UP"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "synthetics_probe_up{kind=\"HTTPProbe\", namespace=\"$namespace\", url=\"$url\"}",
+          "legendFormat": "{{reason}}",
+          "instant": true,
+          "refId": "A",
+          "interval": "30s"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "24h",
+      "gridPos": {
+        "x": 6,
+        "y": 3,
+        "w": 2,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 99
+              },
+              {
+                "color": "yellow",
+                "value": 99.9
+              },
+              {
+                "color": "green",
+                "value": 99.99
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "avg_over_time(max by(name, namespace, kind, url)(synthetics_probe_up{url=\"$url\", namespace=\"$namespace\"})[1d:30s]) * 100",
+          "instant": true,
+          "refId": "A",
+          "interval": "30s"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "7d",
+      "gridPos": {
+        "x": 8,
+        "y": 3,
+        "w": 2,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 99
+              },
+              {
+                "color": "yellow",
+                "value": 99.9
+              },
+              {
+                "color": "green",
+                "value": 99.99
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "avg_over_time(max by(name, namespace, kind, url)(synthetics_probe_up{url=\"$url\", namespace=\"$namespace\"})[7d:30s]) * 100",
+          "instant": true,
+          "refId": "A",
+          "interval": "30s"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "14d",
+      "gridPos": {
+        "x": 10,
+        "y": 3,
+        "w": 2,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 99
+              },
+              {
+                "color": "yellow",
+                "value": 99.9
+              },
+              {
+                "color": "green",
+                "value": 99.99
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "avg_over_time(max by(name, namespace, kind, url)(synthetics_probe_up{url=\"$url\", namespace=\"$namespace\"})[14d:30s]) * 100",
+          "instant": true,
+          "refId": "A",
+          "interval": "30s"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "gauge",
+      "title": "Duration",
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 0,
+          "min": 0,
+          "max": 1000,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 100
+              },
+              {
+                "color": "orange",
+                "value": 500
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "synthetics_probe_duration_ms{kind=\"HTTPProbe\", namespace=\"$namespace\", url=\"$url\"}",
+          "legendFormat": "",
+          "instant": true,
+          "refId": "A",
+          "interval": "30s"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "SSL Expiry",
+      "gridPos": {
+        "x": 16,
+        "y": 3,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 259200
+              },
+              {
+                "color": "yellow",
+                "value": 1209600
+              },
+              {
+                "color": "green",
+                "value": 2592000
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "No TLS"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "synthetics_probe_tls_cert_expiry_timestamp_seconds{namespace=\"$namespace\", url=\"$url\"} - time()",
+          "instant": true,
+          "refId": "A",
+          "interval": "30s"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Last Run",
+      "gridPos": {
+        "x": 20,
+        "y": 3,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeFromNow"
+        }
+      },
+      "targets": [
+        {
+          "expr": "synthetics_last_run_timestamp{kind=\"HTTPProbe\", namespace=\"$namespace\", url=\"$url\"} * 1000",
+          "legendFormat": "",
+          "instant": true,
+          "refId": "A",
+          "interval": "30s"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "state-timeline",
+      "title": "Status Code",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "mergeValues": true,
+        "showValue": "auto",
+        "fillOpacity": 80,
+        "rowHeight": 0.85,
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "blue",
+                "value": 100
+              },
+              {
+                "color": "green",
+                "value": 200
+              },
+              {
+                "color": "yellow",
+                "value": 300
+              },
+              {
+                "color": "orange",
+                "value": 400
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "synthetics_probe_http_status_code{namespace=\"$namespace\", url=\"$url\"}",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "interval": "30s"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "table",
+      "title": "Assertions",
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "sortBy": [{"displayName": "Assertion"}],
+        "footer": {"show": false}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "displayMode": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Result"},
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {"text": "FAIL", "color": "red", "index": 0},
+                      "1": {"text": "PASS", "color": "green", "index": 1}
+                    }
+                  }
+                ]
+              },
+              {"id": "custom.displayMode", "value": "color-background"},
+              {"id": "custom.width", "value": 100}
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "Time"},
+            "properties": [{"id": "custom.hidden", "value": true}]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {"names": ["assertion", "expr", "Value"]}
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "assertion": "Assertion",
+              "expr": "Expression",
+              "Value": "Result"
+            },
+            "indexByName": {
+              "assertion": 0,
+              "expr": 1,
+              "Value": 2
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "expr": "synthetics_probe_assertion_result{namespace=\"$namespace\", url=\"$url\"}",
+          "legendFormat": "{{assertion}}",
+          "instant": true,
+          "refId": "A",
+          "interval": "30s",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "HTTP Duration",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 0,
+            "fillOpacity": 100,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "synthetics_probe_http_phase_duration_ms{phase=\"dns\", namespace=\"$namespace\", url=\"$url\"}",
+          "legendFormat": "{{phase}}",
+          "refId": "A",
+          "range": true,
+          "interval": "30s"
+        },
+        {
+          "expr": "synthetics_probe_http_phase_duration_ms{phase=\"connect\", namespace=\"$namespace\", url=\"$url\"}",
+          "legendFormat": "{{phase}}",
+          "refId": "B",
+          "range": true,
+          "interval": "30s"
+        },
+        {
+          "expr": "synthetics_probe_http_phase_duration_ms{phase=\"tls\", namespace=\"$namespace\", url=\"$url\"}",
+          "legendFormat": "{{phase}}",
+          "refId": "C",
+          "range": true,
+          "interval": "30s"
+        },
+        {
+          "expr": "synthetics_probe_http_phase_duration_ms{phase=\"processing\", namespace=\"$namespace\", url=\"$url\"}",
+          "legendFormat": "{{phase}}",
+          "refId": "D",
+          "range": true,
+          "interval": "30s"
+        },
+        {
+          "expr": "synthetics_probe_http_phase_duration_ms{phase=\"transfer\", namespace=\"$namespace\", url=\"$url\"}",
+          "legendFormat": "{{phase}}",
+          "refId": "E",
+          "range": true,
+          "interval": "30s"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "alertlist",
+      "title": "Alerts",
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana",
+        "uid": "-- Grafana --"
+      },
+      "options": {
+        "viewMode": "list",
+        "groupMode": "default",
+        "groupBy": [],
+        "alertName": "",
+        "alertInstanceLabelFilter": "{probe_type=\"http\", url=\"$url\"}",
+        "dashboardAlerts": false,
+        "maxItems": 20,
+        "sortOrder": 1,
+        "stateFilter": {
+          "error": true,
+          "firing": true,
+          "noData": true,
+          "normal": true,
+          "pending": true
+        }
+      }
+    }
+  ]
+}

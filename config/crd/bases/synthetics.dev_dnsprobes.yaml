@@ -40,10 +40,27 @@ spec:
           spec:
             properties:
               assertions:
-                properties:
-                  firstAnswerValue:
-                    type: string
-                type: object
+                items:
+                  description: "Assertion is a named pass/fail check evaluated against
+                    a probe result.\nThe Expr field uses a simple expression language:\n\n\tvariable
+                    op value\n\nOperators: =, !=, <, <=, >, >=\nValue must be a numeric
+                    literal.\n\nHTTP variables:  status_code, duration_ms, ssl_expiry_days\nDNS
+                    variables:   answer_count, duration_ms"
+                  properties:
+                    expr:
+                      description: Expr is the expression to evaluate, e.g. "status_code
+                        = 200".
+                      type: string
+                    name:
+                      description: |-
+                        Name identifies the assertion and is used as the "reason" label on the
+                        probe_success metric when this assertion fails.
+                      type: string
+                  required:
+                  - expr
+                  - name
+                  type: object
+                type: array
               interval:
                 type: string
               query:

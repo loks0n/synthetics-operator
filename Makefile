@@ -24,6 +24,7 @@ tools:
 generate:
 	controller-gen crd paths="./api/..." output:crd:artifacts:config=config/crd/bases
 	cp config/crd/bases/synthetics.dev_httpprobes.yaml charts/synthetics-operator/crds/synthetics.dev_httpprobes.yaml
+	cp config/crd/bases/synthetics.dev_dnsprobes.yaml charts/synthetics-operator/crds/synthetics.dev_dnsprobes.yaml
 
 lint: tools
 	GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(TOOLS_BIN)/golangci-lint run --timeout=5m
@@ -53,3 +54,14 @@ dev: tools kind-create
 ko-build-local:
 	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
 	@KO_DOCKER_REPO=ko.local/synthetics-operator $(TOOLS_BIN)/ko build --bare .
+
+dashboard-configmaps: ## Regenerate hack/dashboard-configmaps.yaml from dashboards/*.json
+	@for entry in "synthetics-overview-dashboard:synthetics-overview.json" "synthetics-http-probe-dashboard:http-probe.json" "synthetics-dns-probe-dashboard:dns-probe.json"; do \
+		name=$$(echo $$entry | cut -d: -f1); \
+		file=$$(echo $$entry | cut -d: -f2); \
+		echo "---"; \
+		kubectl create configmap $$name -n monitoring \
+			--from-file=$$file=dashboards/$$file \
+			--dry-run=client -o yaml | \
+			python3 -c "import sys,yaml; d=yaml.safe_load(sys.stdin); d['metadata']['labels']={'grafana_dashboard':'1'}; print(yaml.dump(d))"; \
+	done > hack/dashboard-configmaps.yaml

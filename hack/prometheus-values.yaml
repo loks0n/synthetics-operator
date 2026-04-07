@@ -1,0 +1,38 @@
+# prometheus-community/prometheus values for local dev.
+# Scrapes the synthetics-operator metrics endpoint via a static job.
+
+alertmanager:
+  enabled: false
+
+pushgateway:
+  enabled: false
+
+nodeExporter:
+  enabled: false
+
+kube-state-metrics:
+  enabled: false
+
+server:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  retention: 24h
+
+# Static scrape job for the synthetics operator.
+# The operator exposes /metrics on port 8080 via the webhook service.
+serverFiles:
+  prometheus.yml:
+    scrape_configs:
+      - job_name: synthetics-operator
+        scrape_interval: 15s
+        static_configs:
+          - targets:
+              - synthetics-operator-webhook-service.synthetics-system.svc.cluster.local:8080
+      # Scrape OTLP metrics forwarded through the OTel collector.
+      - job_name: otel-collector
+        scrape_interval: 15s
+        static_configs:
+          - targets:
+              - otel-collector-opentelemetry-collector.monitoring.svc.cluster.local:8889

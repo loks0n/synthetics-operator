@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: synthetics-grafana-alerts
+  namespace: monitoring
+  labels:
+    grafana_alert: "1"
+data:
+  synthetics-alerts.yaml: |
+    apiVersion: 1
+    deleteRules:
+      - orgId: 1
+        uid: synthetics-http-connection-error
+      - orgId: 1
+        uid: synthetics-http-5xx
+      - orgId: 1
+        uid: synthetics-http-slow
+      - orgId: 1
+        uid: synthetics-dns-error
+    groups:
+      - orgId: 1
+        name: HTTP Probes
+        folder: Synthetics
+        interval: 1m
+        rules:
+          - uid: synthetics-http-probe-down
+            title: HTTP Probe Down
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: 'synthetics_probe_up{kind="HTTPProbe"} == 0'
+                  instant: true
+                  refId: A
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  expression: A
+                  type: threshold
+                  refId: C
+            noDataState: NoData
+            execErrState: Error
+            for: 90s
+            keep_firing_for: 3m
+            labels:
+              severity: critical
+              probe_type: http
+            annotations:
+              __dashboardUid__: synthetics-http-probe
+              __panelId__: "6"
+              summary: "HTTP probe {{ $labels.name }} is down ({{ $labels.reason }})"
+              description: "Probe {{ $labels.namespace }}/{{ $labels.name }} ({{ $labels.url }}) failed assertion: {{ $labels.reason }}"
+      - orgId: 1
+        name: DNS Probes
+        folder: Synthetics
+        interval: 1m
+        rules:
+          - uid: synthetics-dns-probe-down
+            title: DNS Probe Down
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: 'synthetics_probe_up{kind="DNSProbe"} == 0'
+                  instant: true
+                  refId: A
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: [0]
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params: [A]
+                      reducer:
+                        type: last
+                  expression: A
+                  type: threshold
+                  refId: C
+            noDataState: NoData
+            execErrState: Error
+            for: 90s
+            keep_firing_for: 3m
+            labels:
+              severity: critical
+              probe_type: dns
+            annotations:
+              __dashboardUid__: synthetics-dns-probe
+              __panelId__: "1"
+              summary: "DNS probe {{ $labels.name }} is down"
+              description: "Probe {{ $labels.namespace }}/{{ $labels.name }} is failing"

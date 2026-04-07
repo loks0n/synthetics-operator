@@ -1,0 +1,97 @@
+---
+apiVersion: synthetics.dev/v1alpha1
+kind: HTTPProbe
+metadata:
+  name: httpbin-get
+  namespace: default
+spec:
+  interval: 30s
+  timeout: 10s
+  request:
+    url: https://httpbin.org/get
+    method: GET
+  assertions:
+    - name: status_code_ok
+      expr: status_code = 200
+    - name: fast_response
+      expr: duration_ms < 2000
+---
+apiVersion: synthetics.dev/v1alpha1
+kind: HTTPProbe
+metadata:
+  name: github-api
+  namespace: default
+spec:
+  interval: 30s
+  timeout: 10s
+  request:
+    url: https://api.github.com
+    method: GET
+  assertions:
+    - name: status_code_ok
+      expr: status_code = 200
+---
+apiVersion: synthetics.dev/v1alpha1
+kind: HTTPProbe
+metadata:
+  name: always-failing
+  namespace: default
+spec:
+  interval: 30s
+  timeout: 5s
+  request:
+    url: https://httpbin.org/status/503
+    method: GET
+  assertions:
+    - name: status_code_ok
+      expr: status_code = 200
+---
+apiVersion: synthetics.dev/v1alpha1
+kind: DNSProbe
+metadata:
+  name: google-a
+  namespace: default
+spec:
+  interval: 30s
+  timeout: 10s
+  query:
+    name: google.com
+    type: A
+    resolver: 8.8.8.8:53
+  assertions:
+    - name: has_answers
+      expr: answer_count > 0
+    - name: fast_response
+      expr: duration_ms < 500
+---
+apiVersion: synthetics.dev/v1alpha1
+kind: DNSProbe
+metadata:
+  name: github-cname
+  namespace: default
+spec:
+  interval: 30s
+  timeout: 10s
+  query:
+    name: www.github.com
+    type: CNAME
+    resolver: 8.8.8.8:53
+  assertions:
+    - name: has_answers
+      expr: answer_count > 0
+---
+apiVersion: synthetics.dev/v1alpha1
+kind: DNSProbe
+metadata:
+  name: cloudflare-txt
+  namespace: default
+spec:
+  interval: 30s
+  timeout: 10s
+  query:
+    name: cloudflare.com
+    type: TXT
+    resolver: 1.1.1.1:53
+  assertions:
+    - name: has_answers
+      expr: answer_count > 0

@@ -1,0 +1,712 @@
+---
+apiVersion: v1
+data:
+  synthetics-overview.json: "{\n  \"annotations\": {\n    \"list\": []\n  },\n  \"\
+    editable\": true,\n  \"fiscalYearStartMonth\": 0,\n  \"graphTooltip\": 1,\n  \"\
+    links\": [],\n  \"refresh\": \"30s\",\n  \"schemaVersion\": 38,\n  \"tags\": [\n\
+    \    \"synthetics\"\n  ],\n  \"templating\": {\n    \"list\": [\n      {\n   \
+    \     \"current\": {},\n        \"hide\": 0,\n        \"includeAll\": false,\n\
+    \        \"label\": \"Namespace\",\n        \"multi\": true,\n        \"name\"\
+    : \"namespace\",\n        \"options\": [],\n        \"query\": {\n          \"\
+    query\": \"label_values(synthetics_probe_up, namespace)\",\n          \"refId\"\
+    : \"StandardVariableQuery\"\n        },\n        \"refresh\": 2,\n        \"type\"\
+    : \"query\",\n        \"datasource\": {\n          \"type\": \"prometheus\",\n\
+    \          \"uid\": \"prometheus\"\n        }\n      }\n    ]\n  },\n  \"time\"\
+    : {\n    \"from\": \"now-1h\",\n    \"to\": \"now\"\n  },\n  \"timepicker\": {},\n\
+    \  \"timezone\": \"browser\",\n  \"title\": \"Synthetics / Overview\",\n  \"uid\"\
+    : \"synthetics-overview\",\n  \"version\": 1,\n  \"panels\": [\n    {\n      \"\
+    id\": 1,\n      \"type\": \"stat\",\n      \"title\": \"Total Probes\",\n    \
+    \  \"gridPos\": {\n        \"h\": 4,\n        \"w\": 6,\n        \"x\": 0,\n \
+    \       \"y\": 0\n      },\n      \"datasource\": {\n        \"type\": \"prometheus\"\
+    ,\n        \"uid\": \"prometheus\"\n      },\n      \"options\": {\n        \"\
+    reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\n    \
+    \      ]\n        },\n        \"orientation\": \"auto\",\n        \"textMode\"\
+    : \"auto\",\n        \"colorMode\": \"none\",\n        \"graphMode\": \"none\"\
+    \n      },\n      \"targets\": [\n        {\n          \"expr\": \"count(synthetics_probe_up{namespace=~\\\
+    \"$namespace\\\"})\",\n          \"legendFormat\": \"\",\n          \"instant\"\
+    : true,\n          \"refId\": \"A\"\n        }\n      ]\n    },\n    {\n     \
+    \ \"id\": 2,\n      \"type\": \"stat\",\n      \"title\": \"HTTP Probes\",\n \
+    \     \"gridPos\": {\n        \"h\": 4,\n        \"w\": 6,\n        \"x\": 6,\n\
+    \        \"y\": 0\n      },\n      \"datasource\": {\n        \"type\": \"prometheus\"\
+    ,\n        \"uid\": \"prometheus\"\n      },\n      \"options\": {\n        \"\
+    reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\n    \
+    \      ]\n        },\n        \"orientation\": \"auto\",\n        \"textMode\"\
+    : \"auto\",\n        \"colorMode\": \"none\",\n        \"graphMode\": \"none\"\
+    \n      },\n      \"targets\": [\n        {\n          \"expr\": \"count(synthetics_probe_up{kind=\\\
+    \"HTTPProbe\\\", namespace=~\\\"$namespace\\\"})\",\n          \"legendFormat\"\
+    : \"\",\n          \"instant\": true,\n          \"refId\": \"A\"\n        }\n\
+    \      ]\n    },\n    {\n      \"id\": 3,\n      \"type\": \"stat\",\n      \"\
+    title\": \"DNS Probes\",\n      \"gridPos\": {\n        \"h\": 4,\n        \"\
+    w\": 6,\n        \"x\": 12,\n        \"y\": 0\n      },\n      \"datasource\"\
+    : {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n    \
+    \  },\n      \"options\": {\n        \"reduceOptions\": {\n          \"calcs\"\
+    : [\n            \"lastNotNull\"\n          ]\n        },\n        \"orientation\"\
+    : \"auto\",\n        \"textMode\": \"auto\",\n        \"colorMode\": \"none\"\
+    ,\n        \"graphMode\": \"none\"\n      },\n      \"targets\": [\n        {\n\
+    \          \"expr\": \"count(synthetics_probe_up{kind=\\\"DNSProbe\\\", namespace=~\\\
+    \"$namespace\\\"})\",\n          \"legendFormat\": \"\",\n          \"instant\"\
+    : true,\n          \"refId\": \"A\"\n        }\n      ]\n    },\n    {\n     \
+    \ \"id\": 4,\n      \"type\": \"stat\",\n      \"title\": \"Overall Success Rate\"\
+    ,\n      \"gridPos\": {\n        \"h\": 4,\n        \"w\": 6,\n        \"x\":\
+    \ 18,\n        \"y\": 0\n      },\n      \"datasource\": {\n        \"type\":\
+    \ \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"options\"\
+    : {\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ]\n        },\n        \"orientation\": \"auto\",\n        \"textMode\"\
+    : \"auto\",\n        \"colorMode\": \"background\",\n        \"graphMode\": \"\
+    none\"\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n        \
+    \  \"unit\": \"percentunit\",\n          \"min\": 0,\n          \"max\": 1,\n\
+    \          \"thresholds\": {\n            \"mode\": \"absolute\",\n          \
+    \  \"steps\": [\n              {\n                \"color\": \"red\",\n      \
+    \          \"value\": null\n              },\n              {\n              \
+    \  \"color\": \"yellow\",\n                \"value\": 0.9\n              },\n\
+    \              {\n                \"color\": \"green\",\n                \"value\"\
+    : 1\n              }\n            ]\n          }\n        }\n      },\n      \"\
+    targets\": [\n        {\n          \"expr\": \"avg(synthetics_probe_up{namespace=~\\\
+    \"$namespace\\\"})\",\n          \"legendFormat\": \"\",\n          \"instant\"\
+    : true,\n          \"refId\": \"A\"\n        }\n      ]\n    },\n    {\n     \
+    \ \"id\": 5,\n      \"type\": \"stat\",\n      \"title\": \"Probes Currently Failing\"\
+    ,\n      \"gridPos\": {\n        \"h\": 4,\n        \"w\": 6,\n        \"x\":\
+    \ 0,\n        \"y\": 4\n      },\n      \"datasource\": {\n        \"type\": \"\
+    prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"options\": {\n\
+    \        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ]\n        },\n        \"orientation\": \"auto\",\n        \"textMode\"\
+    : \"auto\",\n        \"colorMode\": \"background\",\n        \"graphMode\": \"\
+    none\"\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n        \
+    \  \"thresholds\": {\n            \"mode\": \"absolute\",\n            \"steps\"\
+    : [\n              {\n                \"color\": \"green\",\n                \"\
+    value\": null\n              },\n              {\n                \"color\": \"\
+    red\",\n                \"value\": 1\n              }\n            ]\n       \
+    \   }\n        }\n      },\n      \"targets\": [\n        {\n          \"expr\"\
+    : \"count(synthetics_probe_up{namespace=~\\\"$namespace\\\"} == 0) or vector(0)\"\
+    ,\n          \"legendFormat\": \"\",\n          \"instant\": true,\n         \
+    \ \"refId\": \"A\"\n        }\n      ]\n    },\n    {\n      \"id\": 6,\n    \
+    \  \"type\": \"stat\",\n      \"title\": \"Config Errors\",\n      \"gridPos\"\
+    : {\n        \"h\": 4,\n        \"w\": 6,\n        \"x\": 6,\n        \"y\": 4\n\
+    \      },\n      \"datasource\": {\n        \"type\": \"prometheus\",\n      \
+    \  \"uid\": \"prometheus\"\n      },\n      \"options\": {\n        \"reduceOptions\"\
+    : {\n          \"calcs\": [\n            \"lastNotNull\"\n          ]\n      \
+    \  },\n        \"orientation\": \"auto\",\n        \"textMode\": \"auto\",\n \
+    \       \"colorMode\": \"background\",\n        \"graphMode\": \"none\"\n    \
+    \  },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"thresholds\"\
+    : {\n            \"mode\": \"absolute\",\n            \"steps\": [\n         \
+    \     {\n                \"color\": \"green\",\n                \"value\": null\n\
+    \              },\n              {\n                \"color\": \"red\",\n    \
+    \            \"value\": 1\n              }\n            ]\n          }\n     \
+    \   }\n      },\n      \"targets\": [\n        {\n          \"expr\": \"count(synthetics_probe_config_error{namespace=~\\\
+    \"$namespace\\\"} == 1) or vector(0)\",\n          \"legendFormat\": \"\",\n \
+    \         \"instant\": true,\n          \"refId\": \"A\"\n        }\n      ]\n\
+    \    },\n    {\n      \"id\": 7,\n      \"type\": \"stat\",\n      \"title\":\
+    \ \"HTTP Success Rate\",\n      \"gridPos\": {\n        \"h\": 4,\n        \"\
+    w\": 6,\n        \"x\": 12,\n        \"y\": 4\n      },\n      \"datasource\"\
+    : {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n    \
+    \  },\n      \"options\": {\n        \"reduceOptions\": {\n          \"calcs\"\
+    : [\n            \"lastNotNull\"\n          ]\n        },\n        \"orientation\"\
+    : \"auto\",\n        \"textMode\": \"auto\",\n        \"colorMode\": \"background\"\
+    ,\n        \"graphMode\": \"none\"\n      },\n      \"fieldConfig\": {\n     \
+    \   \"defaults\": {\n          \"unit\": \"percentunit\",\n          \"min\":\
+    \ 0,\n          \"max\": 1,\n          \"thresholds\": {\n            \"mode\"\
+    : \"absolute\",\n            \"steps\": [\n              {\n                \"\
+    color\": \"red\",\n                \"value\": null\n              },\n       \
+    \       {\n                \"color\": \"yellow\",\n                \"value\":\
+    \ 0.9\n              },\n              {\n                \"color\": \"green\"\
+    ,\n                \"value\": 1\n              }\n            ]\n          }\n\
+    \        }\n      },\n      \"targets\": [\n        {\n          \"expr\": \"\
+    avg(synthetics_probe_up{kind=\\\"HTTPProbe\\\", namespace=~\\\"$namespace\\\"\
+    })\",\n          \"legendFormat\": \"\",\n          \"instant\": true,\n     \
+    \     \"refId\": \"A\"\n        }\n      ]\n    },\n    {\n      \"id\": 8,\n\
+    \      \"type\": \"stat\",\n      \"title\": \"DNS Success Rate\",\n      \"gridPos\"\
+    : {\n        \"h\": 4,\n        \"w\": 6,\n        \"x\": 18,\n        \"y\":\
+    \ 4\n      },\n      \"datasource\": {\n        \"type\": \"prometheus\",\n  \
+    \      \"uid\": \"prometheus\"\n      },\n      \"options\": {\n        \"reduceOptions\"\
+    : {\n          \"calcs\": [\n            \"lastNotNull\"\n          ]\n      \
+    \  },\n        \"orientation\": \"auto\",\n        \"textMode\": \"auto\",\n \
+    \       \"colorMode\": \"background\",\n        \"graphMode\": \"none\"\n    \
+    \  },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\":\
+    \ \"percentunit\",\n          \"min\": 0,\n          \"max\": 1,\n          \"\
+    thresholds\": {\n            \"mode\": \"absolute\",\n            \"steps\": [\n\
+    \              {\n                \"color\": \"red\",\n                \"value\"\
+    : null\n              },\n              {\n                \"color\": \"yellow\"\
+    ,\n                \"value\": 0.9\n              },\n              {\n       \
+    \         \"color\": \"green\",\n                \"value\": 1\n              }\n\
+    \            ]\n          }\n        }\n      },\n      \"targets\": [\n     \
+    \   {\n          \"expr\": \"avg(synthetics_probe_up{kind=\\\"DNSProbe\\\", namespace=~\\\
+    \"$namespace\\\"})\",\n          \"legendFormat\": \"\",\n          \"instant\"\
+    : true,\n          \"refId\": \"A\"\n        }\n      ]\n    },\n    {\n     \
+    \ \"id\": 9,\n      \"type\": \"table\",\n      \"title\": \"All Probes\",\n \
+    \     \"gridPos\": {\n        \"h\": 10,\n        \"w\": 24,\n        \"x\": 0,\n\
+    \        \"y\": 8\n      },\n      \"datasource\": {\n        \"type\": \"prometheus\"\
+    ,\n        \"uid\": \"prometheus\"\n      },\n      \"options\": {\n        \"\
+    sortBy\": [\n          {\n            \"displayName\": \"Success\",\n        \
+    \    \"desc\": false\n          }\n        ],\n        \"footer\": {\n       \
+    \   \"show\": false\n        }\n      },\n      \"fieldConfig\": {\n        \"\
+    overrides\": [\n          {\n            \"matcher\": {\n              \"id\"\
+    : \"byName\",\n              \"options\": \"Success\"\n            },\n      \
+    \      \"properties\": [\n              {\n                \"id\": \"custom.displayMode\"\
+    ,\n                \"value\": \"color-background\"\n              },\n       \
+    \       {\n                \"id\": \"thresholds\",\n                \"value\"\
+    : {\n                  \"mode\": \"absolute\",\n                  \"steps\": [\n\
+    \                    {\n                      \"color\": \"red\",\n          \
+    \            \"value\": null\n                    },\n                    {\n\
+    \                      \"color\": \"green\",\n                      \"value\"\
+    : 1\n                    }\n                  ]\n                }\n         \
+    \     },\n              {\n                \"id\": \"mappings\",\n           \
+    \     \"value\": [\n                  {\n                    \"type\": \"value\"\
+    ,\n                    \"options\": {\n                      \"0\": {\n      \
+    \                  \"text\": \"FAILING\"\n                      },\n         \
+    \             \"1\": {\n                        \"text\": \"OK\"\n           \
+    \           }\n                    }\n                  }\n                ]\n\
+    \              }\n            ]\n          },\n          {\n            \"matcher\"\
+    : {\n              \"id\": \"byName\",\n              \"options\": \"Last Run\"\
+    \n            },\n            \"properties\": [\n              {\n           \
+    \     \"id\": \"unit\",\n                \"value\": \"dateTimeFromNow\"\n    \
+    \          }\n            ]\n          },\n          {\n            \"matcher\"\
+    : {\n              \"id\": \"byName\",\n              \"options\": \"Duration\
+    \ (ms)\"\n            },\n            \"properties\": [\n              {\n   \
+    \             \"id\": \"unit\",\n                \"value\": \"ms\"\n         \
+    \     },\n              {\n                \"id\": \"decimals\",\n           \
+    \     \"value\": 0\n              }\n            ]\n          }\n        ]\n \
+    \     },\n      \"transformations\": [\n        {\n          \"id\": \"merge\"\
+    ,\n          \"options\": {}\n        },\n        {\n          \"id\": \"organize\"\
+    ,\n          \"options\": {\n            \"renameByName\": {\n              \"\
+    name\": \"Probe\",\n              \"namespace\": \"Namespace\",\n            \
+    \  \"kind\": \"Kind\",\n              \"Value #success\": \"Success\",\n     \
+    \         \"Value #last_run\": \"Last Run\",\n              \"Value #duration\"\
+    : \"Duration (ms)\"\n            },\n            \"excludeByName\": {\n      \
+    \        \"Time\": true,\n              \"__name__\": true,\n              \"\
+    instance\": true,\n              \"job\": true,\n              \"otel_scope_name\"\
+    : true\n            }\n          }\n        }\n      ],\n      \"targets\": [\n\
+    \        {\n          \"expr\": \"synthetics_probe_up{namespace=~\\\"$namespace\\\
+    \"}\",\n          \"legendFormat\": \"\",\n          \"instant\": true,\n    \
+    \      \"refId\": \"success\",\n          \"format\": \"table\"\n        },\n\
+    \        {\n          \"expr\": \"synthetics_last_run_timestamp{namespace=~\\\"\
+    $namespace\\\"} * 1000\",\n          \"legendFormat\": \"\",\n          \"instant\"\
+    : true,\n          \"refId\": \"last_run\",\n          \"format\": \"table\"\n\
+    \        },\n        {\n          \"expr\": \"synthetics_probe_duration_ms{namespace=~\\\
+    \"$namespace\\\"}\",\n          \"legendFormat\": \"\",\n          \"instant\"\
+    : true,\n          \"refId\": \"duration\",\n          \"format\": \"table\"\n\
+    \        }\n      ]\n    },\n    {\n      \"id\": 10,\n      \"type\": \"timeseries\"\
+    ,\n      \"title\": \"Success Rate Over Time\",\n      \"gridPos\": {\n      \
+    \  \"h\": 8,\n        \"w\": 24,\n        \"x\": 0,\n        \"y\": 18\n     \
+    \ },\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\"\
+    : \"prometheus\"\n      },\n      \"options\": {\n        \"tooltip\": {\n   \
+    \       \"mode\": \"multi\"\n        },\n        \"legend\": {\n          \"displayMode\"\
+    : \"list\",\n          \"placement\": \"bottom\"\n        }\n      },\n      \"\
+    fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"percentunit\"\
+    ,\n          \"min\": 0,\n          \"max\": 1,\n          \"custom\": {\n   \
+    \         \"drawStyle\": \"line\",\n            \"lineInterpolation\": \"linear\"\
+    ,\n            \"lineWidth\": 2,\n            \"fillOpacity\": 10,\n         \
+    \   \"gradientMode\": \"none\",\n            \"spanNulls\": false,\n         \
+    \   \"showPoints\": \"auto\",\n            \"pointSize\": 5,\n            \"stacking\"\
+    : {\n              \"mode\": \"none\",\n              \"group\": \"A\"\n     \
+    \       },\n            \"axisPlacement\": \"auto\",\n            \"axisColorMode\"\
+    : \"text\",\n            \"scaleDistribution\": {\n              \"type\": \"\
+    linear\"\n            },\n            \"hideFrom\": {\n              \"legend\"\
+    : false,\n              \"tooltip\": false,\n              \"viz\": false\n  \
+    \          },\n            \"thresholdsStyle\": {\n              \"mode\": \"\
+    off\"\n            }\n          }\n        },\n        \"overrides\": []\n   \
+    \   },\n      \"targets\": [\n        {\n          \"expr\": \"avg(synthetics_probe_up{kind=\\\
+    \"HTTPProbe\\\", namespace=~\\\"$namespace\\\"})\",\n          \"legendFormat\"\
+    : \"HTTP\",\n          \"refId\": \"A\",\n          \"range\": true\n        },\n\
+    \        {\n          \"expr\": \"avg(synthetics_probe_up{kind=\\\"DNSProbe\\\"\
+    , namespace=~\\\"$namespace\\\"})\",\n          \"legendFormat\": \"DNS\",\n \
+    \         \"refId\": \"B\",\n          \"range\": true\n        }\n      ]\n \
+    \   }\n  ]\n}\n"
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  labels:
+    grafana_dashboard: '1'
+  name: synthetics-overview-dashboard
+  namespace: monitoring
+
+---
+apiVersion: v1
+data:
+  http-probe.json: "{\n  \"annotations\": {\n    \"list\": []\n  },\n  \"editable\"\
+    : true,\n  \"fiscalYearStartMonth\": 0,\n  \"graphTooltip\": 1,\n  \"links\":\
+    \ [\n    {\n      \"title\": \"Overview\",\n      \"url\": \"/d/synthetics-overview\"\
+    ,\n      \"type\": \"link\",\n      \"icon\": \"arrow-left\",\n      \"targetBlank\"\
+    : false\n    },\n    {\n      \"title\": \"Create Alert\",\n      \"url\": \"\
+    /alerting/new/alerting?defaults=%7B%22name%22%3A%20%22HTTP%20Probe%20-%20${url}%22%2C%20%22folder%22%3A%20%7B%22title%22%3A%20%22Synthetics%22%7D%2C%20%22queries%22%3A%20%5B%7B%22refId%22%3A%20%22A%22%2C%20%22datasourceUid%22%3A%20%22prometheus%22%2C%20%22relativeTimeRange%22%3A%20%7B%22from%22%3A%20300%2C%20%22to%22%3A%200%7D%2C%20%22model%22%3A%20%7B%22expr%22%3A%20%22synthetics_probe_http_status_code%7Burl%3D%5C%22${url}%5C%22%7D%20%3E%3D%20500%22%2C%20%22instant%22%3A%20true%2C%20%22refId%22%3A%20%22A%22%7D%7D%5D%7D\"\
+    ,\n      \"type\": \"link\",\n      \"icon\": \"bell\",\n      \"tooltip\": \"\
+    Create a new alert rule for the selected probe\",\n      \"targetBlank\": false\n\
+    \    }\n  ],\n  \"refresh\": \"30s\",\n  \"schemaVersion\": 38,\n  \"tags\": [\n\
+    \    \"synthetics\",\n    \"http\"\n  ],\n  \"templating\": {\n    \"list\": [\n\
+    \      {\n        \"current\": {},\n        \"hide\": 0,\n        \"includeAll\"\
+    : false,\n        \"label\": \"Namespace\",\n        \"multi\": false,\n     \
+    \   \"name\": \"namespace\",\n        \"options\": [],\n        \"query\": {\n\
+    \          \"query\": \"label_values(synthetics_probe_up{kind=\\\"HTTPProbe\\\"\
+    }, namespace)\",\n          \"refId\": \"StandardVariableQuery\"\n        },\n\
+    \        \"refresh\": 2,\n        \"sort\": 1,\n        \"type\": \"query\",\n\
+    \        \"datasource\": {\n          \"type\": \"prometheus\",\n          \"\
+    uid\": \"prometheus\"\n        }\n      },\n      {\n        \"current\": {},\n\
+    \        \"hide\": 0,\n        \"includeAll\": false,\n        \"label\": \"URL\"\
+    ,\n        \"multi\": false,\n        \"name\": \"url\",\n        \"options\"\
+    : [],\n        \"query\": \"label_values(synthetics_probe_http_status_code{namespace=\\\
+    \"$namespace\\\"}, url)\",\n        \"refresh\": 2,\n        \"sort\": 1,\n  \
+    \      \"type\": \"query\",\n        \"datasource\": {\n          \"type\": \"\
+    prometheus\",\n          \"uid\": \"prometheus\"\n        }\n      }\n    ]\n\
+    \  },\n  \"time\": {\n    \"from\": \"now-1h\",\n    \"to\": \"now\"\n  },\n \
+    \ \"timepicker\": {},\n  \"timezone\": \"browser\",\n  \"title\": \"Synthetics\
+    \ / HTTP Probe\",\n  \"uid\": \"synthetics-http-probe\",\n  \"version\": 1,\n\
+    \  \"panels\": [\n    {\n      \"id\": 20,\n      \"type\": \"stat\",\n      \"\
+    title\": \"Method\",\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\":\
+    \ 0,\n        \"w\": 3,\n        \"h\": 3\n      },\n      \"datasource\": {\n\
+    \        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n\
+    \      \"options\": {\n        \"reduceOptions\": {\n          \"calcs\": [\"\
+    lastNotNull\"]\n        },\n        \"orientation\": \"auto\",\n        \"textMode\"\
+    : \"name\",\n        \"colorMode\": \"none\",\n        \"graphMode\": \"none\"\
+    \n      },\n      \"fieldConfig\": {\n        \"defaults\": {}\n      },\n   \
+    \   \"targets\": [\n        {\n          \"expr\": \"synthetics_probe_http_info{namespace=\\\
+    \"$namespace\\\", url=\\\"$url\\\"}\",\n          \"legendFormat\": \"{{method}}\"\
+    ,\n          \"instant\": true,\n          \"refId\": \"A\",\n          \"interval\"\
+    : \"30s\"\n        }\n      ]\n    },\n    {\n      \"id\": 22,\n      \"type\"\
+    : \"stat\",\n      \"title\": \"URL\",\n      \"gridPos\": {\n        \"x\": 3,\n\
+    \        \"y\": 0,\n        \"w\": 21,\n        \"h\": 3\n      },\n      \"datasource\"\
+    : {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n    \
+    \  },\n      \"options\": {\n        \"reduceOptions\": {\n          \"calcs\"\
+    : [\"lastNotNull\"]\n        },\n        \"orientation\": \"auto\",\n        \"\
+    textMode\": \"name\",\n        \"colorMode\": \"none\",\n        \"graphMode\"\
+    : \"none\"\n      },\n      \"fieldConfig\": {\n        \"defaults\": {}\n   \
+    \   },\n      \"targets\": [\n        {\n          \"expr\": \"synthetics_probe_http_info{namespace=\\\
+    \"$namespace\\\", url=\\\"$url\\\"}\",\n          \"legendFormat\": \"{{url}}\"\
+    ,\n          \"instant\": true,\n          \"refId\": \"A\",\n          \"interval\"\
+    : \"30s\"\n        }\n      ]\n    },\n    {\n      \"id\": 1,\n      \"type\"\
+    : \"stat\",\n      \"title\": \"Status\",\n      \"gridPos\": {\n        \"x\"\
+    : 0,\n        \"y\": 3,\n        \"w\": 6,\n        \"h\": 5\n      },\n     \
+    \ \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\
+    \n      },\n      \"options\": {\n        \"reduceOptions\": {\n          \"calcs\"\
+    : [\n            \"lastNotNull\"\n          ]\n        },\n        \"orientation\"\
+    : \"auto\",\n        \"textMode\": \"value and name\",\n        \"colorMode\"\
+    : \"background\",\n        \"graphMode\": \"none\"\n      },\n      \"fieldConfig\"\
+    : {\n        \"defaults\": {\n          \"thresholds\": {\n            \"mode\"\
+    : \"absolute\",\n            \"steps\": [\n              {\n                \"\
+    color\": \"red\",\n                \"value\": null\n              },\n       \
+    \       {\n                \"color\": \"green\",\n                \"value\": 1\n\
+    \              }\n            ]\n          },\n          \"mappings\": [\n   \
+    \         {\n              \"type\": \"value\",\n              \"options\": {\n\
+    \                \"0\": {\n                  \"text\": \"DOWN\"\n            \
+    \    },\n                \"1\": {\n                  \"text\": \"UP\"\n      \
+    \          }\n              }\n            }\n          ]\n        }\n      },\n\
+    \      \"targets\": [\n        {\n          \"expr\": \"synthetics_probe_up{kind=\\\
+    \"HTTPProbe\\\", namespace=\\\"$namespace\\\", url=\\\"$url\\\"}\",\n        \
+    \  \"legendFormat\": \"{{reason}}\",\n          \"instant\": true,\n         \
+    \ \"refId\": \"A\",\n          \"interval\": \"30s\"\n        }\n      ]\n   \
+    \ },\n    {\n      \"id\": 15,\n      \"type\": \"stat\",\n      \"title\": \"\
+    24h\",\n      \"gridPos\": {\n        \"x\": 6,\n        \"y\": 3,\n        \"\
+    w\": 2,\n        \"h\": 5\n      },\n      \"datasource\": {\n        \"type\"\
+    : \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"options\"\
+    : {\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ]\n        },\n        \"orientation\": \"auto\",\n        \"textMode\"\
+    : \"value\",\n        \"colorMode\": \"background\",\n        \"graphMode\": \"\
+    none\"\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n        \
+    \  \"unit\": \"percent\",\n          \"decimals\": 1,\n          \"min\": 0,\n\
+    \          \"max\": 100,\n          \"thresholds\": {\n            \"mode\": \"\
+    absolute\",\n            \"steps\": [\n              {\n                \"color\"\
+    : \"red\",\n                \"value\": null\n              },\n              {\n\
+    \                \"color\": \"orange\",\n                \"value\": 99\n     \
+    \         },\n              {\n                \"color\": \"yellow\",\n      \
+    \          \"value\": 99.9\n              },\n              {\n              \
+    \  \"color\": \"green\",\n                \"value\": 99.99\n              }\n\
+    \            ]\n          },\n          \"color\": {\n            \"mode\": \"\
+    thresholds\"\n          }\n        },\n        \"overrides\": []\n      },\n \
+    \     \"targets\": [\n        {\n          \"expr\": \"avg_over_time(max by(name,\
+    \ namespace, kind, url)(synthetics_probe_up{url=\\\"$url\\\", namespace=\\\"$namespace\\\
+    \"})[1d:30s]) * 100\",\n          \"instant\": true,\n          \"refId\": \"\
+    A\",\n          \"interval\": \"30s\"\n        }\n      ]\n    },\n    {\n   \
+    \   \"id\": 18,\n      \"type\": \"stat\",\n      \"title\": \"7d\",\n      \"\
+    gridPos\": {\n        \"x\": 8,\n        \"y\": 3,\n        \"w\": 2,\n      \
+    \  \"h\": 5\n      },\n      \"datasource\": {\n        \"type\": \"prometheus\"\
+    ,\n        \"uid\": \"prometheus\"\n      },\n      \"options\": {\n        \"\
+    reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\n    \
+    \      ]\n        },\n        \"orientation\": \"auto\",\n        \"textMode\"\
+    : \"value\",\n        \"colorMode\": \"background\",\n        \"graphMode\": \"\
+    none\"\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n        \
+    \  \"unit\": \"percent\",\n          \"decimals\": 1,\n          \"min\": 0,\n\
+    \          \"max\": 100,\n          \"thresholds\": {\n            \"mode\": \"\
+    absolute\",\n            \"steps\": [\n              {\n                \"color\"\
+    : \"red\",\n                \"value\": null\n              },\n              {\n\
+    \                \"color\": \"orange\",\n                \"value\": 99\n     \
+    \         },\n              {\n                \"color\": \"yellow\",\n      \
+    \          \"value\": 99.9\n              },\n              {\n              \
+    \  \"color\": \"green\",\n                \"value\": 99.99\n              }\n\
+    \            ]\n          },\n          \"color\": {\n            \"mode\": \"\
+    thresholds\"\n          }\n        },\n        \"overrides\": []\n      },\n \
+    \     \"targets\": [\n        {\n          \"expr\": \"avg_over_time(max by(name,\
+    \ namespace, kind, url)(synthetics_probe_up{url=\\\"$url\\\", namespace=\\\"$namespace\\\
+    \"})[7d:30s]) * 100\",\n          \"instant\": true,\n          \"refId\": \"\
+    A\",\n          \"interval\": \"30s\"\n        }\n      ]\n    },\n    {\n   \
+    \   \"id\": 19,\n      \"type\": \"stat\",\n      \"title\": \"14d\",\n      \"\
+    gridPos\": {\n        \"x\": 10,\n        \"y\": 3,\n        \"w\": 2,\n     \
+    \   \"h\": 5\n      },\n      \"datasource\": {\n        \"type\": \"prometheus\"\
+    ,\n        \"uid\": \"prometheus\"\n      },\n      \"options\": {\n        \"\
+    reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\n    \
+    \      ]\n        },\n        \"orientation\": \"auto\",\n        \"textMode\"\
+    : \"value\",\n        \"colorMode\": \"background\",\n        \"graphMode\": \"\
+    none\"\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n        \
+    \  \"unit\": \"percent\",\n          \"decimals\": 1,\n          \"min\": 0,\n\
+    \          \"max\": 100,\n          \"thresholds\": {\n            \"mode\": \"\
+    absolute\",\n            \"steps\": [\n              {\n                \"color\"\
+    : \"red\",\n                \"value\": null\n              },\n              {\n\
+    \                \"color\": \"orange\",\n                \"value\": 99\n     \
+    \         },\n              {\n                \"color\": \"yellow\",\n      \
+    \          \"value\": 99.9\n              },\n              {\n              \
+    \  \"color\": \"green\",\n                \"value\": 99.99\n              }\n\
+    \            ]\n          },\n          \"color\": {\n            \"mode\": \"\
+    thresholds\"\n          }\n        },\n        \"overrides\": []\n      },\n \
+    \     \"targets\": [\n        {\n          \"expr\": \"avg_over_time(max by(name,\
+    \ namespace, kind, url)(synthetics_probe_up{url=\\\"$url\\\", namespace=\\\"$namespace\\\
+    \"})[14d:30s]) * 100\",\n          \"instant\": true,\n          \"refId\": \"\
+    A\",\n          \"interval\": \"30s\"\n        }\n      ]\n    },\n    {\n   \
+    \   \"id\": 2,\n      \"type\": \"gauge\",\n      \"title\": \"Duration\",\n \
+    \     \"gridPos\": {\n        \"x\": 12,\n        \"y\": 3,\n        \"w\": 4,\n\
+    \        \"h\": 5\n      },\n      \"datasource\": {\n        \"type\": \"prometheus\"\
+    ,\n        \"uid\": \"prometheus\"\n      },\n      \"options\": {\n        \"\
+    reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\n    \
+    \      ]\n        },\n        \"orientation\": \"auto\",\n        \"showThresholdLabels\"\
+    : false,\n        \"showThresholdMarkers\": true\n      },\n      \"fieldConfig\"\
+    : {\n        \"defaults\": {\n          \"unit\": \"ms\",\n          \"decimals\"\
+    : 0,\n          \"min\": 0,\n          \"max\": 1000,\n          \"thresholds\"\
+    : {\n            \"mode\": \"absolute\",\n            \"steps\": [\n         \
+    \     {\n                \"color\": \"green\",\n                \"value\": null\n\
+    \              },\n              {\n                \"color\": \"yellow\",\n \
+    \               \"value\": 100\n              },\n              {\n          \
+    \      \"color\": \"orange\",\n                \"value\": 500\n              },\n\
+    \              {\n                \"color\": \"red\",\n                \"value\"\
+    : 1000\n              }\n            ]\n          },\n          \"color\": {\n\
+    \            \"mode\": \"thresholds\"\n          }\n        }\n      },\n    \
+    \  \"targets\": [\n        {\n          \"expr\": \"synthetics_probe_duration_ms{kind=\\\
+    \"HTTPProbe\\\", namespace=\\\"$namespace\\\", url=\\\"$url\\\"}\",\n        \
+    \  \"legendFormat\": \"\",\n          \"instant\": true,\n          \"refId\"\
+    : \"A\",\n          \"interval\": \"30s\"\n        }\n      ]\n    },\n    {\n\
+    \      \"id\": 12,\n      \"type\": \"stat\",\n      \"title\": \"SSL Expiry\"\
+    ,\n      \"gridPos\": {\n        \"x\": 16,\n        \"y\": 3,\n        \"w\"\
+    : 4,\n        \"h\": 5\n      },\n      \"datasource\": {\n        \"type\": \"\
+    prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"options\": {\n\
+    \        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ]\n        },\n        \"orientation\": \"auto\",\n        \"textMode\"\
+    : \"value\",\n        \"colorMode\": \"background\",\n        \"graphMode\": \"\
+    none\"\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n        \
+    \  \"unit\": \"dtdurations\",\n          \"thresholds\": {\n            \"mode\"\
+    : \"absolute\",\n            \"steps\": [\n              {\n                \"\
+    color\": \"red\",\n                \"value\": null\n              },\n       \
+    \       {\n                \"color\": \"orange\",\n                \"value\":\
+    \ 259200\n              },\n              {\n                \"color\": \"yellow\"\
+    ,\n                \"value\": 1209600\n              },\n              {\n   \
+    \             \"color\": \"green\",\n                \"value\": 2592000\n    \
+    \          }\n            ]\n          },\n          \"color\": {\n          \
+    \  \"mode\": \"thresholds\"\n          },\n          \"noValue\": \"No TLS\"\n\
+    \        },\n        \"overrides\": []\n      },\n      \"targets\": [\n     \
+    \   {\n          \"expr\": \"synthetics_probe_tls_cert_expiry_timestamp_seconds{namespace=\\\
+    \"$namespace\\\", url=\\\"$url\\\"} - time()\",\n          \"instant\": true,\n\
+    \          \"refId\": \"A\",\n          \"interval\": \"30s\"\n        }\n   \
+    \   ]\n    },\n    {\n      \"id\": 4,\n      \"type\": \"stat\",\n      \"title\"\
+    : \"Last Run\",\n      \"gridPos\": {\n        \"x\": 20,\n        \"y\": 3,\n\
+    \        \"w\": 4,\n        \"h\": 5\n      },\n      \"datasource\": {\n    \
+    \    \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n  \
+    \    \"options\": {\n        \"reduceOptions\": {\n          \"calcs\": [\n  \
+    \          \"lastNotNull\"\n          ]\n        },\n        \"orientation\":\
+    \ \"auto\",\n        \"textMode\": \"auto\",\n        \"colorMode\": \"none\"\
+    ,\n        \"graphMode\": \"none\"\n      },\n      \"fieldConfig\": {\n     \
+    \   \"defaults\": {\n          \"unit\": \"dateTimeFromNow\"\n        }\n    \
+    \  },\n      \"targets\": [\n        {\n          \"expr\": \"synthetics_last_run_timestamp{kind=\\\
+    \"HTTPProbe\\\", namespace=\\\"$namespace\\\", url=\\\"$url\\\"} * 1000\",\n \
+    \         \"legendFormat\": \"\",\n          \"instant\": true,\n          \"\
+    refId\": \"A\",\n          \"interval\": \"30s\"\n        }\n      ]\n    },\n\
+    \    {\n      \"id\": 6,\n      \"type\": \"state-timeline\",\n      \"title\"\
+    : \"Status Code\",\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 8,\n\
+    \        \"w\": 24,\n        \"h\": 7\n      },\n      \"datasource\": {\n   \
+    \     \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n \
+    \     \"options\": {\n        \"mergeValues\": true,\n        \"showValue\": \"\
+    auto\",\n        \"fillOpacity\": 80,\n        \"rowHeight\": 0.85,\n        \"\
+    tooltip\": {\n          \"mode\": \"single\"\n        },\n        \"legend\":\
+    \ {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\"\
+    \n        }\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n   \
+    \       \"mappings\": [],\n          \"custom\": {},\n          \"thresholds\"\
+    : {\n            \"mode\": \"absolute\",\n            \"steps\": [\n         \
+    \     {\n                \"color\": \"red\",\n                \"value\": null\n\
+    \              },\n              {\n                \"color\": \"blue\",\n   \
+    \             \"value\": 100\n              },\n              {\n            \
+    \    \"color\": \"green\",\n                \"value\": 200\n              },\n\
+    \              {\n                \"color\": \"yellow\",\n                \"value\"\
+    : 300\n              },\n              {\n                \"color\": \"orange\"\
+    ,\n                \"value\": 400\n              },\n              {\n       \
+    \         \"color\": \"red\",\n                \"value\": 500\n              }\n\
+    \            ]\n          },\n          \"color\": {\n            \"mode\": \"\
+    thresholds\"\n          }\n        },\n        \"overrides\": []\n      },\n \
+    \     \"targets\": [\n        {\n          \"expr\": \"synthetics_probe_http_status_code{namespace=\\\
+    \"$namespace\\\", url=\\\"$url\\\"}\",\n          \"legendFormat\": \"{{name}}\"\
+    ,\n          \"refId\": \"A\",\n          \"range\": true,\n          \"interval\"\
+    : \"30s\"\n        }\n      ]\n    },\n    {\n      \"id\": 23,\n      \"type\"\
+    : \"table\",\n      \"title\": \"Assertions\",\n      \"gridPos\": {\n       \
+    \ \"x\": 0,\n        \"y\": 15,\n        \"w\": 24,\n        \"h\": 6\n      },\n\
+    \      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\":\
+    \ \"prometheus\"\n      },\n      \"options\": {\n        \"sortBy\": [{\"displayName\"\
+    : \"Assertion\"}],\n        \"footer\": {\"show\": false}\n      },\n      \"\
+    fieldConfig\": {\n        \"defaults\": {\n          \"custom\": {\n         \
+    \   \"align\": \"left\",\n            \"displayMode\": \"auto\"\n          }\n\
+    \        },\n        \"overrides\": [\n          {\n            \"matcher\": {\"\
+    id\": \"byName\", \"options\": \"Result\"},\n            \"properties\": [\n \
+    \             {\n                \"id\": \"mappings\",\n                \"value\"\
+    : [\n                  {\n                    \"type\": \"value\",\n         \
+    \           \"options\": {\n                      \"0\": {\"text\": \"FAIL\",\
+    \ \"color\": \"red\", \"index\": 0},\n                      \"1\": {\"text\":\
+    \ \"PASS\", \"color\": \"green\", \"index\": 1}\n                    }\n     \
+    \             }\n                ]\n              },\n              {\"id\": \"\
+    custom.displayMode\", \"value\": \"color-background\"},\n              {\"id\"\
+    : \"custom.width\", \"value\": 100}\n            ]\n          },\n          {\n\
+    \            \"matcher\": {\"id\": \"byName\", \"options\": \"Time\"},\n     \
+    \       \"properties\": [{\"id\": \"custom.hidden\", \"value\": true}]\n     \
+    \     }\n        ]\n      },\n      \"transformations\": [\n        {\n      \
+    \    \"id\": \"filterFieldsByName\",\n          \"options\": {\n            \"\
+    include\": {\"names\": [\"assertion\", \"expr\", \"Value\"]}\n          }\n  \
+    \      },\n        {\n          \"id\": \"organize\",\n          \"options\":\
+    \ {\n            \"renameByName\": {\n              \"assertion\": \"Assertion\"\
+    ,\n              \"expr\": \"Expression\",\n              \"Value\": \"Result\"\
+    \n            },\n            \"indexByName\": {\n              \"assertion\"\
+    : 0,\n              \"expr\": 1,\n              \"Value\": 2\n            }\n\
+    \          }\n        }\n      ],\n      \"targets\": [\n        {\n         \
+    \ \"expr\": \"synthetics_probe_assertion_result{namespace=\\\"$namespace\\\",\
+    \ url=\\\"$url\\\"}\",\n          \"legendFormat\": \"{{assertion}}\",\n     \
+    \     \"instant\": true,\n          \"refId\": \"A\",\n          \"interval\"\
+    : \"30s\",\n          \"format\": \"table\"\n        }\n      ]\n    },\n    {\n\
+    \      \"id\": 13,\n      \"type\": \"timeseries\",\n      \"title\": \"HTTP Duration\"\
+    ,\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 21,\n        \"w\"\
+    : 24,\n        \"h\": 8\n      },\n      \"datasource\": {\n        \"type\":\
+    \ \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"options\"\
+    : {\n        \"tooltip\": {\n          \"mode\": \"multi\"\n        },\n     \
+    \   \"legend\": {\n          \"displayMode\": \"list\",\n          \"placement\"\
+    : \"bottom\"\n        }\n      },\n      \"fieldConfig\": {\n        \"defaults\"\
+    : {\n          \"unit\": \"ms\",\n          \"custom\": {\n            \"drawStyle\"\
+    : \"bars\",\n            \"lineInterpolation\": \"linear\",\n            \"lineWidth\"\
+    : 0,\n            \"fillOpacity\": 100,\n            \"gradientMode\": \"none\"\
+    ,\n            \"stacking\": {\n              \"mode\": \"normal\",\n        \
+    \      \"group\": \"A\"\n            },\n            \"showPoints\": \"never\"\
+    \n          },\n          \"color\": {\n            \"mode\": \"palette-classic\"\
+    \n          }\n        }\n      },\n      \"targets\": [\n        {\n        \
+    \  \"expr\": \"synthetics_probe_http_phase_duration_ms{phase=\\\"dns\\\", namespace=\\\
+    \"$namespace\\\", url=\\\"$url\\\"}\",\n          \"legendFormat\": \"{{phase}}\"\
+    ,\n          \"refId\": \"A\",\n          \"range\": true,\n          \"interval\"\
+    : \"30s\"\n        },\n        {\n          \"expr\": \"synthetics_probe_http_phase_duration_ms{phase=\\\
+    \"connect\\\", namespace=\\\"$namespace\\\", url=\\\"$url\\\"}\",\n          \"\
+    legendFormat\": \"{{phase}}\",\n          \"refId\": \"B\",\n          \"range\"\
+    : true,\n          \"interval\": \"30s\"\n        },\n        {\n          \"\
+    expr\": \"synthetics_probe_http_phase_duration_ms{phase=\\\"tls\\\", namespace=\\\
+    \"$namespace\\\", url=\\\"$url\\\"}\",\n          \"legendFormat\": \"{{phase}}\"\
+    ,\n          \"refId\": \"C\",\n          \"range\": true,\n          \"interval\"\
+    : \"30s\"\n        },\n        {\n          \"expr\": \"synthetics_probe_http_phase_duration_ms{phase=\\\
+    \"processing\\\", namespace=\\\"$namespace\\\", url=\\\"$url\\\"}\",\n       \
+    \   \"legendFormat\": \"{{phase}}\",\n          \"refId\": \"D\",\n          \"\
+    range\": true,\n          \"interval\": \"30s\"\n        },\n        {\n     \
+    \     \"expr\": \"synthetics_probe_http_phase_duration_ms{phase=\\\"transfer\\\
+    \", namespace=\\\"$namespace\\\", url=\\\"$url\\\"}\",\n          \"legendFormat\"\
+    : \"{{phase}}\",\n          \"refId\": \"E\",\n          \"range\": true,\n  \
+    \        \"interval\": \"30s\"\n        }\n      ]\n    },\n    {\n      \"id\"\
+    : 14,\n      \"type\": \"alertlist\",\n      \"title\": \"Alerts\",\n      \"\
+    gridPos\": {\n        \"x\": 0,\n        \"y\": 29,\n        \"w\": 24,\n    \
+    \    \"h\": 6\n      },\n      \"datasource\": {\n        \"type\": \"grafana\"\
+    ,\n        \"uid\": \"-- Grafana --\"\n      },\n      \"options\": {\n      \
+    \  \"viewMode\": \"list\",\n        \"groupMode\": \"default\",\n        \"groupBy\"\
+    : [],\n        \"alertName\": \"\",\n        \"alertInstanceLabelFilter\": \"\
+    {probe_type=\\\"http\\\", url=\\\"$url\\\"}\",\n        \"dashboardAlerts\": false,\n\
+    \        \"maxItems\": 20,\n        \"sortOrder\": 1,\n        \"stateFilter\"\
+    : {\n          \"error\": true,\n          \"firing\": true,\n          \"noData\"\
+    : true,\n          \"normal\": true,\n          \"pending\": true\n        }\n\
+    \      }\n    }\n  ]\n}\n"
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  labels:
+    grafana_dashboard: '1'
+  name: synthetics-http-probe-dashboard
+  namespace: monitoring
+
+---
+apiVersion: v1
+data:
+  dns-probe.json: "{\n  \"annotations\": {\n    \"list\": []\n  },\n  \"editable\"\
+    : true,\n  \"fiscalYearStartMonth\": 0,\n  \"graphTooltip\": 1,\n  \"links\":\
+    \ [\n    {\n      \"title\": \"Overview\",\n      \"url\": \"/d/synthetics-overview\"\
+    ,\n      \"type\": \"link\",\n      \"icon\": \"arrow-left\",\n      \"targetBlank\"\
+    : false\n    }\n  ],\n  \"refresh\": \"30s\",\n  \"schemaVersion\": 38,\n  \"\
+    tags\": [\n    \"synthetics\",\n    \"dns\"\n  ],\n  \"templating\": {\n    \"\
+    list\": [\n      {\n        \"current\": {},\n        \"hide\": 0,\n        \"\
+    includeAll\": false,\n        \"label\": \"Namespace\",\n        \"multi\": false,\n\
+    \        \"name\": \"namespace\",\n        \"options\": [],\n        \"query\"\
+    : {\n          \"query\": \"label_values(synthetics_probe_up{kind=\\\"DNSProbe\\\
+    \"}, namespace)\",\n          \"refId\": \"StandardVariableQuery\"\n        },\n\
+    \        \"refresh\": 2,\n        \"sort\": 1,\n        \"type\": \"query\",\n\
+    \        \"datasource\": {\n          \"type\": \"prometheus\",\n          \"\
+    uid\": \"prometheus\"\n        }\n      },\n      {\n        \"current\": {},\n\
+    \        \"hide\": 0,\n        \"includeAll\": false,\n        \"label\": \"Probe\"\
+    ,\n        \"multi\": false,\n        \"name\": \"probe\",\n        \"options\"\
+    : [],\n        \"query\": {\n          \"query\": \"label_values(synthetics_probe_up{kind=\\\
+    \"DNSProbe\\\", namespace=\\\"$namespace\\\"}, name)\",\n          \"refId\":\
+    \ \"StandardVariableQuery\"\n        },\n        \"refresh\": 2,\n        \"sort\"\
+    : 1,\n        \"type\": \"query\",\n        \"datasource\": {\n          \"type\"\
+    : \"prometheus\",\n          \"uid\": \"prometheus\"\n        }\n      }\n   \
+    \ ]\n  },\n  \"time\": {\n    \"from\": \"now-1h\",\n    \"to\": \"now\"\n  },\n\
+    \  \"timepicker\": {},\n  \"timezone\": \"browser\",\n  \"title\": \"Synthetics\
+    \ / DNS Probe\",\n  \"uid\": \"synthetics-dns-probe\",\n  \"version\": 1,\n  \"\
+    panels\": [\n    {\n      \"id\": 1,\n      \"type\": \"stat\",\n      \"title\"\
+    : \"Status\",\n      \"gridPos\": {\n        \"h\": 4,\n        \"w\": 4,\n  \
+    \      \"x\": 0,\n        \"y\": 0\n      },\n      \"datasource\": {\n      \
+    \  \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n    \
+    \  \"options\": {\n        \"reduceOptions\": {\n          \"calcs\": [\n    \
+    \        \"lastNotNull\"\n          ]\n        },\n        \"orientation\": \"\
+    auto\",\n        \"textMode\": \"auto\",\n        \"colorMode\": \"background\"\
+    ,\n        \"graphMode\": \"none\"\n      },\n      \"fieldConfig\": {\n     \
+    \   \"defaults\": {\n          \"thresholds\": {\n            \"mode\": \"absolute\"\
+    ,\n            \"steps\": [\n              {\n                \"color\": \"red\"\
+    ,\n                \"value\": null\n              },\n              {\n      \
+    \          \"color\": \"green\",\n                \"value\": 1\n             \
+    \ }\n            ]\n          },\n          \"mappings\": [\n            {\n \
+    \             \"type\": \"value\",\n              \"options\": {\n           \
+    \     \"0\": {\n                  \"text\": \"DOWN\"\n                },\n   \
+    \             \"1\": {\n                  \"text\": \"UP\"\n                }\n\
+    \              }\n            }\n          ]\n        }\n      },\n      \"targets\"\
+    : [\n        {\n          \"expr\": \"synthetics_probe_up{kind=\\\"DNSProbe\\\"\
+    , namespace=\\\"$namespace\\\", name=\\\"$probe\\\"}\",\n          \"legendFormat\"\
+    : \"\",\n          \"instant\": true,\n          \"refId\": \"A\"\n        }\n\
+    \      ]\n    },\n    {\n      \"id\": 2,\n      \"type\": \"stat\",\n      \"\
+    title\": \"Response Time\",\n      \"gridPos\": {\n        \"h\": 4,\n       \
+    \ \"w\": 4,\n        \"x\": 4,\n        \"y\": 0\n      },\n      \"datasource\"\
+    : {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n    \
+    \  },\n      \"options\": {\n        \"reduceOptions\": {\n          \"calcs\"\
+    : [\n            \"lastNotNull\"\n          ]\n        },\n        \"orientation\"\
+    : \"auto\",\n        \"textMode\": \"auto\",\n        \"colorMode\": \"none\"\
+    ,\n        \"graphMode\": \"none\"\n      },\n      \"fieldConfig\": {\n     \
+    \   \"defaults\": {\n          \"unit\": \"ms\",\n          \"decimals\": 0\n\
+    \        }\n      },\n      \"targets\": [\n        {\n          \"expr\": \"\
+    synthetics_dns_response_ms{namespace=\\\"$namespace\\\", name=\\\"$probe\\\"}\"\
+    ,\n          \"legendFormat\": \"\",\n          \"instant\": true,\n         \
+    \ \"refId\": \"A\"\n        }\n      ]\n    },\n    {\n      \"id\": 4,\n    \
+    \  \"type\": \"stat\",\n      \"title\": \"Last Run\",\n      \"gridPos\": {\n\
+    \        \"h\": 4,\n        \"w\": 4,\n        \"x\": 8,\n        \"y\": 0\n \
+    \     },\n      \"datasource\": {\n        \"type\": \"prometheus\",\n       \
+    \ \"uid\": \"prometheus\"\n      },\n      \"options\": {\n        \"reduceOptions\"\
+    : {\n          \"calcs\": [\n            \"lastNotNull\"\n          ]\n      \
+    \  },\n        \"orientation\": \"auto\",\n        \"textMode\": \"auto\",\n \
+    \       \"colorMode\": \"none\",\n        \"graphMode\": \"none\"\n      },\n\
+    \      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"dateTimeFromNow\"\
+    \n        }\n      },\n      \"targets\": [\n        {\n          \"expr\": \"\
+    synthetics_last_run_timestamp{kind=\\\"DNSProbe\\\", namespace=\\\"$namespace\\\
+    \", name=\\\"$probe\\\"} * 1000\",\n          \"legendFormat\": \"\",\n      \
+    \    \"instant\": true,\n          \"refId\": \"A\"\n        }\n      ]\n    },\n\
+    \    {\n      \"id\": 5,\n      \"type\": \"stat\",\n      \"title\": \"Answer\
+    \ Count\",\n      \"gridPos\": {\n        \"h\": 4,\n        \"w\": 4,\n     \
+    \   \"x\": 12,\n        \"y\": 0\n      },\n      \"datasource\": {\n        \"\
+    type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"options\"\
+    : {\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ]\n        },\n        \"orientation\": \"auto\",\n        \"textMode\"\
+    : \"auto\",\n        \"colorMode\": \"none\",\n        \"graphMode\": \"none\"\
+    \n      },\n      \"targets\": [\n        {\n          \"expr\": \"synthetics_dns_response_answer_count{namespace=\\\
+    \"$namespace\\\", name=\\\"$probe\\\"}\",\n          \"legendFormat\": \"\",\n\
+    \          \"instant\": true,\n          \"refId\": \"A\"\n        }\n      ]\n\
+    \    },\n    {\n      \"id\": 6,\n      \"type\": \"stat\",\n      \"title\":\
+    \ \"First Answer Value\",\n      \"description\": \"The value of the first DNS\
+    \ answer record. The label 'value' carries the string; the gauge value is always\
+    \ 1.\",\n      \"gridPos\": {\n        \"h\": 4,\n        \"w\": 8,\n        \"\
+    x\": 16,\n        \"y\": 0\n      },\n      \"datasource\": {\n        \"type\"\
+    : \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"options\"\
+    : {\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ]\n        },\n        \"orientation\": \"auto\",\n        \"textMode\"\
+    : \"name\",\n        \"colorMode\": \"none\",\n        \"graphMode\": \"none\"\
+    \n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"noValue\"\
+    : \"No answer\"\n        }\n      },\n      \"targets\": [\n        {\n      \
+    \    \"expr\": \"synthetics_dns_response_first_answer_value{namespace=\\\"$namespace\\\
+    \", name=\\\"$probe\\\"}\",\n          \"legendFormat\": \"{{value}}\",\n    \
+    \      \"instant\": true,\n          \"refId\": \"A\"\n        }\n      ]\n  \
+    \  },\n    {\n      \"id\": 7,\n      \"type\": \"state-timeline\",\n      \"\
+    title\": \"Success\",\n      \"gridPos\": {\n        \"h\": 7,\n        \"w\"\
+    : 12,\n        \"x\": 0,\n        \"y\": 4\n      },\n      \"datasource\": {\n\
+    \        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n\
+    \      \"options\": {\n        \"mergeValues\": true,\n        \"showValue\":\
+    \ \"auto\",\n        \"fillOpacity\": 80,\n        \"rowHeight\": 0.85,\n    \
+    \    \"tooltip\": {\n          \"mode\": \"single\"\n        },\n        \"legend\"\
+    : {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\"\
+    \n        }\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n   \
+    \       \"mappings\": [\n            {\n              \"type\": \"range\",\n \
+    \             \"options\": {\n                \"from\": -0.5,\n              \
+    \  \"to\": 0.5,\n                \"result\": {\n                  \"color\": \"\
+    red\",\n                  \"text\": \"DOWN\",\n                  \"index\": 0\n\
+    \                }\n              }\n            },\n            {\n         \
+    \     \"type\": \"range\",\n              \"options\": {\n                \"from\"\
+    : 0.5,\n                \"to\": 1.5,\n                \"result\": {\n        \
+    \          \"color\": \"green\",\n                  \"text\": \"UP\",\n      \
+    \            \"index\": 1\n                }\n              }\n            }\n\
+    \          ],\n          \"custom\": {}\n        },\n        \"overrides\": []\n\
+    \      },\n      \"targets\": [\n        {\n          \"expr\": \"synthetics_probe_up{kind=\\\
+    \"DNSProbe\\\", namespace=\\\"$namespace\\\", name=\\\"$probe\\\"}\",\n      \
+    \    \"legendFormat\": \"{{name}}\",\n          \"refId\": \"A\",\n          \"\
+    range\": true\n        }\n      ]\n    },\n    {\n      \"id\": 8,\n      \"type\"\
+    : \"timeseries\",\n      \"title\": \"Response Time\",\n      \"gridPos\": {\n\
+    \        \"h\": 7,\n        \"w\": 12,\n        \"x\": 12,\n        \"y\": 4\n\
+    \      },\n      \"datasource\": {\n        \"type\": \"prometheus\",\n      \
+    \  \"uid\": \"prometheus\"\n      },\n      \"options\": {\n        \"tooltip\"\
+    : {\n          \"mode\": \"single\"\n        },\n        \"legend\": {\n     \
+    \     \"displayMode\": \"list\"\n        }\n      },\n      \"fieldConfig\": {\n\
+    \        \"defaults\": {\n          \"unit\": \"ms\",\n          \"min\": 0,\n\
+    \          \"custom\": {\n            \"drawStyle\": \"line\",\n            \"\
+    lineInterpolation\": \"linear\",\n            \"lineWidth\": 2,\n            \"\
+    fillOpacity\": 10,\n            \"gradientMode\": \"none\",\n            \"spanNulls\"\
+    : false,\n            \"showPoints\": \"auto\",\n            \"pointSize\": 5,\n\
+    \            \"stacking\": {\n              \"mode\": \"none\",\n            \
+    \  \"group\": \"A\"\n            },\n            \"axisPlacement\": \"auto\",\n\
+    \            \"axisColorMode\": \"text\",\n            \"scaleDistribution\":\
+    \ {\n              \"type\": \"linear\"\n            },\n            \"hideFrom\"\
+    : {\n              \"legend\": false,\n              \"tooltip\": false,\n   \
+    \           \"viz\": false\n            },\n            \"thresholdsStyle\": {\n\
+    \              \"mode\": \"off\"\n            }\n          }\n        },\n   \
+    \     \"overrides\": []\n      },\n      \"targets\": [\n        {\n         \
+    \ \"expr\": \"synthetics_dns_response_ms{namespace=\\\"$namespace\\\", name=\\\
+    \"$probe\\\"}\",\n          \"legendFormat\": \"response time\",\n          \"\
+    refId\": \"A\",\n          \"range\": true\n        }\n      ]\n    },\n    {\n\
+    \      \"id\": 10,\n      \"type\": \"timeseries\",\n      \"title\": \"DNS Section\
+    \ Counts\",\n      \"description\": \"Number of records in each section of the\
+    \ DNS response.\",\n      \"gridPos\": {\n        \"h\": 7,\n        \"w\": 24,\n\
+    \        \"x\": 0,\n        \"y\": 11\n      },\n      \"datasource\": {\n   \
+    \     \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n \
+    \     \"options\": {\n        \"tooltip\": {\n          \"mode\": \"multi\"\n\
+    \        },\n        \"legend\": {\n          \"displayMode\": \"list\",\n   \
+    \       \"placement\": \"bottom\"\n        }\n      },\n      \"fieldConfig\"\
+    : {\n        \"defaults\": {\n          \"min\": 0,\n          \"custom\": {\n\
+    \            \"drawStyle\": \"line\",\n            \"lineInterpolation\": \"linear\"\
+    ,\n            \"lineWidth\": 2,\n            \"fillOpacity\": 5,\n          \
+    \  \"gradientMode\": \"none\",\n            \"spanNulls\": false,\n          \
+    \  \"showPoints\": \"auto\",\n            \"pointSize\": 5,\n            \"stacking\"\
+    : {\n              \"mode\": \"none\",\n              \"group\": \"A\"\n     \
+    \       },\n            \"axisPlacement\": \"auto\",\n            \"axisColorMode\"\
+    : \"text\",\n            \"scaleDistribution\": {\n              \"type\": \"\
+    linear\"\n            },\n            \"hideFrom\": {\n              \"legend\"\
+    : false,\n              \"tooltip\": false,\n              \"viz\": false\n  \
+    \          },\n            \"thresholdsStyle\": {\n              \"mode\": \"\
+    off\"\n            }\n          }\n        },\n        \"overrides\": []\n   \
+    \   },\n      \"targets\": [\n        {\n          \"expr\": \"synthetics_dns_response_answer_count{namespace=\\\
+    \"$namespace\\\", name=\\\"$probe\\\"}\",\n          \"legendFormat\": \"answer\"\
+    ,\n          \"refId\": \"A\",\n          \"range\": true\n        },\n      \
+    \  {\n          \"expr\": \"synthetics_dns_response_authority_count{namespace=\\\
+    \"$namespace\\\", name=\\\"$probe\\\"}\",\n          \"legendFormat\": \"authority\"\
+    ,\n          \"refId\": \"B\",\n          \"range\": true\n        },\n      \
+    \  {\n          \"expr\": \"synthetics_dns_response_additional_count{namespace=\\\
+    \"$namespace\\\", name=\\\"$probe\\\"}\",\n          \"legendFormat\": \"additional\"\
+    ,\n          \"refId\": \"C\",\n          \"range\": true\n        }\n      ]\n\
+    \    },\n    {\n      \"id\": 20,\n      \"type\": \"alertlist\",\n      \"title\"\
+    : \"Alerts\",\n      \"gridPos\": {\n        \"h\": 6,\n        \"w\": 24,\n \
+    \       \"x\": 0,\n        \"y\": 18\n      },\n      \"datasource\": {\n    \
+    \    \"type\": \"grafana\",\n        \"uid\": \"-- Grafana --\"\n      },\n  \
+    \    \"options\": {\n        \"viewMode\": \"list\",\n        \"groupMode\": \"\
+    default\",\n        \"groupBy\": [],\n        \"alertName\": \"\",\n        \"\
+    alertInstanceLabelFilter\": \"{probe_type=\\\"dns\\\", name=\\\"$probe\\\"}\"\
+    ,\n        \"dashboardAlerts\": false,\n        \"maxItems\": 20,\n        \"\
+    sortOrder\": 1,\n        \"stateFilter\": {\n          \"error\": true,\n    \
+    \      \"firing\": true,\n          \"noData\": true,\n          \"normal\": true,\n\
+    \          \"pending\": true\n        }\n      }\n    }\n  ]\n}\n"
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  labels:
+    grafana_dashboard: '1'
+  name: synthetics-dns-probe-dashboard
+  namespace: monitoring
+

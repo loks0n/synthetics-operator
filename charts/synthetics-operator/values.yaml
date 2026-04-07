@@ -12,6 +12,14 @@ serviceAccount:
 
 resources: {}
 
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    # Additional labels to add to the ServiceMonitor, e.g. for Prometheus Operator label selectors.
+    labels: {}
+
 webhook:
   serviceName: synthetics-operator-webhook-service
   secretName: synthetics-webhook-certs

@@ -33,43 +33,22 @@ type TLSConfig struct {
 	CACert string `json:"caCert,omitempty"`
 }
 
-type HTTPAssertions struct {
-	Status  int               `json:"status,omitempty"`
-	Latency *LatencyAssertion `json:"latency,omitempty"`
-	Body    *BodyAssertion    `json:"body,omitempty"`
-}
-
-type LatencyAssertion struct {
-	MaxMs int `json:"maxMs"`
-}
-
-type BodyAssertion struct {
-	Contains string          `json:"contains,omitempty"`
-	JSON     []JSONAssertion `json:"json,omitempty"`
-}
-
-type JSONAssertion struct {
-	Path  string `json:"path"`
-	Value string `json:"value"`
-}
-
 type HTTPProbeSpec struct {
 	Interval   metav1.Duration `json:"interval,omitempty"`
 	Timeout    metav1.Duration `json:"timeout,omitempty"`
 	Suspend    bool            `json:"suspend,omitempty"`
 	Request    HTTPRequestSpec `json:"request"`
-	Assertions HTTPAssertions  `json:"assertions,omitempty"`
 	TLS        *TLSConfig      `json:"tls,omitempty"`
+	Assertions []Assertion     `json:"assertions,omitempty"`
 }
 
 type HTTPProbeStatus struct {
-	ObservedGeneration  int64              `json:"observedGeneration,omitempty"`
-	LastRunTime         *metav1.Time       `json:"lastRunTime,omitempty"`
-	LastSuccessTime     *metav1.Time       `json:"lastSuccessTime,omitempty"`
-	LastFailureTime     *metav1.Time       `json:"lastFailureTime,omitempty"`
-	ConsecutiveFailures int64              `json:"consecutiveFailures,omitempty"`
-	Summary             *ProbeSummary      `json:"summary,omitempty"`
-	Conditions          []metav1.Condition `json:"conditions,omitempty"`
+	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
+	LastRunTime        *metav1.Time       `json:"lastRunTime,omitempty"`
+	LastSuccessTime    *metav1.Time       `json:"lastSuccessTime,omitempty"`
+	LastFailureTime    *metav1.Time       `json:"lastFailureTime,omitempty"`
+	Summary            *ProbeSummary      `json:"summary,omitempty"`
+	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type ProbeSummary struct {

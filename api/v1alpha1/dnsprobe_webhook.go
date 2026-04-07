@@ -88,6 +88,16 @@ func (d *DNSProbe) validate() error {
 		}
 	}
 
+	for i, a := range d.Spec.Assertions {
+		fp := field.NewPath("spec", "assertions").Index(i)
+		if a.Name == "" {
+			allErrs = append(allErrs, field.Required(fp.Child("name"), "assertion name is required"))
+		}
+		if err := ValidateAssertionExpr(a.Expr, ValidDNSAssertionVars); err != nil {
+			allErrs = append(allErrs, field.Invalid(fp.Child("expr"), a.Expr, err.Error()))
+		}
+	}
+
 	if len(allErrs) == 0 {
 		return nil
 	}

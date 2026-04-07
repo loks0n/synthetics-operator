@@ -199,6 +199,98 @@ func TestDNSProbeValidateRules(t *testing.T) {
 	}
 }
 
+func TestDNSProbeAssertionValidation(t *testing.T) {
+	validBase := func() *DNSProbe {
+		p := &DNSProbe{
+			Spec: DNSProbeSpec{
+				Query: DNSQuery{Name: "example.com"},
+			},
+		}
+		_ = p.Default(context.Background(), p)
+		return p
+	}
+
+	cases := []struct {
+		name    string
+		mutate  func(*DNSProbe)
+		wantErr bool
+	}{
+		{
+			name: "valid answer_count assertion accepted",
+			mutate: func(p *DNSProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "has_answers", Expr: "answer_count > 0"}}
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid duration_ms assertion accepted",
+			mutate: func(p *DNSProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "fast", Expr: "duration_ms < 500"}}
+			},
+			wantErr: false,
+		},
+		{
+			name: "HTTP variable rejected for DNS probe",
+			mutate: func(p *DNSProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "bad", Expr: "status_code = 200"}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "ssl_expiry_days rejected for DNS probe",
+			mutate: func(p *DNSProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "bad", Expr: "ssl_expiry_days >= 14"}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "unknown variable rejected",
+			mutate: func(p *DNSProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "bad", Expr: "unknown_var = 1"}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid expression rejected",
+			mutate: func(p *DNSProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "bad", Expr: "not an expression"}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty assertion name rejected",
+			mutate: func(p *DNSProbe) {
+				p.Spec.Assertions = []Assertion{{Name: "", Expr: "answer_count > 0"}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "multiple valid assertions accepted",
+			mutate: func(p *DNSProbe) {
+				p.Spec.Assertions = []Assertion{
+					{Name: "has_answers", Expr: "answer_count > 0"},
+					{Name: "fast", Expr: "duration_ms < 500"},
+				}
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := validBase()
+			tc.mutate(p)
+			_, err := p.ValidateCreate(context.Background(), p)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestDNSProbeValidateUpdate(t *testing.T) {
 	valid := &DNSProbe{
 		Spec: DNSProbeSpec{

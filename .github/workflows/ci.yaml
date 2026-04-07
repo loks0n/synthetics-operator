@@ -249,7 +249,7 @@ jobs:
           PF_PID=$!
           trap "kill $PF_PID" EXIT
           for i in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8080/metrics | grep -q 'synthetics_probe_success{name="phase1-echo",namespace="default",kind="HTTPProbe"} 1'; then
+            if curl -fsS http://127.0.0.1:8080/metrics | grep -q 'synthetics_probe_up{name="phase1-echo",namespace="default",kind="HTTPProbe"} 1'; then
               exit 0
             fi
             sleep 3

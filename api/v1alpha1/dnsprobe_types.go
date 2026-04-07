@@ -10,16 +10,12 @@ type DNSQuery struct {
 	Resolver string `json:"resolver,omitempty"` // e.g. "8.8.8.8:53", default system resolver
 }
 
-type DNSAssertions struct {
-	FirstAnswerValue string `json:"firstAnswerValue,omitempty"`
-}
-
 type DNSProbeSpec struct {
 	Interval   metav1.Duration `json:"interval,omitempty"`
 	Timeout    metav1.Duration `json:"timeout,omitempty"`
 	Suspend    bool            `json:"suspend,omitempty"`
 	Query      DNSQuery        `json:"query"`
-	Assertions DNSAssertions   `json:"assertions,omitempty"`
+	Assertions []Assertion     `json:"assertions,omitempty"`
 }
 
 type DNSProbeStatus struct {

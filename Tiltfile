@@ -20,6 +20,8 @@ custom_build(
     ],
 )
 
+# ── Operator ─────────────────────────────────────────────────────────────────
+
 # The chart does not create a namespace.
 k8s_yaml(blob('''
 apiVersion: v1
@@ -45,6 +47,7 @@ k8s_resource(
     objects=[
         'synthetics-system:namespace',
         'httpprobes.synthetics.dev:customresourcedefinition',
+        'dnsprobes.synthetics.dev:customresourcedefinition',
         'synthetics-operator:clusterrole',
         'synthetics-operator:clusterrolebinding',
         'synthetics-operator:serviceaccount',
@@ -52,3 +55,96 @@ k8s_resource(
         'synthetics-operator-validating-webhook-configuration:validatingwebhookconfiguration',
     ],
 )
+
+# ── Metrics server (enables kubectl top / k9s resource usage) ────────────────
+
+helm_repo('metrics-server-repo', 'https://kubernetes-sigs.github.io/metrics-server/', labels=['operator'])
+
+helm_resource(
+    'metrics-server',
+    'metrics-server-repo/metrics-server',
+    flags=[
+        '--namespace=kube-system',
+        '--set=args={--kubelet-insecure-tls}',
+    ],
+    resource_deps=['metrics-server-repo'],
+    labels=['operator'],
+)
+
+# ── Monitoring stack (Prometheus + Grafana) ───────────────────────────────────
+
+load('ext://helm_resource', 'helm_resource', 'helm_repo')
+
+MONITORING_NAMESPACE = 'monitoring'
+HACK_DIR = config.main_dir + '/hack'
+
+k8s_yaml(blob('''
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+'''))
+
+helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts', labels=['monitoring'])
+helm_repo('grafana-repo', 'https://grafana.github.io/helm-charts', labels=['monitoring'])
+helm_repo('open-telemetry', 'https://open-telemetry.github.io/opentelemetry-helm-charts', labels=['monitoring'])
+
+helm_resource(
+    'otel-collector',
+    'open-telemetry/opentelemetry-collector',
+    flags=[
+        '--version=0.96.0',
+        '--create-namespace',
+        '--values=' + HACK_DIR + '/otel-collector-values.yaml',
+    ],
+    namespace=MONITORING_NAMESPACE,
+    resource_deps=['open-telemetry'],
+    labels=['monitoring'],
+)
+
+helm_resource(
+    'prometheus',
+    'prometheus-community/prometheus',
+    flags=[
+        '--version=25.8.0',
+        '--create-namespace',
+        '--values=' + HACK_DIR + '/prometheus-values.yaml',
+    ],
+    namespace=MONITORING_NAMESPACE,
+    resource_deps=['prometheus-community', 'otel-collector'],
+    labels=['monitoring'],
+    port_forwards=['9090:9090'],
+    links=[link('http://localhost:9090', 'Prometheus')],
+)
+
+helm_resource(
+    'grafana',
+    'grafana-repo/grafana',
+    flags=[
+        '--version=8.5.1',
+        '--create-namespace',
+        '--values=' + HACK_DIR + '/grafana-values.yaml',
+    ],
+    namespace=MONITORING_NAMESPACE,
+    resource_deps=['grafana-repo', 'prometheus'],
+    labels=['monitoring'],
+    port_forwards=['3000:3000'],
+    links=[link('http://localhost:3000', 'Grafana')],
+)
+
+# Dashboard ConfigMaps — Grafana sidecar auto-provisions any ConfigMap labelled grafana_dashboard=1.
+# Regenerate after editing dashboards/: make dashboard-configmaps
+# (alerts/synthetics-rules.yaml is a PrometheusRule for environments with the Prometheus operator)
+k8s_yaml('hack/dashboard-configmaps.yaml')
+
+k8s_resource(
+    new_name='monitoring-config',
+    objects=[
+        'monitoring:namespace',
+        'synthetics-overview-dashboard:configmap:monitoring',
+        'synthetics-http-probe-dashboard:configmap:monitoring',
+        'synthetics-dns-probe-dashboard:configmap:monitoring',
+    ],
+    labels=['monitoring'],
+)
+

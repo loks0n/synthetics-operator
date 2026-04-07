@@ -91,10 +91,9 @@ func TestHTTPProbeReconcileRegistersProbe(t *testing.T) {
 	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "api-health", Namespace: "default"},
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
-			Interval:   metav1.Duration{Duration: 30 * time.Second},
-			Timeout:    metav1.Duration{Duration: 10 * time.Second},
-			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: "GET"},
-			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: 200},
+			Interval: metav1.Duration{Duration: 30 * time.Second},
+			Timeout:  metav1.Duration{Duration: 10 * time.Second},
+			Request:  syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: "GET"},
 		},
 	}
 	if err := k8sClient.Create(context.Background(), probe); err != nil {
@@ -108,8 +107,15 @@ func TestHTTPProbeReconcileRegistersProbe(t *testing.T) {
 	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(probe), &updated); err != nil {
 		t.Fatalf("get updated probe: %v", err)
 	}
-	if updated.Status.Summary == nil || updated.Status.Summary.Message == "" {
-		t.Fatalf("expected summary to be populated, got %#v", updated.Status.Summary)
+	if updated.Status.ObservedGeneration != probe.Generation {
+		t.Fatalf("expected ObservedGeneration=%d, got %d", probe.Generation, updated.Status.ObservedGeneration)
+	}
+	suspended := apimeta.FindStatusCondition(updated.Status.Conditions, syntheticsv1alpha1.ConditionSuspended)
+	if suspended == nil {
+		t.Fatal("expected Suspended condition")
+	}
+	if suspended.Status != metav1.ConditionFalse {
+		t.Fatalf("expected Suspended=False, got %s", suspended.Status)
 	}
 }
 
@@ -126,10 +132,9 @@ func TestHTTPProbeReconcileInitializingCondition(t *testing.T) {
 	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "init-probe", Namespace: "default"},
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
-			Interval:   metav1.Duration{Duration: 30 * time.Second},
-			Timeout:    metav1.Duration{Duration: 10 * time.Second},
-			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: "GET"},
-			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: 200},
+			Interval: metav1.Duration{Duration: 30 * time.Second},
+			Timeout:  metav1.Duration{Duration: 10 * time.Second},
+			Request:  syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: "GET"},
 		},
 	}
 	if err := k8sClient.Create(context.Background(), probe); err != nil {
@@ -169,11 +174,10 @@ func TestHTTPProbeReconcileSuspend(t *testing.T) {
 	probe := &syntheticsv1alpha1.HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "suspended-probe", Namespace: "default"},
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
-			Interval:   metav1.Duration{Duration: 30 * time.Second},
-			Timeout:    metav1.Duration{Duration: 10 * time.Second},
-			Suspend:    true,
-			Request:    syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: "GET"},
-			Assertions: syntheticsv1alpha1.HTTPAssertions{Status: 200},
+			Interval: metav1.Duration{Duration: 30 * time.Second},
+			Timeout:  metav1.Duration{Duration: 10 * time.Second},
+			Suspend:  true,
+			Request:  syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: "GET"},
 		},
 	}
 	if err := k8sClient.Create(context.Background(), probe); err != nil {

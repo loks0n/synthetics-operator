@@ -4,13 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +19,13 @@ import (
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
 	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
+)
+
+// Failure reason constants for built-in (non-assertion) failures.
+// When an assertion fails, its Name field is used as the reason instead.
+const (
+	ReasonConfigError     = "configError"
+	ReasonConnectionError = "connectionError"
 )
 
 // Executor runs a single HTTP probe and returns the result.
@@ -32,21 +38,20 @@ type HTTPExecutor struct {
 	Client *http.Client
 }
 
-type AssertionResult struct {
-	Type   string
-	Name   string
-	Passed bool
-}
-
 type Result struct {
-	Success          bool
-	ConfigError      bool
-	StatusCode       int
-	Duration         time.Duration
-	Completed        time.Time
-	Message          string
-	AssertionResults []AssertionResult
-	CertExpiryTime   *time.Time
+	Success           bool
+	ConfigError       bool
+	StatusCode        int
+	HTTPVersion       float64
+	Duration          time.Duration
+	Completed         time.Time
+	Message           string
+	CertExpiryTime    *time.Time
+	PhaseDNSMs        float64
+	PhaseConnectMs    float64
+	PhaseTLSMs        float64
+	PhaseProcessingMs float64
+	PhaseTransferMs   float64
 }
 
 func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTTPProbe) Result {
@@ -79,6 +84,25 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 		req.Header.Set(key, val)
 	}
 
+	var (
+		dnsStart, dnsDone         time.Time
+		connectStart, connectDone time.Time
+		tlsStart, tlsDone         time.Time
+		wroteRequest              time.Time
+		firstByte                 time.Time
+	)
+	trace := &httptrace.ClientTrace{
+		DNSStart:             func(_ httptrace.DNSStartInfo) { dnsStart = time.Now() },
+		DNSDone:              func(_ httptrace.DNSDoneInfo) { dnsDone = time.Now() },
+		ConnectStart:         func(_, _ string) { connectStart = time.Now() },
+		ConnectDone:          func(_, _ string, _ error) { connectDone = time.Now() },
+		TLSHandshakeStart:    func() { tlsStart = time.Now() },
+		TLSHandshakeDone:     func(_ tls.ConnectionState, _ error) { tlsDone = time.Now() },
+		WroteRequest:         func(_ httptrace.WroteRequestInfo) { wroteRequest = time.Now() },
+		GotFirstResponseByte: func() { firstByte = time.Now() },
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+
 	httpClient := e.Client
 	if probe.Spec.TLS != nil {
 		tlsClient, tlsErr := e.buildTLSClient(probe)
@@ -93,7 +117,7 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 		httpClient = tlsClient
 	}
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = &http.Client{Transport: newTransport()}
 	}
 
 	resp, err := httpClient.Do(req)
@@ -108,8 +132,17 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 		_ = resp.Body.Close()
 	}()
 
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	transferStart := time.Now()
+	_, _ = io.ReadAll(resp.Body)
+	transferEnd := time.Now()
 	duration := time.Since(start)
+
+	msDiff := func(a, b time.Time) float64 {
+		if a.IsZero() || b.IsZero() {
+			return 0
+		}
+		return float64(b.Sub(a).Milliseconds())
+	}
 
 	var certExpiry *time.Time
 	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
@@ -117,58 +150,19 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 		certExpiry = &t
 	}
 
-	var assertions []AssertionResult
-	var failMessages []string
-
-	statusPassed := resp.StatusCode == probe.Spec.Assertions.Status
-	assertions = append(assertions, AssertionResult{Type: "status", Name: "status", Passed: statusPassed})
-	if !statusPassed {
-		failMessages = append(failMessages, fmt.Sprintf("status %d != %d", resp.StatusCode, probe.Spec.Assertions.Status))
-	}
-
-	if probe.Spec.Assertions.Latency != nil {
-		latencyPassed := duration.Milliseconds() <= int64(probe.Spec.Assertions.Latency.MaxMs)
-		assertions = append(assertions, AssertionResult{Type: "latency", Name: "latency", Passed: latencyPassed})
-		if !latencyPassed {
-			failMessages = append(failMessages, fmt.Sprintf("latency %dms > maxMs %d", duration.Milliseconds(), probe.Spec.Assertions.Latency.MaxMs))
-		}
-	}
-
-	if probe.Spec.Assertions.Body != nil {
-		if probe.Spec.Assertions.Body.Contains != "" {
-			containsPassed := strings.Contains(string(bodyBytes), probe.Spec.Assertions.Body.Contains)
-			assertions = append(assertions, AssertionResult{Type: "body_contains", Name: "body_contains", Passed: containsPassed})
-			if !containsPassed {
-				failMessages = append(failMessages, "body does not contain expected string")
-			}
-		}
-		for _, ja := range probe.Spec.Assertions.Body.JSON {
-			actual, evalErr := evalJSONPath(bodyBytes, ja.Path)
-			jsonPassed := evalErr == nil && actual == ja.Value
-			assertions = append(assertions, AssertionResult{Type: "body_json", Name: ja.Path, Passed: jsonPassed})
-			if !jsonPassed {
-				if evalErr != nil {
-					failMessages = append(failMessages, fmt.Sprintf("json path %s: %v", ja.Path, evalErr))
-				} else {
-					failMessages = append(failMessages, fmt.Sprintf("json path %s: %q != %q", ja.Path, actual, ja.Value))
-				}
-			}
-		}
-	}
-
-	message := fmt.Sprintf("received status %d", resp.StatusCode)
-	if len(failMessages) > 0 {
-		message = strings.Join(failMessages, "; ")
-	}
-
 	return Result{
-		Success:          len(failMessages) == 0,
-		StatusCode:       resp.StatusCode,
-		Completed:        time.Now(),
-		Duration:         duration,
-		Message:          message,
-		AssertionResults: assertions,
-		CertExpiryTime:   certExpiry,
+		Success:           true,
+		StatusCode:        resp.StatusCode,
+		HTTPVersion:       parseHTTPVersion(resp.Proto),
+		Completed:         time.Now(),
+		Duration:          duration,
+		Message:           fmt.Sprintf("received status %d", resp.StatusCode),
+		CertExpiryTime:    certExpiry,
+		PhaseDNSMs:        msDiff(dnsStart, dnsDone),
+		PhaseConnectMs:    msDiff(connectStart, connectDone),
+		PhaseTLSMs:        msDiff(tlsStart, tlsDone),
+		PhaseProcessingMs: msDiff(wroteRequest, firstByte),
+		PhaseTransferMs:   float64(transferEnd.Sub(transferStart).Milliseconds()),
 	}
 }
 
@@ -186,94 +180,46 @@ func (e HTTPExecutor) buildTLSClient(probe *syntheticsv1alpha1.HTTPProbe) (*http
 		tlsCfg.RootCAs = pool
 	}
 
-	base := http.DefaultTransport.(*http.Transport).Clone()
+	base := newTransport()
 	base.TLSClientConfig = tlsCfg
 	return &http.Client{Transport: base}, nil
 }
 
-// evalJSONPath evaluates a simple JSONPath expression against JSON bytes.
-// Supports dot-notation paths like $.field, $.field.subfield.
-func evalJSONPath(body []byte, path string) (string, error) {
-	if path != "$" && !strings.HasPrefix(path, "$.") {
-		return "", errors.New("path must start with $")
-	}
-
-	var data any
-	if err := json.Unmarshal(body, &data); err != nil {
-		return "", fmt.Errorf("invalid JSON body: %w", err)
-	}
-
-	if path == "$" {
-		b, _ := json.Marshal(data)
-		return string(b), nil
-	}
-
-	current := data
-	for part := range strings.SplitSeq(path[2:], ".") {
-		m, ok := current.(map[string]any)
-		if !ok {
-			return "", fmt.Errorf("cannot navigate into non-object at %q", part)
-		}
-		val, ok := m[part]
-		if !ok {
-			return "", fmt.Errorf("key %q not found", part)
-		}
-		current = val
-	}
-
-	switch v := current.(type) {
-	case string:
-		return v, nil
-	case float64:
-		if v == float64(int64(v)) {
-			return strconv.FormatInt(int64(v), 10), nil
-		}
-		return strconv.FormatFloat(v, 'f', -1, 64), nil
-	case bool:
-		return strconv.FormatBool(v), nil
-	case nil:
-		return "null", nil
-	default:
-		b, err := json.Marshal(v)
-		if err != nil {
-			return "", err
-		}
-		return string(b), nil
-	}
+// newTransport returns a fresh transport that never reuses connections.
+// This ensures DNS, TCP connect, and TLS handshake phases are measured on
+// every probe run rather than being skipped when a keep-alive connection
+// is available from a previous run.
+func newTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DisableKeepAlives = true
+	return t
 }
 
 // probeJob is the unit the WorkerPool queue carries. It contains everything
 // needed to execute a probe and record metrics without the WorkerPool knowing
-// about any specific CRD type. Future probe types (DnsProbe, K6Test) each
-// produce their own probeJob via a type-specific constructor.
+// about any specific CRD type.
 type probeJob struct {
 	key     types.NamespacedName
 	timeout time.Duration
-	// run executes the probe and returns the resulting metrics state.
-	// ConsecutiveFailures is intentionally left at zero; runProbe fills it in
-	// from the previous store snapshot so the worker pool needs no k8s client.
-	run func(ctx context.Context) internalmetrics.ProbeState
+	run     func(ctx context.Context) internalmetrics.ProbeState
 }
 
 // resultToProbeState converts an HTTP probe Result into a ProbeState suitable
-// for the metrics store. ConsecutiveFailures is not computed here — it depends
-// on previous state and is filled in by runProbe.
+// for the metrics store.
 func resultToProbeState(r Result) internalmetrics.ProbeState {
-	assertionResults := make([]internalmetrics.AssertionResult, len(r.AssertionResults))
-	for i, ar := range r.AssertionResults {
-		assertionResults[i] = internalmetrics.AssertionResult{
-			Type:   ar.Type,
-			Name:   ar.Name,
-			Passed: boolToFloat(ar.Passed),
-		}
-	}
 	state := internalmetrics.ProbeState{
-		Kind:                 "HTTPProbe",
-		Success:              boolToFloat(r.Success && !r.ConfigError),
-		DurationMilliseconds: float64(r.Duration.Milliseconds()),
-		LastRunTimestamp:     float64(r.Completed.Unix()),
-		ConfigError:          boolToFloat(r.ConfigError),
-		AssertionResults:     assertionResults,
+		Kind:                  "HTTPProbe",
+		Success:               boolToFloat(!r.ConfigError && r.StatusCode > 0),
+		DurationMilliseconds:  float64(r.Duration.Milliseconds()),
+		LastRunTimestamp:      float64(r.Completed.Unix()),
+		ConfigError:           boolToFloat(r.ConfigError),
+		HTTPStatusCode:        float64(r.StatusCode),
+		HTTPVersion:           r.HTTPVersion,
+		HTTPPhaseDNSMs:        r.PhaseDNSMs,
+		HTTPPhaseConnectMs:    r.PhaseConnectMs,
+		HTTPPhaseTLSMs:        r.PhaseTLSMs,
+		HTTPPhaseProcessingMs: r.PhaseProcessingMs,
+		HTTPPhaseTransferMs:   r.PhaseTransferMs,
 	}
 	if r.CertExpiryTime != nil {
 		state.TLSCertExpiry = float64(r.CertExpiryTime.Unix())
@@ -288,7 +234,33 @@ func newHTTPProbeJob(probe *syntheticsv1alpha1.HTTPProbe, exec Executor) probeJo
 		key:     types.NamespacedName{Namespace: probe.Namespace, Name: probe.Name},
 		timeout: probe.Spec.Timeout.Duration,
 		run: func(ctx context.Context) internalmetrics.ProbeState {
-			return resultToProbeState(exec.Execute(ctx, probe))
+			r := exec.Execute(ctx, probe)
+			state := resultToProbeState(r)
+			state.URL = probe.Spec.Request.URL
+			state.Method = strings.ToUpper(probe.Spec.Request.Method)
+			if len(probe.Spec.Assertions) > 0 {
+				ok := !r.ConfigError
+				if !ok {
+					state.FailureReason = ReasonConfigError
+				} else {
+					sslExpiryDays := float64(-1)
+					if r.CertExpiryTime != nil {
+						sslExpiryDays = time.Until(*r.CertExpiryTime).Hours() / 24
+					}
+					ctx := assertionContext{
+						"status_code":     float64(r.StatusCode),
+						"duration_ms":     float64(r.Duration.Milliseconds()),
+						"ssl_expiry_days": sslExpiryDays,
+					}
+					ok, state.FailureReason, state.AssertionResults = evalAssertions(probe.Spec.Assertions, ctx)
+				}
+				state.Success = boolToFloat(ok)
+			} else if r.ConfigError {
+				state.FailureReason = ReasonConfigError
+			} else if r.StatusCode == 0 {
+				state.FailureReason = ReasonConnectionError
+			}
+			return state
 		},
 	}
 }
@@ -350,20 +322,23 @@ func (p *WorkerPool) worker(ctx context.Context) {
 func (p *WorkerPool) runProbe(ctx context.Context, job probeJob) {
 	runCtx, cancel := context.WithTimeout(ctx, job.timeout)
 	defer cancel()
+	p.metrics.Upsert(job.key, job.run(runCtx))
+}
 
-	state := job.run(runCtx)
-
-	prev, _ := p.metrics.Snapshot(job.key)
-	switch {
-	case state.Success == 1:
-		state.ConsecutiveFailures = 0
-	case state.ConfigError == 1:
-		state.ConsecutiveFailures = prev.ConsecutiveFailures
-	default:
-		state.ConsecutiveFailures = prev.ConsecutiveFailures + 1
+// parseHTTPVersion converts a proto string like "HTTP/1.1" or "HTTP/2.0" to a
+// float64 (1.0, 1.1, 2.0, 3.0). Returns 0 for unknown or empty strings.
+func parseHTTPVersion(proto string) float64 {
+	switch strings.TrimPrefix(proto, "HTTP/") {
+	case "1.0":
+		return 1.0
+	case "1.1":
+		return 1.1
+	case "2", "2.0":
+		return 2.0
+	case "3", "3.0":
+		return 3.0
 	}
-
-	p.metrics.Upsert(job.key, state)
+	return 0
 }
 
 func boolToFloat(v bool) float64 {

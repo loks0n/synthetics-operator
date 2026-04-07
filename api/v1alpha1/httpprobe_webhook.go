@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/url"
-	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -41,9 +40,6 @@ func (h *HTTPProbe) Default(ctx context.Context, obj runtime.Object) error {
 	if probe.Spec.Request.Method == "" {
 		probe.Spec.Request.Method = "GET"
 	}
-	if probe.Spec.Assertions.Status == 0 {
-		probe.Spec.Assertions.Status = 200
-	}
 	logger.V(1).Info("defaulted HTTPProbe", "name", probe.Name)
 	return nil
 }
@@ -73,15 +69,8 @@ func (h *HTTPProbe) validate() error {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "timeout"), h.Spec.Timeout.Duration.String(), "must be less than or equal to interval"))
 	}
 
-	method := strings.ToUpper(h.Spec.Request.Method)
-	if method != "GET" && method != "HEAD" && method != "POST" {
-		allErrs = append(allErrs, field.NotSupported(field.NewPath("spec", "request", "method"), h.Spec.Request.Method, []string{"GET", "HEAD", "POST"}))
-	}
-	if method == "HEAD" && h.Spec.Assertions.Body != nil {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "assertions", "body"), nil, "body assertions cannot be used with HEAD method"))
-	}
-	if method == "HEAD" && h.Spec.Request.Body != "" {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "request", "body"), nil, "request body cannot be used with HEAD method"))
+	if h.Spec.Request.Method == "" {
+		allErrs = append(allErrs, field.Required(field.NewPath("spec", "request", "method"), "method is required"))
 	}
 
 	parsedURL, err := url.Parse(h.Spec.Request.URL)
@@ -91,19 +80,13 @@ func (h *HTTPProbe) validate() error {
 		allErrs = append(allErrs, field.NotSupported(field.NewPath("spec", "request", "url"), parsedURL.Scheme, []string{"http", "https"}))
 	}
 
-	if h.Spec.Assertions.Status < 100 || h.Spec.Assertions.Status > 599 {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "assertions", "status"), h.Spec.Assertions.Status, "must be a valid HTTP status code"))
-	}
-
-	if h.Spec.Assertions.Latency != nil && h.Spec.Assertions.Latency.MaxMs <= 0 {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "assertions", "latency", "maxMs"), h.Spec.Assertions.Latency.MaxMs, "must be greater than zero"))
-	}
-
-	if h.Spec.Assertions.Body != nil {
-		for i, ja := range h.Spec.Assertions.Body.JSON {
-			if !strings.HasPrefix(ja.Path, "$.") && ja.Path != "$" {
-				allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "assertions", "body", "json").Index(i).Child("path"), ja.Path, "must be a valid JSONPath expression starting with $"))
-			}
+	for i, a := range h.Spec.Assertions {
+		fp := field.NewPath("spec", "assertions").Index(i)
+		if a.Name == "" {
+			allErrs = append(allErrs, field.Required(fp.Child("name"), "assertion name is required"))
+		}
+		if err := ValidateAssertionExpr(a.Expr, ValidHTTPAssertionVars); err != nil {
+			allErrs = append(allErrs, field.Invalid(fp.Child("expr"), a.Expr, err.Error()))
 		}
 	}
 

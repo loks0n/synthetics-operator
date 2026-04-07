@@ -108,10 +108,9 @@ func TestWebhookAcceptsValidProbe(t *testing.T) {
 	probe := &HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "valid-probe", Namespace: "default"},
 		Spec: HTTPProbeSpec{
-			Interval:   metav1.Duration{Duration: 30 * time.Second},
-			Timeout:    metav1.Duration{Duration: 10 * time.Second},
-			Request:    HTTPRequestSpec{URL: "https://example.com/health", Method: "GET"},
-			Assertions: HTTPAssertions{Status: 200},
+			Interval: metav1.Duration{Duration: 30 * time.Second},
+			Timeout:  metav1.Duration{Duration: 10 * time.Second},
+			Request:  HTTPRequestSpec{URL: "https://example.com/health", Method: "GET"},
 		},
 	}
 
@@ -130,8 +129,7 @@ func TestWebhookAppliesDefaults(t *testing.T) {
 	minimal := &HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "defaulted-probe", Namespace: "default"},
 		Spec: HTTPProbeSpec{
-			Request:    HTTPRequestSpec{URL: "https://example.com/health"},
-			Assertions: HTTPAssertions{Status: 200},
+			Request: HTTPRequestSpec{URL: "https://example.com/health"},
 		},
 	}
 
@@ -165,10 +163,9 @@ func TestWebhookRejectsInvalidMethod(t *testing.T) {
 	probe := &HTTPProbe{
 		ObjectMeta: metav1.ObjectMeta{Name: "invalid-method", Namespace: "default"},
 		Spec: HTTPProbeSpec{
-			Interval:   metav1.Duration{Duration: 30 * time.Second},
-			Timeout:    metav1.Duration{Duration: 10 * time.Second},
-			Request:    HTTPRequestSpec{URL: "http://127.0.0.1/health", Method: "POST"},
-			Assertions: HTTPAssertions{Status: 200},
+			Interval: metav1.Duration{Duration: 30 * time.Second},
+			Timeout:  metav1.Duration{Duration: 10 * time.Second},
+			Request:  HTTPRequestSpec{URL: "http://127.0.0.1/health", Method: "DELETE"},
 		},
 	}
 

@@ -68,7 +68,7 @@ All CRDs support the following fields:
 
 ### 2.2 HttpProbe
 
-HTTP checks with assertions on status code, response latency, and body content. SSL certificate monitoring is included as a field on HttpProbe rather than a separate CRD, since both target the same URL.
+HTTP checks with named assertions on status code, response latency, and SSL certificate expiry. Each assertion is an independent named expression; all are evaluated on every run.
 
 ```yaml
 apiVersion: synthetics.dev/v1alpha1
@@ -81,37 +81,41 @@ spec:
   suspend: false          # pause without deleting
   request:
     url: https://my-service/health
-    method: GET
+    method: GET           # any HTTP method: GET, POST, PUT, PATCH, DELETE, HEAD, …
     headers:
-      Authorization: "Bearer ${SECRET_TOKEN}"
+      Authorization: "Bearer token"
+      Content-Type: application/json
     body: '{"ping": true}'          # optional request body
-    tls:                             # optional mTLS client certs
-      clientCertSecret:
-        name: mtls-client-cert
-        certKey: tls.crt
-        keyKey: tls.key
+  tls:                              # optional TLS overrides
+    insecureSkipVerify: false
+    caCert: |                       # PEM-encoded CA certificate
+      -----BEGIN CERTIFICATE-----
+      …
+      -----END CERTIFICATE-----
   assertions:
-    status: 200
-    latency:
-      maxMs: 300
-    body:
-      contains: "ok"
-      json:
-        - path: "$.status"
-          equals: "healthy"
-  ssl:
-    enabled: true
-    expiryWarningDays: 30
-    expiryMinimumDays: 7
-    verifyChain: true
-  depends:
-    - kind: DNSProbe
-      name: api-dns
-  metricLabels:
-    team: payments
-    env: production
-    tier: critical
+    - name: status_ok
+      expr: "status_code = 200"
+    - name: fast_response
+      expr: "duration_ms < 500"
+    - name: ssl_valid
+      expr: "ssl_expiry_days >= 30"
 ```
+
+**Assertion expression language**
+
+Each assertion has a `name` (used as the `reason` label on `synthetics_probe_up` and the `assertion` label on `synthetics_probe_assertion_result`) and an `expr` of the form `variable op value`.
+
+Supported operators: `=`, `!=`, `<`, `<=`, `>`, `>=`
+
+Available variables for HTTPProbe:
+
+| Variable | Description |
+|----------|-------------|
+| `status_code` | HTTP response status code |
+| `duration_ms` | Total request duration in milliseconds |
+| `ssl_expiry_days` | Days until the TLS certificate expires (`-1` if no TLS) |
+
+All assertions are evaluated on every run. `synthetics_probe_up` is 0 if any assertion fails; the `reason` label names the first failure. `synthetics_probe_assertion_result` exposes a per-assertion 0/1 gauge for every assertion regardless of whether others passed or failed.
 
 ### 2.3 DnsProbe
 
@@ -123,18 +127,26 @@ kind: DNSProbe
 metadata:
   name: api-dns
 spec:
-  interval: 1m
-  timeout: 5s
-  suspend: false          #
-  hostname: my-service.com
-  recordType: A   # A, AAAA, CNAME, MX, TXT, NS
+  interval: 30s
+  timeout: 10s
+  suspend: false
+  query:
+    name: my-service.com
+    type: A           # A, AAAA, CNAME, MX, TXT, NS, PTR
+    resolver: "8.8.8.8:53"   # optional; defaults to 8.8.8.8:53
   assertions:
-    resolvedAddresses:
-      contains: "1.2.3.4"
-    responseTimeMs: 100
-    maxResolvedAddresses: 20   # cardinality cap, see 3.4
-  resolver: "8.8.8.8:53"   # optional
+    - name: has_answers
+      expr: "answer_count > 0"
+    - name: fast_response
+      expr: "duration_ms < 500"
 ```
+
+Available variables for DNSProbe:
+
+| Variable | Description |
+|----------|-------------|
+| `answer_count` | Number of records in the DNS Answer section |
+| `duration_ms` | DNS query round-trip time in milliseconds |
 
 ### 2.4 PlaywrightTest
 
@@ -274,7 +286,7 @@ Plus any custom labels defined in `spec.metricLabels` — see section 3.8.
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_probe_success` | gauge 0\|1 | Whether the last probe run succeeded |
+| `synthetics_probe_up` | gauge 0\|1 | Whether the last probe run succeeded |
 | `synthetics_consecutive_failures` | gauge | Number of consecutive failures since last success |
 | `synthetics_last_run_timestamp` | gauge | Unix timestamp of last probe execution |
 | `synthetics_probe_suppressed` | gauge 0\|1 | Probe failed but suppressed due to unhealthy dependency |
@@ -284,11 +296,13 @@ Plus any custom labels defined in `spec.metricLabels` — see section 3.8.
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_probe_duration_ms` | gauge | Response time of the current request in milliseconds. |
-| `synthetics_probe_status_code` | gauge | HTTP status code returned |
-| `synthetics_probe_assertion_passed` | gauge 0\|1 | Per-assertion result with assertion label |
-| `synthetics_ssl_expiry_days` | gauge | Days until SSL certificate expiry |
-| `synthetics_ssl_valid` | gauge 0\|1 | Whether the certificate chain is valid |
+| `synthetics_probe_duration_ms` | gauge | Total request duration in milliseconds |
+| `synthetics_probe_http_status_code` | gauge | HTTP response status code |
+| `synthetics_probe_http_version` | gauge | HTTP version (1.0, 1.1, 2.0, 3.0) |
+| `synthetics_probe_http_phase_duration_ms` | gauge | Per-phase timing with `phase` label: `dns`, `connect`, `tls`, `processing`, `transfer` |
+| `synthetics_probe_tls_cert_expiry_timestamp_seconds` | gauge | Unix timestamp of TLS leaf certificate expiry; absent if no TLS |
+| `synthetics_probe_assertion_result` | gauge 0\|1 | Per-assertion pass/fail with `assertion` (name) and `expr` (expression) labels. Emitted for every assertion on every run regardless of other assertion outcomes. |
+| `synthetics_probe_http_info` | gauge (always 1) | Static probe configuration: `method` label carries the HTTP method |
 
 ### 3.4 DnsProbe metrics
 
@@ -393,7 +407,7 @@ spec:
 All metrics for this probe include those labels:
 
 ```
-synthetics_probe_success{name="checkout-api", namespace="default", kind="HTTPProbe", team="payments", env="production", tier="critical"} 1
+synthetics_probe_up{name="checkout-api", namespace="default", kind="HTTPProbe", team="payments", env="production", tier="critical"} 1
 ```
 
 This unlocks per-team Alertmanager rules:
@@ -496,7 +510,7 @@ The operator reconciles PlaywrightTest and K6Test CRDs into Kubernetes CronJobs.
 - `ttlAfterFinished` defaults to 1h if omitted — enforced by the defaulting webhook to prevent pod accumulation
 - Pod eviction detected via Job failure status — operator records a failure metric directly if a pod disappears without reporting results
 
-**Job rejection handling** — in locked-down clusters, Jobs created by the operator can be rejected by ResourceQuota, LimitRange, or admission webhooks. Without surfacing this, the CronJob silently never runs and `synthetics_probe_success` just stops updating.
+**Job rejection handling** — in locked-down clusters, Jobs created by the operator can be rejected by ResourceQuota, LimitRange, or admission webhooks. Without surfacing this, the CronJob silently never runs and `synthetics_probe_up` just stops updating.
 
 Two layers ship in Phase 5 (when K6Test lands):
 
@@ -585,7 +599,7 @@ The sidecar authenticates to NATS using its pod ServiceAccount token. NATS is co
 | `ProbeSucceeded` | Last run passed all assertions | Future (status writes deferred) |
 | `ProbeFailed` | Last run failed assertions or timed out | Future (status writes deferred) |
 
-For HttpProbe and DnsProbe, `Ready` transitions to `ProbeSucceeded`/`ProbeFailed` are deferred. Runtime pass/fail state is available via `synthetics_probe_success` and `synthetics_consecutive_failures` metrics, which update on every run without touching the Kubernetes API. This keeps API server write load proportional to configuration changes, not probe execution frequency.
+For HttpProbe and DnsProbe, `Ready` transitions to `ProbeSucceeded`/`ProbeFailed` are deferred. Runtime pass/fail state is available via `synthetics_probe_up` and `synthetics_consecutive_failures` metrics, which update on every run without touching the Kubernetes API. This keeps API server write load proportional to configuration changes, not probe execution frequency.
 
 **Crash handling:**
 
@@ -1136,7 +1150,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Automatic VU distribution | K6Test operator divides total VUs by parallelism using k6 execution segments automatically. Users set total VUs in the script, not per-pod VUs. |
 | Thresholds in script only | k6 thresholds defined in the script, not duplicated in the CRD. Avoids drift between two sources of truth. Operator parses threshold results from k6 summary output. |
 | No alerting in operator | Operator emits metrics only. Users own Alertmanager rules. Avoids duplicating alerting infrastructure and keeps operator scope focused. |
-| Assertions are stateless | CRD spec assertions (`status`, `latency.maxMs`, `body`, `resolvedAddresses`) evaluate the current run only — no sliding windows, no history, no aggregation. Anything that requires multiple results over time (p95 latency, consecutive failure rate) belongs in Alertmanager rules against the emitted metrics, not in the CRD schema. |
+| Assertions are stateless | CRD spec assertions evaluate the current run only — no sliding windows, no history, no aggregation. Each assertion is a named expression (`variable op value`) evaluated against the probe result. All assertions run on every probe execution; `synthetics_probe_up` reflects the overall pass/fail, while `synthetics_probe_assertion_result` carries a per-assertion 0/1 gauge with `assertion` and `expr` labels. Anything requiring multiple results over time (p95 latency, consecutive failure rate) belongs in Prometheus/Alertmanager rules against emitted metrics, not in the CRD schema. |
 | In-operator scheduling | HttpProbe and DnsProbe run as goroutines inside the operator. Sub-minute intervals required; pod-per-run would be wasteful. |
 | CronJobs for scripts | PlaywrightTest and K6Test need isolated runtimes and run at minute-or-longer intervals. CronJobs are the natural fit. |
 | Hash-based probe offset | Each probe's schedule offset is `FNV64(namespace/name) % interval`. Deterministic across restarts, independent per probe — adding or removing a probe does not affect any other. No global state. Jitter was rejected: random offsets can still cluster and change on restart. Midpoint insertion was rejected: requires sorted global state, breaks on restart without persistence, and degrades badly when probes are removed. |
@@ -1175,7 +1189,7 @@ Each phase ships a usable product. No phase is purely foundational.
 - Project scaffold via controller-runtime with Kubebuilder-style APIs, markers, and CRD/webhook layout
 - `HttpProbe` CRD: URL, method, headers, status code assertion, `spec.suspend`
 - In-operator worker pool with even distribution scheduling
-- OTel instrumentation (`synthetics_probe_success`, `synthetics_probe_duration_ms`, `synthetics_consecutive_failures`, `synthetics_last_run_timestamp`, `synthetics_probe_config_error`) exported via Prometheus exporter on `/metrics`
+- OTel instrumentation (`synthetics_probe_up`, `synthetics_probe_duration_ms`, `synthetics_consecutive_failures`, `synthetics_last_run_timestamp`, `synthetics_probe_config_error`) exported via Prometheus exporter on `/metrics`
 - Validating and defaulting webhooks for HttpProbe (with self-managed certs)
 - Helm chart (operator deployment, RBAC, CRD install, webhook config)
 - Unit tests for worker pool, distribution algorithm, webhook functions
@@ -1195,8 +1209,8 @@ Each phase ships a usable product. No phase is purely foundational.
 
 - Applying a valid `HttpProbe` creates no secondary resources beyond operator-owned webhook/cert objects
 - Applying an invalid `HttpProbe` is rejected at admission time
-- A healthy endpoint sets `synthetics_probe_success=1` and updates duration and timestamp metrics
-- A failing endpoint sets `synthetics_probe_success=0` and increments `synthetics_consecutive_failures`
+- A healthy endpoint sets `synthetics_probe_up=1` and updates duration and timestamp metrics
+- A failing endpoint sets `synthetics_probe_up=0` and increments `synthetics_consecutive_failures`
 - `spec.suspend: true` stops future executions without deleting the CRD
 - Operator restart rebuilds schedules from the API server and resumes probing without manual intervention
 
@@ -1204,28 +1218,26 @@ Each phase ships a usable product. No phase is purely foundational.
 
 ---
 
-### Phase 2 — HttpProbe body and latency assertions
+### Phase 2 — Named assertions + HTTP phase timing
 
-**Deliverable:** Assert on response body content and single-request latency, not just status code.
+**Deliverable:** Named expression-based assertions for both HTTPProbe and DNSProbe; per-phase HTTP timing breakdown; TLS certificate expiry tracking.
 
-- Body assertions: `contains` string match and JSON path equality checks
-- Latency assertion: `maxMs` — fail the probe if this single response exceeds the threshold
-- `synthetics_probe_assertion_passed` metric per assertion
-- Unit tests for assertion evaluation logic
+- Named assertion expression language: `variable op value` (operators `=`, `!=`, `<`, `<=`, `>`, `>=`)
+- HTTPProbe variables: `status_code`, `duration_ms`, `ssl_expiry_days`
+- DNSProbe variables: `answer_count`, `duration_ms`
+- All assertions evaluated on every run (no short-circuit on first failure for metrics)
+- `synthetics_probe_assertion_result` gauge with `assertion` (name) and `expr` (expression) labels
+- `synthetics_probe_up` `reason` label carries the name of the first failing assertion
+- `synthetics_probe_http_phase_duration_ms` with `phase` label: `dns`, `connect`, `tls`, `processing`, `transfer`
+- `synthetics_probe_tls_cert_expiry_timestamp_seconds`
+- Admission webhook validates assertion expressions and variable names at create/update time
+- Any HTTP method supported (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, …)
+- Custom request headers and arbitrary request body
+- TLS config: `insecureSkipVerify`, custom CA certificate (PEM)
+- Per-connection transport (no keep-alive reuse) ensures all phases are measured on every run
+- Unit tests for expression parser, evaluator, per-probe job logic, and webhook validation
 
-**Usable because:** teams can validate that endpoints return correct content and respond within acceptable time, not just that they return 200.
-
----
-
-### Phase 3 — HttpProbe POST + mTLS
-
-**Deliverable:** Monitor POST endpoints and services that require mTLS.
-
-- `spec.request.body` — arbitrary request body for POST/PUT/PATCH
-- `spec.request.tls` — mTLS client cert via Secret reference
-- Unit tests for request construction and mTLS setup
-
-**Usable because:** real API monitoring requires more than GET requests. POST health endpoints and mTLS-authenticated services are common in production.
+**Usable because:** teams can define precise pass/fail criteria directly in the CRD, see per-assertion status in Grafana, and receive alerts that name the failing check.
 
 ---
 

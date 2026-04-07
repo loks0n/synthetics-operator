@@ -50,34 +50,6 @@ func TestDNSExecutorRealQuery(t *testing.T) {
 	}
 }
 
-func TestDNSExecutorAssertionPass(t *testing.T) {
-	exec := DNSExecutor{}
-	// PTR for 1.1.1.1 reliably returns "one.one.one.one" — a stable single-value record.
-	probe := dnsProbe("1.1.1.1.in-addr.arpa", "PTR", "1.1.1.1:53")
-	probe.Spec.Assertions.FirstAnswerValue = "one.one.one.one"
-
-	result := exec.Execute(context.Background(), probe)
-
-	if !result.Success {
-		t.Fatalf("expected assertion to pass, got message: %s", result.Message)
-	}
-}
-
-func TestDNSExecutorAssertionFail(t *testing.T) {
-	exec := DNSExecutor{}
-	probe := dnsProbe("one.one.one.one", "A", "1.1.1.1:53")
-	probe.Spec.Assertions.FirstAnswerValue = "999.999.999.999"
-
-	result := exec.Execute(context.Background(), probe)
-
-	if result.Success {
-		t.Fatal("expected assertion failure")
-	}
-	if result.ConfigError {
-		t.Fatal("unexpected config error for assertion failure")
-	}
-}
-
 func TestDNSExecutorEmptyName(t *testing.T) {
 	exec := DNSExecutor{}
 	probe := dnsProbe("", "A", "1.1.1.1:53")
@@ -193,5 +165,108 @@ func TestNewDNSProbeJob(t *testing.T) {
 	state := job.run(context.Background())
 	if state.Kind != "DNSProbe" {
 		t.Errorf("expected Kind=DNSProbe, got %s", state.Kind)
+	}
+}
+
+// --- newDNSProbeJob assertion evaluation tests ---
+
+func dnsProbeWithAssertions(assertions []syntheticsv1alpha1.Assertion) *syntheticsv1alpha1.DNSProbe {
+	p := dnsProbe("one.one.one.one", "A", "1.1.1.1:53")
+	p.Spec.Assertions = assertions
+	return p
+}
+
+func TestDNSProbeJobAssertionAnswerCountPass(t *testing.T) {
+	probe := dnsProbeWithAssertions([]syntheticsv1alpha1.Assertion{
+		{Name: "has_answers", Expr: "answer_count > 0"},
+	})
+
+	exec := DNSExecutor{}
+	job := newDNSProbeJob(probe, exec)
+
+	state := job.run(context.Background())
+
+	if state.Success != 1 {
+		t.Fatalf("expected success=1, got %f (reason=%q)", state.Success, state.FailureReason)
+	}
+	if state.FailureReason != "" {
+		t.Fatalf("expected no failure reason, got %q", state.FailureReason)
+	}
+}
+
+func TestDNSProbeJobAssertionDurationPass(t *testing.T) {
+	probe := dnsProbeWithAssertions([]syntheticsv1alpha1.Assertion{
+		{Name: "fast", Expr: "duration_ms < 5000"},
+	})
+
+	exec := DNSExecutor{}
+	job := newDNSProbeJob(probe, exec)
+
+	state := job.run(context.Background())
+
+	if state.Success != 1 {
+		t.Fatalf("expected success=1, got %f (reason=%q)", state.Success, state.FailureReason)
+	}
+}
+
+func TestDNSProbeJobAssertionAnswerCountFail(t *testing.T) {
+	// Query a non-existent name — expect 0 answers, so assertion fails.
+	probe := dnsProbeWithAssertions([]syntheticsv1alpha1.Assertion{
+		{Name: "has_answers", Expr: "answer_count > 0"},
+	})
+	// Use a guaranteed NXDOMAIN name.
+	probe.Spec.Query.Name = "this-domain-does-not-exist.invalid"
+
+	exec := DNSExecutor{}
+	job := newDNSProbeJob(probe, exec)
+
+	state := job.run(context.Background())
+
+	// The executor itself succeeds (NXDOMAIN is a valid DNS response); the
+	// assertion over answer_count is what should fail.
+	if state.Success != 0 {
+		t.Fatal("expected success=0 when answer_count assertion fails")
+	}
+	if state.FailureReason != "has_answers" {
+		t.Fatalf("expected FailureReason=has_answers, got %q", state.FailureReason)
+	}
+}
+
+func TestDNSProbeJobConfigErrorReasonSet(t *testing.T) {
+	probe := dnsProbeWithAssertions([]syntheticsv1alpha1.Assertion{
+		{Name: "has_answers", Expr: "answer_count > 0"},
+	})
+	probe.Spec.Query.Name = "" // triggers config error in executor
+
+	exec := DNSExecutor{}
+	job := newDNSProbeJob(probe, exec)
+
+	state := job.run(context.Background())
+
+	if state.Success != 0 {
+		t.Fatal("expected success=0 on config error")
+	}
+	if state.FailureReason != ReasonConfigError {
+		t.Fatalf("expected FailureReason=%q, got %q", ReasonConfigError, state.FailureReason)
+	}
+}
+
+func TestDNSProbeJobNoAssertionsConnectionError(t *testing.T) {
+	probe := dnsProbe("example.com", "A", "192.0.2.1:53") // unreachable
+	probe.Spec.Assertions = nil
+
+	exec := DNSExecutor{}
+	job := newDNSProbeJob(probe, exec)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	state := job.run(ctx)
+
+	if state.Success != 0 {
+		t.Fatal("expected success=0 for connection failure")
+	}
+	if state.FailureReason != ReasonConnectionError {
+		t.Fatalf("expected FailureReason=%q, got %q", ReasonConnectionError, state.FailureReason)
 	}
 }

@@ -27,83 +27,20 @@ func (in *HTTPRequestSpec) DeepCopy() *HTTPRequestSpec {
 	return out
 }
 
-func (in *HTTPAssertions) DeepCopyInto(out *HTTPAssertions) {
-	*out = *in
-	if in.Latency != nil {
-		in, out := &in.Latency, &out.Latency
-		*out = new(LatencyAssertion)
-		**out = **in
-	}
-	if in.Body != nil {
-		in, out := &in.Body, &out.Body
-		*out = new(BodyAssertion)
-		(*in).DeepCopyInto(*out)
-	}
-}
-
-func (in *HTTPAssertions) DeepCopy() *HTTPAssertions {
-	if in == nil {
-		return nil
-	}
-	out := new(HTTPAssertions)
-	in.DeepCopyInto(out)
-	return out
-}
-
-func (in *LatencyAssertion) DeepCopyInto(out *LatencyAssertion) {
-	*out = *in
-}
-
-func (in *LatencyAssertion) DeepCopy() *LatencyAssertion {
-	if in == nil {
-		return nil
-	}
-	out := new(LatencyAssertion)
-	in.DeepCopyInto(out)
-	return out
-}
-
-func (in *BodyAssertion) DeepCopyInto(out *BodyAssertion) {
-	*out = *in
-	if in.JSON != nil {
-		in, out := &in.JSON, &out.JSON
-		*out = make([]JSONAssertion, len(*in))
-		copy(*out, *in)
-	}
-}
-
-func (in *BodyAssertion) DeepCopy() *BodyAssertion {
-	if in == nil {
-		return nil
-	}
-	out := new(BodyAssertion)
-	in.DeepCopyInto(out)
-	return out
-}
-
-func (in *JSONAssertion) DeepCopyInto(out *JSONAssertion) {
-	*out = *in
-}
-
-func (in *JSONAssertion) DeepCopy() *JSONAssertion {
-	if in == nil {
-		return nil
-	}
-	out := new(JSONAssertion)
-	in.DeepCopyInto(out)
-	return out
-}
-
 func (in *HTTPProbeSpec) DeepCopyInto(out *HTTPProbeSpec) {
 	*out = *in
 	in.Request.DeepCopyInto(&out.Request)
-	in.Assertions.DeepCopyInto(&out.Assertions)
 	out.Interval = in.Interval
 	out.Timeout = in.Timeout
 	if in.TLS != nil {
 		in, out := &in.TLS, &out.TLS
 		*out = new(TLSConfig)
 		**out = **in
+	}
+	if in.Assertions != nil {
+		in, out := &in.Assertions, &out.Assertions
+		*out = make([]Assertion, len(*in))
+		copy(*out, *in)
 	}
 }
 
@@ -234,15 +171,15 @@ func (in *DNSQuery) DeepCopy() *DNSQuery {
 	return out
 }
 
-func (in *DNSAssertions) DeepCopyInto(out *DNSAssertions) {
+func (in *Assertion) DeepCopyInto(out *Assertion) {
 	*out = *in
 }
 
-func (in *DNSAssertions) DeepCopy() *DNSAssertions {
+func (in *Assertion) DeepCopy() *Assertion {
 	if in == nil {
 		return nil
 	}
-	out := new(DNSAssertions)
+	out := new(Assertion)
 	in.DeepCopyInto(out)
 	return out
 }
@@ -252,7 +189,11 @@ func (in *DNSProbeSpec) DeepCopyInto(out *DNSProbeSpec) {
 	out.Interval = in.Interval
 	out.Timeout = in.Timeout
 	out.Query = in.Query
-	out.Assertions = in.Assertions
+	if in.Assertions != nil {
+		in, out := &in.Assertions, &out.Assertions
+		*out = make([]Assertion, len(*in))
+		copy(*out, *in)
+	}
 }
 
 func (in *DNSProbeSpec) DeepCopy() *DNSProbeSpec {

@@ -48,7 +48,7 @@ func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	probe.Status.ObservedGeneration = probe.Generation
 	setSuspendedCondition(&probe, probe.Spec.Suspend, now)
-	if len(probe.Status.Conditions) == 0 {
+	if apimeta.FindStatusCondition(probe.Status.Conditions, syntheticsv1alpha1.ConditionReady) == nil {
 		apimeta.SetStatusCondition(&probe.Status.Conditions, metav1.Condition{
 			Type:               syntheticsv1alpha1.ConditionReady,
 			Status:             metav1.ConditionUnknown,

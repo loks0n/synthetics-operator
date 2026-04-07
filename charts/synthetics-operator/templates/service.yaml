@@ -12,3 +12,22 @@ spec:
     - name: webhook
       port: 443
       targetPort: webhook
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-metrics
+  labels:
+    app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+    app.kubernetes.io/component: metrics
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: /metrics
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics

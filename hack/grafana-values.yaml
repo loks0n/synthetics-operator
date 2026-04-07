@@ -1,0 +1,38 @@
+# grafana/grafana values for local dev.
+
+adminPassword: admin
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+# Pre-provision the Prometheus datasource.
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        url: http://prometheus-server.monitoring.svc.cluster.local:80
+        isDefault: true
+        access: proxy
+
+# Sidecar: auto-provision dashboards from ConfigMaps labelled grafana_dashboard=1.
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: "1"
+    searchNamespace: ALL
+    resource: configmap
+  alerts:
+    enabled: true
+    label: grafana_alert
+    labelValue: "1"
+    searchNamespace: ALL
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi

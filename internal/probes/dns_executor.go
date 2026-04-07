@@ -116,21 +116,8 @@ func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSP
 		result.FirstAnswerType = dns.TypeToString[resp.Answer[0].Header().Rrtype]
 	}
 
-	// Check assertions.
-	var failMessages []string
-	if probe.Spec.Assertions.FirstAnswerValue != "" {
-		if result.FirstAnswerValue != probe.Spec.Assertions.FirstAnswerValue {
-			failMessages = append(failMessages, fmt.Sprintf("firstAnswerValue %q != %q", result.FirstAnswerValue, probe.Spec.Assertions.FirstAnswerValue))
-		}
-	}
-
-	if len(failMessages) > 0 {
-		result.Message = strings.Join(failMessages, "; ")
-		result.Success = false
-	} else {
-		result.Success = true
-		result.Message = fmt.Sprintf("received %d answer(s)", len(resp.Answer))
-	}
+	result.Success = true
+	result.Message = fmt.Sprintf("received %d answer(s)", len(resp.Answer))
 
 	return result
 }
@@ -169,7 +156,6 @@ func systemResolver() string {
 }
 
 // dnsToprobeState converts a DNSResult into a ProbeState for the metrics store.
-// ConsecutiveFailures is not computed here — it is filled in by runProbe.
 func dnsToprobeState(r DNSResult) internalmetrics.ProbeState {
 	return internalmetrics.ProbeState{
 		Kind:                 "DNSProbe",
@@ -191,7 +177,26 @@ func newDNSProbeJob(probe *syntheticsv1alpha1.DNSProbe, exec DNSExecutor) probeJ
 		key:     types.NamespacedName{Namespace: probe.Namespace, Name: probe.Name},
 		timeout: probe.Spec.Timeout.Duration,
 		run: func(ctx context.Context) internalmetrics.ProbeState {
-			return dnsToprobeState(exec.Execute(ctx, probe))
+			r := exec.Execute(ctx, probe)
+			state := dnsToprobeState(r)
+			if len(probe.Spec.Assertions) > 0 {
+				ok := !r.ConfigError
+				if !ok {
+					state.FailureReason = ReasonConfigError
+				} else {
+					ac := assertionContext{
+						"answer_count": float64(r.AnswerCount),
+						"duration_ms":  float64(r.Duration.Milliseconds()),
+					}
+					ok, state.FailureReason, state.AssertionResults = evalAssertions(probe.Spec.Assertions, ac)
+				}
+				state.Success = boolToFloat(ok)
+			} else if r.ConfigError {
+				state.FailureReason = ReasonConfigError
+			} else if !r.Success {
+				state.FailureReason = ReasonConnectionError
+			}
+			return state
 		},
 	}
 }
