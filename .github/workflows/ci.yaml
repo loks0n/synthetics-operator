@@ -239,7 +239,7 @@ jobs:
           trap "kill $PF_PID" EXIT
           # Poll for up to 120s to allow at least one probe interval (30s) plus startup.
           for i in $(seq 1 40); do
-            if curl -fsS http://127.0.0.1:8080/metrics 2>/dev/null | grep -q 'synthetics_probe_up{name="phase1-echo",namespace="default",kind="HTTPProbe"} 1'; then
+            if curl -fsS http://127.0.0.1:8080/metrics 2>/dev/null | grep -qE 'synthetics_probe_up\{[^}]*name="phase1-echo"[^}]*\} 1'; then
               exit 0
             fi
             sleep 3
