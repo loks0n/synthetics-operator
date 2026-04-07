@@ -186,7 +186,9 @@ jobs:
             --set image.pullPolicy=IfNotPresent
 
       - name: Wait for operator rollout
-        run: kubectl -n synthetics-system rollout status deployment/synthetics-operator --timeout=180s
+        run: |
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator --timeout=180s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-webhook --timeout=180s
 
       - name: Deploy echo service
         run: |
@@ -245,7 +247,7 @@ jobs:
 
       - name: Verify metrics
         run: |
-          kubectl -n synthetics-system port-forward svc/synthetics-operator-webhook-service 8080:8080 >/tmp/port-forward.log 2>&1 &
+          kubectl -n synthetics-system port-forward svc/synthetics-operator-metrics 8080:8080 >/tmp/port-forward.log 2>&1 &
           PF_PID=$!
           trap "kill $PF_PID" EXIT
           for i in $(seq 1 20); do
@@ -303,4 +305,6 @@ jobs:
             --set image.pullPolicy=IfNotPresent
 
       - name: Wait for operator rollout
-        run: kubectl -n synthetics-system rollout status deployment/synthetics-operator --timeout=180s
+        run: |
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator --timeout=180s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-webhook --timeout=180s
