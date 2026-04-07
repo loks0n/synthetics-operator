@@ -9,4 +9,5 @@ spec:
     url: http://echo.default.svc.cluster.local
     method: GET
   assertions:
-    status: 200
+    - name: status_ok
+      expr: "status_code = 200"
