@@ -20,10 +20,11 @@ import (
 
 type DNSProbeReconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	Scheduler *internalprobes.Scheduler
-	Metrics   *internalmetrics.Store
-	Clock     func() time.Time
+	Scheme      *runtime.Scheme
+	Scheduler   internalprobes.ProbeScheduler
+	DNSExecutor internalprobes.DNSExecutor
+	Metrics     *internalmetrics.Store
+	Clock       func() time.Time
 }
 
 func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -48,7 +49,7 @@ func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	probe.Status.ObservedGeneration = probe.Generation
 	setDNSSuspendedCondition(&probe, probe.Spec.Suspend, now)
-	if len(probe.Status.Conditions) == 0 {
+	if apimeta.FindStatusCondition(probe.Status.Conditions, syntheticsv1alpha1.ConditionReady) == nil {
 		apimeta.SetStatusCondition(&probe.Status.Conditions, metav1.Condition{
 			Type:               syntheticsv1alpha1.ConditionReady,
 			Status:             metav1.ConditionUnknown,
@@ -63,7 +64,7 @@ func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		r.Scheduler.Unregister(req.NamespacedName)
 		r.Metrics.Delete(req.NamespacedName)
 	} else {
-		r.Scheduler.RegisterDNS(&probe)
+		r.Scheduler.Register(internalprobes.NewDNSJob(&probe, r.DNSExecutor, r.Metrics))
 	}
 
 	if dnsStatusChanged(original, &probe) {

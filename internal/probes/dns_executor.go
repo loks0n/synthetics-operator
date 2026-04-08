@@ -171,15 +171,19 @@ func dnsToprobeState(r DNSResult) internalmetrics.ProbeState {
 	}
 }
 
-// newDNSProbeJob constructs a probeJob for a DNSProbe.
-func newDNSProbeJob(probe *syntheticsv1alpha1.DNSProbe, exec DNSExecutor) probeJob {
-	return probeJob{
-		key:     types.NamespacedName{Namespace: probe.Namespace, Name: probe.Name},
-		timeout: probe.Spec.Timeout.Duration,
-		run: func(ctx context.Context) internalmetrics.ProbeState {
-			r := exec.Execute(ctx, probe)
+// NewDNSJob constructs a Job for a DNSProbe. This is the only place in the
+// codebase that couples the Job abstraction to the DNSProbe CRD type.
+func NewDNSJob(probe *syntheticsv1alpha1.DNSProbe, exec DNSExecutor, store *internalmetrics.Store) Job {
+	snapshot := probe.DeepCopy()
+	key := types.NamespacedName{Namespace: probe.Namespace, Name: probe.Name}
+	return Job{
+		Key:      key,
+		Interval: snapshot.Spec.Interval.Duration,
+		Timeout:  snapshot.Spec.Timeout.Duration,
+		Run: func(ctx context.Context) {
+			r := exec.Execute(ctx, snapshot)
 			state := dnsToprobeState(r)
-			if len(probe.Spec.Assertions) > 0 {
+			if len(snapshot.Spec.Assertions) > 0 {
 				ok := !r.ConfigError
 				if !ok {
 					state.FailureReason = ReasonConfigError
@@ -188,7 +192,7 @@ func newDNSProbeJob(probe *syntheticsv1alpha1.DNSProbe, exec DNSExecutor) probeJ
 						"answer_count": float64(r.AnswerCount),
 						"duration_ms":  float64(r.Duration.Milliseconds()),
 					}
-					ok, state.FailureReason, state.AssertionResults = evalAssertions(probe.Spec.Assertions, ac)
+					ok, state.FailureReason, state.AssertionResults = evalAssertions(snapshot.Spec.Assertions, ac)
 				}
 				state.Success = boolToFloat(ok)
 			} else if r.ConfigError {
@@ -196,7 +200,7 @@ func newDNSProbeJob(probe *syntheticsv1alpha1.DNSProbe, exec DNSExecutor) probeJ
 			} else if !r.Success {
 				state.FailureReason = ReasonConnectionError
 			}
-			return state
+			store.Upsert(key, state)
 		},
 	}
 }

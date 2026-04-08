@@ -20,10 +20,11 @@ import (
 
 type HTTPProbeReconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	Scheduler *internalprobes.Scheduler
-	Metrics   *internalmetrics.Store
-	Clock     func() time.Time
+	Scheme       *runtime.Scheme
+	Scheduler    internalprobes.ProbeScheduler
+	HTTPExecutor internalprobes.Executor
+	Metrics      *internalmetrics.Store
+	Clock        func() time.Time
 }
 
 func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -63,7 +64,7 @@ func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.Scheduler.Unregister(req.NamespacedName)
 		r.Metrics.Delete(req.NamespacedName)
 	} else {
-		r.Scheduler.Register(&probe)
+		r.Scheduler.Register(internalprobes.NewHTTPJob(&probe, r.HTTPExecutor, r.Metrics))
 	}
 
 	if statusChanged(original, &probe) {

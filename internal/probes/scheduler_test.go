@@ -1,14 +1,12 @@
 package probes
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-
-	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
 )
 
 func TestProbeOffsetIsStable(t *testing.T) {
@@ -47,18 +45,24 @@ func TestInitialDelayWithinInterval(t *testing.T) {
 	}
 }
 
-func TestSchedulerRegisterBeforeStartDropsProbe(t *testing.T) {
-	pool := NewWorkerPool(logr.Discard(), 1, nil)
-	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool, DNSExecutor{})
-
-	probe := &syntheticsv1alpha1.HTTPProbe{
-		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-		Spec:       syntheticsv1alpha1.HTTPProbeSpec{Interval: metav1.Duration{Duration: 30 * time.Second}},
+func makeJob(key types.NamespacedName) Job {
+	return Job{
+		Key:      key,
+		Interval: 30 * time.Second,
+		Timeout:  time.Second,
+		Run:      func(_ context.Context) {},
 	}
-	s.Register(probe)
+}
+
+func TestSchedulerRegisterBeforeStartDropsProbe(t *testing.T) {
+	pool := NewWorkerPool(logr.Discard(), 1)
+	s := NewScheduler(logr.Discard(), pool)
+
+	key := types.NamespacedName{Namespace: "default", Name: "test"}
+	s.Register(makeJob(key))
 
 	s.mu.Lock()
-	_, ok := s.probes[types.NamespacedName{Namespace: "default", Name: "test"}]
+	_, ok := s.probes[key]
 	s.mu.Unlock()
 
 	if ok {
@@ -67,19 +71,15 @@ func TestSchedulerRegisterBeforeStartDropsProbe(t *testing.T) {
 }
 
 func TestSchedulerUnregisterRemovesProbe(t *testing.T) {
-	pool := NewWorkerPool(logr.Discard(), 1, nil)
-	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool, DNSExecutor{})
+	pool := NewWorkerPool(logr.Discard(), 1)
+	s := NewScheduler(logr.Discard(), pool)
 
 	ctx := t.Context()
 	go func() { _ = s.Start(ctx) }()
 	waitStarted(t, s)
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
-	probe := &syntheticsv1alpha1.HTTPProbe{
-		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-		Spec:       syntheticsv1alpha1.HTTPProbeSpec{Interval: metav1.Duration{Duration: 30 * time.Second}},
-	}
-	s.Register(probe)
+	s.Register(makeJob(key))
 	s.Unregister(key)
 
 	s.mu.Lock()
@@ -91,25 +91,21 @@ func TestSchedulerUnregisterRemovesProbe(t *testing.T) {
 }
 
 func TestSchedulerReRegisterReplacesExisting(t *testing.T) {
-	pool := NewWorkerPool(logr.Discard(), 1, nil)
-	s := NewScheduler(logr.Discard(), fixedExecutor{}, pool, DNSExecutor{})
+	pool := NewWorkerPool(logr.Discard(), 1)
+	s := NewScheduler(logr.Discard(), pool)
 
 	ctx := t.Context()
 	go func() { _ = s.Start(ctx) }()
 	waitStarted(t, s)
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
-	probe := &syntheticsv1alpha1.HTTPProbe{
-		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-		Spec:       syntheticsv1alpha1.HTTPProbeSpec{Interval: metav1.Duration{Duration: 30 * time.Second}},
-	}
 
-	s.Register(probe)
+	s.Register(makeJob(key))
 	s.mu.Lock()
 	first := s.probes[key]
 	s.mu.Unlock()
 
-	s.Register(probe)
+	s.Register(makeJob(key))
 	s.mu.Lock()
 	second := s.probes[key]
 	s.mu.Unlock()

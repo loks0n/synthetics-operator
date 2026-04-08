@@ -195,13 +195,14 @@ func newTransport() *http.Transport {
 	return t
 }
 
-// probeJob is the unit the WorkerPool queue carries. It contains everything
-// needed to execute a probe and record metrics without the WorkerPool knowing
-// about any specific CRD type.
-type probeJob struct {
-	key     types.NamespacedName
-	timeout time.Duration
-	run     func(ctx context.Context) internalmetrics.ProbeState
+// Job is the unit the WorkerPool queue carries. It contains everything needed
+// to execute a probe and record metrics. Callers construct Jobs via NewHTTPJob
+// or NewDNSJob; the WorkerPool and Scheduler are ignorant of probe types.
+type Job struct {
+	Key      types.NamespacedName
+	Interval time.Duration
+	Timeout  time.Duration
+	Run      func(ctx context.Context)
 }
 
 // resultToProbeState converts an HTTP probe Result into a ProbeState suitable
@@ -227,18 +228,21 @@ func resultToProbeState(r Result) internalmetrics.ProbeState {
 	return state
 }
 
-// newHTTPProbeJob constructs a probeJob for an HTTPProbe. This is the only
-// place in the codebase that couples the WorkerPool to the HTTPProbe CRD type.
-func newHTTPProbeJob(probe *syntheticsv1alpha1.HTTPProbe, exec Executor) probeJob {
-	return probeJob{
-		key:     types.NamespacedName{Namespace: probe.Namespace, Name: probe.Name},
-		timeout: probe.Spec.Timeout.Duration,
-		run: func(ctx context.Context) internalmetrics.ProbeState {
-			r := exec.Execute(ctx, probe)
+// NewHTTPJob constructs a Job for an HTTPProbe. This is the only place in the
+// codebase that couples the Job abstraction to the HTTPProbe CRD type.
+func NewHTTPJob(probe *syntheticsv1alpha1.HTTPProbe, exec Executor, store *internalmetrics.Store) Job {
+	snapshot := probe.DeepCopy()
+	key := types.NamespacedName{Namespace: probe.Namespace, Name: probe.Name}
+	return Job{
+		Key:      key,
+		Interval: snapshot.Spec.Interval.Duration,
+		Timeout:  snapshot.Spec.Timeout.Duration,
+		Run: func(ctx context.Context) {
+			r := exec.Execute(ctx, snapshot)
 			state := resultToProbeState(r)
-			state.URL = probe.Spec.Request.URL
-			state.Method = strings.ToUpper(probe.Spec.Request.Method)
-			if len(probe.Spec.Assertions) > 0 {
+			state.URL = snapshot.Spec.Request.URL
+			state.Method = strings.ToUpper(snapshot.Spec.Request.Method)
+			if len(snapshot.Spec.Assertions) > 0 {
 				ok := !r.ConfigError
 				if !ok {
 					state.FailureReason = ReasonConfigError
@@ -247,12 +251,12 @@ func newHTTPProbeJob(probe *syntheticsv1alpha1.HTTPProbe, exec Executor) probeJo
 					if r.CertExpiryTime != nil {
 						sslExpiryDays = time.Until(*r.CertExpiryTime).Hours() / 24
 					}
-					ctx := assertionContext{
+					ac := assertionContext{
 						"status_code":     float64(r.StatusCode),
 						"duration_ms":     float64(r.Duration.Milliseconds()),
 						"ssl_expiry_days": sslExpiryDays,
 					}
-					ok, state.FailureReason, state.AssertionResults = evalAssertions(probe.Spec.Assertions, ctx)
+					ok, state.FailureReason, state.AssertionResults = evalAssertions(snapshot.Spec.Assertions, ac)
 				}
 				state.Success = boolToFloat(ok)
 			} else if r.ConfigError {
@@ -260,30 +264,28 @@ func newHTTPProbeJob(probe *syntheticsv1alpha1.HTTPProbe, exec Executor) probeJo
 			} else if r.StatusCode == 0 {
 				state.FailureReason = ReasonConnectionError
 			}
-			return state
+			store.Upsert(key, state)
 		},
 	}
 }
 
-// WorkerPool executes probeJobs concurrently. It has no knowledge of any
-// specific CRD type; all probe-type-specific logic lives in the probeJob.
+// WorkerPool executes Jobs concurrently. It has no knowledge of any specific
+// CRD type; all probe-type-specific logic lives in Job.Run.
 // The pool never writes to the Kubernetes API — all results flow into the
-// in-memory metrics store only.
+// in-memory metrics store only (via Job.Run closures).
 type WorkerPool struct {
-	logger  logr.Logger
-	queue   chan probeJob
-	metrics *internalmetrics.Store
-	once    sync.Once
+	logger logr.Logger
+	queue  chan Job
+	once   sync.Once
 }
 
-func NewWorkerPool(logger logr.Logger, concurrency int, metrics *internalmetrics.Store) *WorkerPool {
+func NewWorkerPool(logger logr.Logger, concurrency int) *WorkerPool {
 	if concurrency < 1 {
 		concurrency = 1
 	}
 	return &WorkerPool{
-		logger:  logger,
-		queue:   make(chan probeJob, concurrency*16),
-		metrics: metrics,
+		logger: logger,
+		queue:  make(chan Job, concurrency*16),
 	}
 }
 
@@ -298,13 +300,13 @@ func (p *WorkerPool) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *WorkerPool) Enqueue(ctx context.Context, job probeJob) {
+func (p *WorkerPool) Enqueue(ctx context.Context, job Job) {
 	select {
 	case <-ctx.Done():
 		return
 	case p.queue <- job:
 	default:
-		p.logger.Error(errors.New("queue full"), "dropping probe execution", "namespace", job.key.Namespace, "name", job.key.Name)
+		p.logger.Error(errors.New("queue full"), "dropping probe execution", "namespace", job.Key.Namespace, "name", job.Key.Name)
 	}
 }
 
@@ -319,10 +321,10 @@ func (p *WorkerPool) worker(ctx context.Context) {
 	}
 }
 
-func (p *WorkerPool) runProbe(ctx context.Context, job probeJob) {
-	runCtx, cancel := context.WithTimeout(ctx, job.timeout)
+func (p *WorkerPool) runProbe(ctx context.Context, job Job) {
+	runCtx, cancel := context.WithTimeout(ctx, job.Timeout)
 	defer cancel()
-	p.metrics.Upsert(job.key, job.run(runCtx))
+	job.Run(runCtx)
 }
 
 // parseHTTPVersion converts a proto string like "HTTP/1.1" or "HTTP/2.0" to a

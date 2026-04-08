@@ -8,7 +8,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
+	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
 )
+
+// runDNSJob is a test helper that builds a Job, runs it synchronously, and
+// returns the ProbeState recorded in the store.
+func runDNSJob(t *testing.T, probe *syntheticsv1alpha1.DNSProbe, exec DNSExecutor) internalmetrics.ProbeState {
+	t.Helper()
+	store, err := internalmetrics.NewStore()
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	job := NewDNSJob(probe, exec, store)
+	job.Run(context.Background())
+	state, _ := store.Snapshot(job.Key)
+	return state
+}
 
 func dnsProbe(name, qtype, resolver string) *syntheticsv1alpha1.DNSProbe {
 	return &syntheticsv1alpha1.DNSProbe{
@@ -144,25 +159,32 @@ func TestDNSExecutorContextCancellation(t *testing.T) {
 	}
 }
 
-func TestNewDNSProbeJob(t *testing.T) {
+func TestNewDNSJob(t *testing.T) {
 	probe := dnsProbe("one.one.one.one", "A", "1.1.1.1:53")
 	probe.Namespace = "default"
 	probe.Name = "test-probe"
 
-	exec := DNSExecutor{}
-	job := newDNSProbeJob(probe, exec)
+	store, err := internalmetrics.NewStore()
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	job := NewDNSJob(probe, DNSExecutor{}, store)
 
-	if job.key.Namespace != "default" {
-		t.Errorf("unexpected namespace: %s", job.key.Namespace)
+	if job.Key.Namespace != "default" {
+		t.Errorf("unexpected namespace: %s", job.Key.Namespace)
 	}
-	if job.key.Name != "test-probe" {
-		t.Errorf("unexpected name: %s", job.key.Name)
+	if job.Key.Name != "test-probe" {
+		t.Errorf("unexpected name: %s", job.Key.Name)
 	}
-	if job.timeout != 10*time.Second {
-		t.Errorf("unexpected timeout: %v", job.timeout)
+	if job.Timeout != 10*time.Second {
+		t.Errorf("unexpected timeout: %v", job.Timeout)
 	}
 
-	state := job.run(context.Background())
+	job.Run(context.Background())
+	state, ok := store.Snapshot(job.Key)
+	if !ok {
+		t.Fatal("expected state in store after Run")
+	}
 	if state.Kind != "DNSProbe" {
 		t.Errorf("expected Kind=DNSProbe, got %s", state.Kind)
 	}
@@ -180,11 +202,7 @@ func TestDNSProbeJobAssertionAnswerCountPass(t *testing.T) {
 	probe := dnsProbeWithAssertions([]syntheticsv1alpha1.Assertion{
 		{Name: "has_answers", Expr: "answer_count > 0"},
 	})
-
-	exec := DNSExecutor{}
-	job := newDNSProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runDNSJob(t, probe, DNSExecutor{})
 
 	if state.Success != 1 {
 		t.Fatalf("expected success=1, got %f (reason=%q)", state.Success, state.FailureReason)
@@ -198,11 +216,7 @@ func TestDNSProbeJobAssertionDurationPass(t *testing.T) {
 	probe := dnsProbeWithAssertions([]syntheticsv1alpha1.Assertion{
 		{Name: "fast", Expr: "duration_ms < 5000"},
 	})
-
-	exec := DNSExecutor{}
-	job := newDNSProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runDNSJob(t, probe, DNSExecutor{})
 
 	if state.Success != 1 {
 		t.Fatalf("expected success=1, got %f (reason=%q)", state.Success, state.FailureReason)
@@ -217,10 +231,7 @@ func TestDNSProbeJobAssertionAnswerCountFail(t *testing.T) {
 	// Use a guaranteed NXDOMAIN name.
 	probe.Spec.Query.Name = "this-domain-does-not-exist.invalid"
 
-	exec := DNSExecutor{}
-	job := newDNSProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runDNSJob(t, probe, DNSExecutor{})
 
 	// The executor itself succeeds (NXDOMAIN is a valid DNS response); the
 	// assertion over answer_count is what should fail.
@@ -238,10 +249,7 @@ func TestDNSProbeJobConfigErrorReasonSet(t *testing.T) {
 	})
 	probe.Spec.Query.Name = "" // triggers config error in executor
 
-	exec := DNSExecutor{}
-	job := newDNSProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runDNSJob(t, probe, DNSExecutor{})
 
 	if state.Success != 0 {
 		t.Fatal("expected success=0 on config error")
@@ -255,13 +263,17 @@ func TestDNSProbeJobNoAssertionsConnectionError(t *testing.T) {
 	probe := dnsProbe("example.com", "A", "192.0.2.1:53") // unreachable
 	probe.Spec.Assertions = nil
 
-	exec := DNSExecutor{}
-	job := newDNSProbeJob(probe, exec)
+	store, err := internalmetrics.NewStore()
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	job := NewDNSJob(probe, DNSExecutor{}, store)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	state := job.run(ctx)
+	job.Run(ctx)
+	state, _ := store.Snapshot(job.Key)
 
 	if state.Success != 0 {
 		t.Fatal("expected success=0 for connection failure")

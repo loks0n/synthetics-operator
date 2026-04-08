@@ -185,35 +185,34 @@ func runController(
 
 	scheduler := internalprobes.NewScheduler(
 		ctrl.Log.WithName("scheduler"),
-		internalprobes.HTTPExecutor{},
 		internalprobes.NewWorkerPool(
 			ctrl.Log.WithName("workers"),
 			probeConcurrency,
-			store,
 		),
-		internalprobes.DNSExecutor{},
 	)
 	if err := mgr.Add(scheduler); err != nil {
 		return fmt.Errorf("adding scheduler: %w", err)
 	}
 
 	reconciler := &controllers.HTTPProbeReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Scheduler: scheduler,
-		Metrics:   store,
-		Clock:     time.Now,
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		Scheduler:    scheduler,
+		HTTPExecutor: internalprobes.HTTPExecutor{},
+		Metrics:      store,
+		Clock:        time.Now,
 	}
 	if err := reconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("creating HTTPProbe controller: %w", err)
 	}
 
 	dnsReconciler := &controllers.DNSProbeReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Scheduler: scheduler,
-		Metrics:   store,
-		Clock:     time.Now,
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Scheduler:   scheduler,
+		DNSExecutor: internalprobes.DNSExecutor{},
+		Metrics:     store,
+		Clock:       time.Now,
 	}
 	if err := dnsReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("creating DNSProbe controller: %w", err)

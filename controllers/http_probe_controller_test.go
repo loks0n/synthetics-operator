@@ -65,16 +65,17 @@ func newReconciler(t *testing.T, k8sClient client.Client) *HTTPProbeReconciler {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	scheduler := internalprobes.NewScheduler(logr.Discard(), internalprobes.HTTPExecutor{}, internalprobes.NewWorkerPool(logr.Discard(), 1, store), internalprobes.DNSExecutor{})
+	scheduler := internalprobes.NewScheduler(logr.Discard(), internalprobes.NewWorkerPool(logr.Discard(), 1))
 	ctx := t.Context()
 	go func() { _ = scheduler.Start(ctx) }()
 
 	return &HTTPProbeReconciler{
-		Client:    k8sClient,
-		Scheme:    scheme,
-		Scheduler: scheduler,
-		Metrics:   store,
-		Clock:     time.Now,
+		Client:       k8sClient,
+		Scheme:       scheme,
+		Scheduler:    scheduler,
+		HTTPExecutor: internalprobes.HTTPExecutor{},
+		Metrics:      store,
+		Clock:        time.Now,
 	}
 }
 

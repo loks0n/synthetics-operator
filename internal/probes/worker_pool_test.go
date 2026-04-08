@@ -386,11 +386,7 @@ func TestResultToProbeStateNoTLSCertExpiry(t *testing.T) {
 // --- WorkerPool tests ---
 
 func TestNewWorkerPoolMinConcurrency(t *testing.T) {
-	store, err := internalmetrics.NewStore()
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	pool := NewWorkerPool(logr.Discard(), 0, store)
+	pool := NewWorkerPool(logr.Discard(), 0)
 	if cap(pool.queue) != 16 {
 		t.Fatalf("expected queue cap 16 for min concurrency, got %d", cap(pool.queue))
 	}
@@ -413,14 +409,25 @@ func makeHTTPProbe(assertions []syntheticsv1alpha1.Assertion) *syntheticsv1alpha
 	}
 }
 
+// runHTTPJob is a test helper that builds a Job, runs it synchronously, and
+// returns the ProbeState recorded in the store.
+func runHTTPJob(t *testing.T, probe *syntheticsv1alpha1.HTTPProbe, exec Executor) internalmetrics.ProbeState {
+	t.Helper()
+	store, err := internalmetrics.NewStore()
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	job := NewHTTPJob(probe, exec, store)
+	job.Run(context.Background())
+	state, _ := store.Snapshot(job.Key)
+	return state
+}
+
 func TestHTTPProbeJobAssertionStatusCodePass(t *testing.T) {
 	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
 		{Name: "status_ok", Expr: "status_code = 200"},
 	})
-	exec := fixedExecutor{result: Result{Success: true, StatusCode: 200}}
-	job := newHTTPProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runHTTPJob(t, probe, fixedExecutor{result: Result{Success: true, StatusCode: 200}})
 
 	if state.Success != 1 {
 		t.Fatalf("expected success=1, got %f (reason=%q)", state.Success, state.FailureReason)
@@ -434,10 +441,7 @@ func TestHTTPProbeJobAssertionStatusCodeFail(t *testing.T) {
 	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
 		{Name: "status_ok", Expr: "status_code = 200"},
 	})
-	exec := fixedExecutor{result: Result{Success: true, StatusCode: 503}}
-	job := newHTTPProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runHTTPJob(t, probe, fixedExecutor{result: Result{Success: true, StatusCode: 503}})
 
 	if state.Success != 0 {
 		t.Fatal("expected success=0 when assertion fails")
@@ -451,10 +455,7 @@ func TestHTTPProbeJobAssertionDurationPass(t *testing.T) {
 	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
 		{Name: "fast", Expr: "duration_ms < 500"},
 	})
-	exec := fixedExecutor{result: Result{Success: true, StatusCode: 200, Duration: 100 * time.Millisecond}}
-	job := newHTTPProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runHTTPJob(t, probe, fixedExecutor{result: Result{Success: true, StatusCode: 200, Duration: 100 * time.Millisecond}})
 
 	if state.Success != 1 {
 		t.Fatalf("expected success=1, got %f (reason=%q)", state.Success, state.FailureReason)
@@ -465,10 +466,7 @@ func TestHTTPProbeJobAssertionDurationFail(t *testing.T) {
 	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
 		{Name: "fast", Expr: "duration_ms < 500"},
 	})
-	exec := fixedExecutor{result: Result{Success: true, StatusCode: 200, Duration: 600 * time.Millisecond}}
-	job := newHTTPProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runHTTPJob(t, probe, fixedExecutor{result: Result{Success: true, StatusCode: 200, Duration: 600 * time.Millisecond}})
 
 	if state.Success != 0 {
 		t.Fatal("expected success=0 when duration assertion fails")
@@ -484,14 +482,11 @@ func TestHTTPProbeJobAssertionSSLExpiryWithCert(t *testing.T) {
 	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
 		{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"},
 	})
-	exec := fixedExecutor{result: Result{
+	state := runHTTPJob(t, probe, fixedExecutor{result: Result{
 		Success:        true,
 		StatusCode:     200,
 		CertExpiryTime: &expiry,
-	}}
-	job := newHTTPProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	}})
 
 	if state.Success != 1 {
 		t.Fatalf("expected success=1, got %f (reason=%q)", state.Success, state.FailureReason)
@@ -503,14 +498,11 @@ func TestHTTPProbeJobAssertionSSLExpiryExpiringSoon(t *testing.T) {
 	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
 		{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"},
 	})
-	exec := fixedExecutor{result: Result{
+	state := runHTTPJob(t, probe, fixedExecutor{result: Result{
 		Success:        true,
 		StatusCode:     200,
 		CertExpiryTime: &expiry,
-	}}
-	job := newHTTPProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	}})
 
 	if state.Success != 0 {
 		t.Fatal("expected success=0 when SSL cert expires soon")
@@ -525,10 +517,7 @@ func TestHTTPProbeJobAssertionSSLExpiryNoCert(t *testing.T) {
 	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
 		{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"},
 	})
-	exec := fixedExecutor{result: Result{Success: true, StatusCode: 200}}
-	job := newHTTPProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runHTTPJob(t, probe, fixedExecutor{result: Result{Success: true, StatusCode: 200}})
 
 	if state.Success != 0 {
 		t.Fatal("expected success=0 when no cert and ssl_expiry_days assertion used")
@@ -539,10 +528,7 @@ func TestHTTPProbeJobConfigErrorReasonSet(t *testing.T) {
 	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
 		{Name: "status_ok", Expr: "status_code = 200"},
 	})
-	exec := fixedExecutor{result: Result{ConfigError: true}}
-	job := newHTTPProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runHTTPJob(t, probe, fixedExecutor{result: Result{ConfigError: true}})
 
 	if state.Success != 0 {
 		t.Fatal("expected success=0 on config error")
@@ -555,10 +541,7 @@ func TestHTTPProbeJobConfigErrorReasonSet(t *testing.T) {
 func TestHTTPProbeJobNoAssertionsConnectionError(t *testing.T) {
 	// No assertions, status code 0 (connection failure).
 	probe := makeHTTPProbe(nil)
-	exec := fixedExecutor{result: Result{Success: false, StatusCode: 0}}
-	job := newHTTPProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runHTTPJob(t, probe, fixedExecutor{result: Result{Success: false, StatusCode: 0}})
 
 	if state.Success != 0 {
 		t.Fatal("expected success=0 on connection failure")
@@ -570,10 +553,7 @@ func TestHTTPProbeJobNoAssertionsConnectionError(t *testing.T) {
 
 func TestHTTPProbeJobNoAssertionsConfigError(t *testing.T) {
 	probe := makeHTTPProbe(nil)
-	exec := fixedExecutor{result: Result{ConfigError: true}}
-	job := newHTTPProbeJob(probe, exec)
-
-	state := job.run(context.Background())
+	state := runHTTPJob(t, probe, fixedExecutor{result: Result{ConfigError: true}})
 
 	if state.FailureReason != ReasonConfigError {
 		t.Fatalf("expected FailureReason=%q, got %q", ReasonConfigError, state.FailureReason)
