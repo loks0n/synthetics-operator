@@ -15,7 +15,9 @@ KUBEBUILDER_ASSETS ?= $(shell [ -x "$(TOOLS_BIN)/setup-envtest" ] && $(TOOLS_BIN
 
 KIND_CLUSTER ?= synthetics-dev
 
-.PHONY: tools generate lint test test-envtest helm-lint helm-template ko-build-local \
+.PHONY: tools generate lint test test-envtest helm-lint helm-template \
+        ko-build-local ko-build-controller-local ko-build-webhook-local \
+        ko-build-probe-worker-local ko-build-metrics-local \
         ko-build-test-sidecar-local ko-build-k6-runner-local docker-build-playwright-runner-local \
         kind-create kind-delete dev
 
@@ -55,9 +57,23 @@ kind-delete:
 dev: tools kind-create
 	tilt up
 
-ko-build-local:
+ko-build-local: ko-build-controller-local ko-build-webhook-local ko-build-probe-worker-local ko-build-metrics-local
+
+ko-build-controller-local:
 	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
-	@KO_DOCKER_REPO=ko.local/synthetics-operator $(TOOLS_BIN)/ko build --bare .
+	@KO_DOCKER_REPO=ko.local/synthetics-operator-controller $(TOOLS_BIN)/ko build --bare ./cmd/controller
+
+ko-build-webhook-local:
+	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
+	@KO_DOCKER_REPO=ko.local/synthetics-operator-webhook $(TOOLS_BIN)/ko build --bare ./cmd/webhook
+
+ko-build-probe-worker-local:
+	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
+	@KO_DOCKER_REPO=ko.local/synthetics-operator-probe-worker $(TOOLS_BIN)/ko build --bare ./cmd/probe-worker
+
+ko-build-metrics-local:
+	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
+	@KO_DOCKER_REPO=ko.local/synthetics-operator-metrics $(TOOLS_BIN)/ko build --bare ./cmd/metrics
 
 ko-build-test-sidecar-local:
 	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }

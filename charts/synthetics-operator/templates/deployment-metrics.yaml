@@ -17,10 +17,9 @@ spec:
       serviceAccountName: {{ include "synthetics-operator.fullname" . }}-metrics
       containers:
         - name: metrics
-          image: {{ include "synthetics-operator.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "synthetics-operator.componentImage" (dict "image" .Values.metrics.image) | quote }}
+          imagePullPolicy: {{ .Values.metrics.image.pullPolicy }}
           args:
-            - --role=metrics
             - --nats-url={{ include "synthetics-operator.natsURL" . }}
             - --metrics-bind-address=:8080
           ports:

@@ -1,11 +1,28 @@
 # Helm value overrides for local development.
 # Applied by Tiltfile on top of charts/synthetics-operator/values.yaml.
-image:
-  repository: ko.local/synthetics-operator
-  tag: latest
-  pullPolicy: Never
+controller:
+  image:
+    repository: ko.local/synthetics-operator-controller
+    tag: latest
+    pullPolicy: Never
 
-webhookDeployment:
+webhook:
+  image:
+    repository: ko.local/synthetics-operator-webhook
+    tag: latest
+    pullPolicy: Never
   replicaCount: 1
   # No priority class needed in the local dev cluster.
   priorityClassName: ""
+
+probeWorker:
+  image:
+    repository: ko.local/synthetics-operator-probe-worker
+    tag: latest
+    pullPolicy: Never
+
+metrics:
+  image:
+    repository: ko.local/synthetics-operator-metrics
+    tag: latest
+    pullPolicy: Never

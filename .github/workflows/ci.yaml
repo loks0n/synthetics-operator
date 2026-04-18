@@ -115,8 +115,6 @@ jobs:
       - unit-test
       - envtest
       - helm
-    outputs:
-      image: ${{ steps.build-image.outputs.image }}
     steps:
       - uses: actions/checkout@v6.0.1
 
@@ -129,18 +127,43 @@ jobs:
         with:
           version: v0.18.1
 
-      - name: Build image with ko
-        id: build-image
+      - name: Build controller image
+        id: build-controller
         run: |
-          IMAGE=$(KO_DOCKER_REPO=ko.local ko build --local --bare .)
+          IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-controller ko build --local --bare ./cmd/controller)
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-          docker save "$IMAGE" -o /tmp/operator-image.tar
+          docker save "$IMAGE" -o /tmp/controller-image.tar
 
-      - name: Upload image artifact
+      - name: Build webhook image
+        id: build-webhook
+        run: |
+          IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-webhook ko build --local --bare ./cmd/webhook)
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          docker save "$IMAGE" -o /tmp/webhook-image.tar
+
+      - name: Build probe-worker image
+        id: build-probe-worker
+        run: |
+          IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-probe-worker ko build --local --bare ./cmd/probe-worker)
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          docker save "$IMAGE" -o /tmp/probe-worker-image.tar
+
+      - name: Build metrics image
+        id: build-metrics
+        run: |
+          IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-metrics ko build --local --bare ./cmd/metrics)
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          docker save "$IMAGE" -o /tmp/metrics-image.tar
+
+      - name: Upload image artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: operator-image
-          path: /tmp/operator-image.tar
+          name: operator-images
+          path: |
+            /tmp/controller-image.tar
+            /tmp/webhook-image.tar
+            /tmp/probe-worker-image.tar
+            /tmp/metrics-image.tar
           retention-days: 1
 
   kind-smoke:
@@ -162,16 +185,24 @@ jobs:
         with:
           version: v0.18.1
 
-      - name: Download image artifact
+      - name: Download image artifacts
         uses: actions/download-artifact@v7
         with:
-          name: operator-image
+          name: operator-images
           path: /tmp
 
-      - name: Load operator image into Docker
+      - name: Load operator images into Docker
         run: |
-          IMAGE=$(docker load -i /tmp/operator-image.tar | awk '{print $NF}')
-          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          CONTROLLER_IMAGE=$(docker load -i /tmp/controller-image.tar | awk '{print $NF}')
+          WEBHOOK_IMAGE=$(docker load -i /tmp/webhook-image.tar | awk '{print $NF}')
+          PROBE_WORKER_IMAGE=$(docker load -i /tmp/probe-worker-image.tar | awk '{print $NF}')
+          METRICS_IMAGE=$(docker load -i /tmp/metrics-image.tar | awk '{print $NF}')
+          {
+            echo "CONTROLLER_IMAGE=$CONTROLLER_IMAGE"
+            echo "WEBHOOK_IMAGE=$WEBHOOK_IMAGE"
+            echo "PROBE_WORKER_IMAGE=$PROBE_WORKER_IMAGE"
+            echo "METRICS_IMAGE=$METRICS_IMAGE"
+          } >> "$GITHUB_ENV"
 
       - name: Build test-sidecar image
         run: |
@@ -195,7 +226,10 @@ jobs:
 
       - name: Load images into kind
         run: |
-          kind load docker-image "$IMAGE" --name synthetics
+          kind load docker-image "$CONTROLLER_IMAGE" --name synthetics
+          kind load docker-image "$WEBHOOK_IMAGE" --name synthetics
+          kind load docker-image "$PROBE_WORKER_IMAGE" --name synthetics
+          kind load docker-image "$METRICS_IMAGE" --name synthetics
           kind load docker-image "$SIDECAR_IMAGE" --name synthetics
           kind load docker-image "$PLAYWRIGHT_IMAGE" --name synthetics
 
@@ -204,8 +238,14 @@ jobs:
           kubectl create namespace synthetics-system
           helm upgrade --install synthetics-operator charts/synthetics-operator \
             --namespace synthetics-system \
-            --set-string image.ref="$IMAGE" \
-            --set image.pullPolicy=IfNotPresent \
+            --set-string controller.image.ref="$CONTROLLER_IMAGE" \
+            --set controller.image.pullPolicy=IfNotPresent \
+            --set-string webhook.image.ref="$WEBHOOK_IMAGE" \
+            --set webhook.image.pullPolicy=IfNotPresent \
+            --set-string probeWorker.image.ref="$PROBE_WORKER_IMAGE" \
+            --set probeWorker.image.pullPolicy=IfNotPresent \
+            --set-string metrics.image.ref="$METRICS_IMAGE" \
+            --set metrics.image.pullPolicy=IfNotPresent \
             --set nats.enabled=true \
             --set-string testSidecar.image="$SIDECAR_IMAGE" \
             --set-string playwrightRunner.image="$PLAYWRIGHT_IMAGE"
@@ -359,26 +399,44 @@ jobs:
         with:
           version: v0.18.1
 
-      - name: Build image with ko
+      - name: Build images with ko
         run: |
-          IMAGE=$(KO_DOCKER_REPO=ko.local ko build --local --bare .)
-          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          CONTROLLER_IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-controller ko build --local --bare ./cmd/controller)
+          WEBHOOK_IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-webhook ko build --local --bare ./cmd/webhook)
+          PROBE_WORKER_IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-probe-worker ko build --local --bare ./cmd/probe-worker)
+          METRICS_IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-metrics ko build --local --bare ./cmd/metrics)
+          {
+            echo "CONTROLLER_IMAGE=$CONTROLLER_IMAGE"
+            echo "WEBHOOK_IMAGE=$WEBHOOK_IMAGE"
+            echo "PROBE_WORKER_IMAGE=$PROBE_WORKER_IMAGE"
+            echo "METRICS_IMAGE=$METRICS_IMAGE"
+          } >> "$GITHUB_ENV"
 
       - uses: helm/kind-action@v1.13.0
         with:
           cluster_name: synthetics
           node_image: ${{ matrix.node_image }}
 
-      - name: Load image into kind
-        run: kind load docker-image "$IMAGE" --name synthetics
+      - name: Load images into kind
+        run: |
+          kind load docker-image "$CONTROLLER_IMAGE" --name synthetics
+          kind load docker-image "$WEBHOOK_IMAGE" --name synthetics
+          kind load docker-image "$PROBE_WORKER_IMAGE" --name synthetics
+          kind load docker-image "$METRICS_IMAGE" --name synthetics
 
       - name: Install chart
         run: |
           kubectl create namespace synthetics-system
           helm upgrade --install synthetics-operator charts/synthetics-operator \
             --namespace synthetics-system \
-            --set-string image.ref="$IMAGE" \
-            --set image.pullPolicy=IfNotPresent \
+            --set-string controller.image.ref="$CONTROLLER_IMAGE" \
+            --set controller.image.pullPolicy=IfNotPresent \
+            --set-string webhook.image.ref="$WEBHOOK_IMAGE" \
+            --set webhook.image.pullPolicy=IfNotPresent \
+            --set-string probeWorker.image.ref="$PROBE_WORKER_IMAGE" \
+            --set probeWorker.image.pullPolicy=IfNotPresent \
+            --set-string metrics.image.ref="$METRICS_IMAGE" \
+            --set metrics.image.pullPolicy=IfNotPresent \
             --set nats.enabled=true
 
       - name: Wait for operator rollout

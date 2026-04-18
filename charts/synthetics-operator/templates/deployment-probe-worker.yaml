@@ -16,11 +16,10 @@ spec:
     spec:
       serviceAccountName: {{ include "synthetics-operator.fullname" . }}-probe-worker
       containers:
-        - name: worker
-          image: {{ include "synthetics-operator.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+        - name: probe-worker
+          image: {{ include "synthetics-operator.componentImage" (dict "image" .Values.probeWorker.image) | quote }}
+          imagePullPolicy: {{ .Values.probeWorker.image.pullPolicy }}
           args:
-            - --role=probe-worker
             - --nats-url={{ include "synthetics-operator.natsURL" . }}
           ports:
             - name: healthz

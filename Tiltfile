@@ -5,22 +5,30 @@ load('ext://helm_resource', 'helm_resource', 'helm_repo')
 # Restrict to the local dev cluster — prevents accidental deploys to production.
 allow_k8s_contexts('kind-synthetics-dev')
 
-IMAGE = 'ko.local/synthetics-operator'
+COMPONENTS = [
+    ('controller', 'ko.local/synthetics-operator-controller'),
+    ('webhook', 'ko.local/synthetics-operator-webhook'),
+    ('probe-worker', 'ko.local/synthetics-operator-probe-worker'),
+    ('metrics', 'ko.local/synthetics-operator-metrics'),
+]
 
-# Build with ko into the local Docker daemon, then tag with the ref Tilt expects.
-# Tilt finds IMAGE in the rendered Helm YAML and substitutes the live-built ref.
-custom_build(
-    IMAGE,
-    'make ko-build-local && docker tag ' + IMAGE + ' $EXPECTED_REF',
-    deps=[
-        'main.go',
-        'api/',
-        'controllers/',
-        'internal/',
-        'go.mod',
-        'go.sum',
-    ],
-)
+# Build each cmd/ binary via ko into the local Docker daemon, then tag with
+# the ref Tilt expects. Tilt finds each IMAGE in the rendered Helm YAML and
+# substitutes the live-built ref.
+SHARED_DEPS = [
+    'api/',
+    'controllers/',
+    'internal/',
+    'go.mod',
+    'go.sum',
+]
+
+for name, image in COMPONENTS:
+    custom_build(
+        image,
+        'make ko-build-%s-local && docker tag %s $EXPECTED_REF' % (name, image),
+        deps=SHARED_DEPS + ['cmd/' + name + '/'],
+    )
 
 # ── Operator ─────────────────────────────────────────────────────────────────
 
@@ -44,7 +52,6 @@ k8s_yaml(helm(
 # objects pulls the namespace (applied separately from the Helm chart) into this resource group.
 k8s_resource(
     'synthetics-operator',
-    port_forwards=['8080:8080'],
     labels=['operator'],
     objects=[
         'synthetics-system:namespace',
@@ -66,6 +73,23 @@ k8s_resource(
         'synthetics-operator-webhook:clusterrolebinding',
         'synthetics-operator-webhook:serviceaccount',
         'synthetics-operator-webhook:poddisruptionbudget',
+    ],
+)
+
+k8s_resource(
+    'synthetics-operator-probe-worker',
+    labels=['operator'],
+    objects=[
+        'synthetics-operator-probe-worker:serviceaccount',
+    ],
+)
+
+k8s_resource(
+    'synthetics-operator-metrics',
+    port_forwards=['8080:8080'],
+    labels=['operator'],
+    objects=[
+        'synthetics-operator-metrics:serviceaccount',
     ],
 )
 
@@ -158,4 +182,3 @@ k8s_resource(
     ],
     labels=['monitoring'],
 )
-

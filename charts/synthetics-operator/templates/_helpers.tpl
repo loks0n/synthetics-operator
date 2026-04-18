@@ -6,11 +6,16 @@ synthetics-operator
 {{ include "synthetics-operator.name" . }}
 {{- end -}}
 
-{{- define "synthetics-operator.image" -}}
-{{- if .Values.image.ref -}}
-{{ .Values.image.ref }}
+{{/*
+synthetics-operator.componentImage renders the image reference for a
+component. Pass a dict: { "ctx": ., "image": .Values.controller.image }.
+Precedence: .image.ref > printf "%s:%s" .image.repository .image.tag.
+*/}}
+{{- define "synthetics-operator.componentImage" -}}
+{{- if .image.ref -}}
+{{ .image.ref }}
 {{- else -}}
-{{ printf "%s:%s" .Values.image.repository .Values.image.tag }}
+{{ printf "%s:%s" .image.repository .image.tag }}
 {{- end -}}
 {{- end -}}
 
@@ -19,8 +24,8 @@ synthetics-operator
 {{- end -}}
 
 {{- define "synthetics-operator.serviceAccountName" -}}
-{{- if .Values.serviceAccount.name -}}
-{{ .Values.serviceAccount.name }}
+{{- if .Values.controller.serviceAccount.name -}}
+{{ .Values.controller.serviceAccount.name }}
 {{- else -}}
 {{ include "synthetics-operator.fullname" . }}
 {{- end -}}

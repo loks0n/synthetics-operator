@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: {{ include "synthetics-operator.fullname" . }}-webhook
 spec:
-  replicas: {{ .Values.webhookDeployment.replicaCount }}
+  replicas: {{ .Values.webhook.replicaCount }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
@@ -15,20 +15,19 @@ spec:
         app.kubernetes.io/component: webhook
     spec:
       serviceAccountName: {{ include "synthetics-operator.webhookServiceAccountName" . }}
-      {{- with .Values.webhookDeployment.priorityClassName }}
+      {{- with .Values.webhook.priorityClassName }}
       priorityClassName: {{ . }}
       {{- end }}
       containers:
         - name: webhook
-          image: {{ include "synthetics-operator.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "synthetics-operator.componentImage" (dict "image" .Values.webhook.image) | quote }}
+          imagePullPolicy: {{ .Values.webhook.image.pullPolicy }}
           env:
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
           args:
-            - --role=webhook
             - --webhook-port=9443
             - --webhook-namespace=$(POD_NAMESPACE)
             - --webhook-secret-name={{ .Values.webhook.secretName }}
@@ -41,4 +40,4 @@ spec:
             - name: healthz
               containerPort: 8081
           resources:
-{{ toYaml .Values.webhookDeployment.resources | indent 12 }}
+{{ toYaml .Values.webhook.resources | indent 12 }}
