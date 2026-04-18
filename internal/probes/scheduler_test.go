@@ -2,11 +2,14 @@ package probes
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
 func TestProbeOffsetIsStable(t *testing.T) {
@@ -45,21 +48,25 @@ func TestInitialDelayWithinInterval(t *testing.T) {
 	}
 }
 
-func makeJob(key types.NamespacedName) Job {
-	return Job{
-		Key:      key,
-		Interval: 30 * time.Second,
-		Timeout:  time.Second,
-		Run:      func(_ context.Context) {},
-	}
+// fakeJobPublisher captures jobs for assertions. Publisher calls are cheap;
+// concurrent-safe via mutex.
+type fakeJobPublisher struct {
+	mu   sync.Mutex
+	jobs []results.ProbeJob
+}
+
+func (f *fakeJobPublisher) PublishProbeJob(_ context.Context, msg results.ProbeJob) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.jobs = append(f.jobs, msg)
+	return nil
 }
 
 func TestSchedulerRegisterBeforeStartDropsProbe(t *testing.T) {
-	pool := NewWorkerPool(logr.Discard(), 1)
-	s := NewScheduler(logr.Discard(), pool)
+	s := NewScheduler(logr.Discard(), &fakeJobPublisher{})
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
-	s.Register(makeJob(key))
+	s.Register(key, results.KindHTTPProbe, 30*time.Second)
 
 	s.mu.Lock()
 	_, ok := s.probes[key]
@@ -71,15 +78,14 @@ func TestSchedulerRegisterBeforeStartDropsProbe(t *testing.T) {
 }
 
 func TestSchedulerUnregisterRemovesProbe(t *testing.T) {
-	pool := NewWorkerPool(logr.Discard(), 1)
-	s := NewScheduler(logr.Discard(), pool)
+	s := NewScheduler(logr.Discard(), &fakeJobPublisher{})
 
 	ctx := t.Context()
 	go func() { _ = s.Start(ctx) }()
 	waitStarted(t, s)
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
-	s.Register(makeJob(key))
+	s.Register(key, results.KindHTTPProbe, 30*time.Second)
 	s.Unregister(key)
 
 	s.mu.Lock()
@@ -91,8 +97,7 @@ func TestSchedulerUnregisterRemovesProbe(t *testing.T) {
 }
 
 func TestSchedulerReRegisterReplacesExisting(t *testing.T) {
-	pool := NewWorkerPool(logr.Discard(), 1)
-	s := NewScheduler(logr.Discard(), pool)
+	s := NewScheduler(logr.Discard(), &fakeJobPublisher{})
 
 	ctx := t.Context()
 	go func() { _ = s.Start(ctx) }()
@@ -100,12 +105,12 @@ func TestSchedulerReRegisterReplacesExisting(t *testing.T) {
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
 
-	s.Register(makeJob(key))
+	s.Register(key, results.KindHTTPProbe, 30*time.Second)
 	s.mu.Lock()
 	first := s.probes[key]
 	s.mu.Unlock()
 
-	s.Register(makeJob(key))
+	s.Register(key, results.KindHTTPProbe, 30*time.Second)
 	s.mu.Lock()
 	second := s.probes[key]
 	s.mu.Unlock()
@@ -116,7 +121,6 @@ func TestSchedulerReRegisterReplacesExisting(t *testing.T) {
 
 	select {
 	case <-first.stop:
-		// expected: old goroutine's stop channel was closed
 	default:
 		t.Fatal("old stop channel should be closed after re-register")
 	}

@@ -2,30 +2,31 @@ package controllers
 
 import (
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 
-	internalprobes "github.com/loks0n/synthetics-operator/internal/probes"
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
-// fakeScheduler records Register/Unregister calls for use in unit tests.
-// It satisfies the ProbeScheduler interface without starting any goroutines.
+// fakeScheduler records Register/Unregister calls. It satisfies the
+// ProbeScheduler interface without starting any goroutines.
 type fakeScheduler struct {
 	mu         sync.Mutex
-	active     map[types.NamespacedName]internalprobes.Job
+	active     map[types.NamespacedName]time.Duration
 	registered []types.NamespacedName
 	removed    []types.NamespacedName
 }
 
 func newFakeScheduler() *fakeScheduler {
-	return &fakeScheduler{active: make(map[types.NamespacedName]internalprobes.Job)}
+	return &fakeScheduler{active: make(map[types.NamespacedName]time.Duration)}
 }
 
-func (f *fakeScheduler) Register(job internalprobes.Job) {
+func (f *fakeScheduler) Register(key types.NamespacedName, _ results.Kind, interval time.Duration) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.active[job.Key] = job
-	f.registered = append(f.registered, job.Key)
+	f.active[key] = interval
+	f.registered = append(f.registered, key)
 }
 
 func (f *fakeScheduler) Unregister(name types.NamespacedName) {

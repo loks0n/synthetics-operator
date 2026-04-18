@@ -2,9 +2,10 @@ package probes
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/loks0n/synthetics-operator/api/v1alpha1"
-	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
 // assertionContext maps variable names to their runtime values.
@@ -40,15 +41,15 @@ func evalAssertion(expr string, ctx assertionContext) (bool, error) {
 	}
 }
 
-// evalAssertions runs all assertions against ctx. It returns ok=false and the
-// name of the first failing assertion when any assertion fails, plus a
-// per-assertion result slice for every assertion.
-func evalAssertions(assertions []v1alpha1.Assertion, ctx assertionContext) (ok bool, failedName string, results []internalmetrics.AssertionResult) {
-	results = make([]internalmetrics.AssertionResult, 0, len(assertions))
+// evalAssertions runs all assertions against ctx. Returns ok=true when every
+// assertion passed, the name of the first failing assertion (empty when ok),
+// and a per-assertion result slice (always len(assertions)).
+func evalAssertions(assertions []v1alpha1.Assertion, ctx assertionContext) (ok bool, failedName string, out []results.AssertionResult) {
+	out = make([]results.AssertionResult, 0, len(assertions))
 	ok = true
 	for _, a := range assertions {
 		passed, _ := evalAssertion(a.Expr, ctx)
-		r := internalmetrics.AssertionResult{Name: a.Name, Expr: a.Expr}
+		r := results.AssertionResult{Name: a.Name, Expr: a.Expr}
 		if passed {
 			r.Result = 1
 		} else {
@@ -58,7 +59,43 @@ func evalAssertions(assertions []v1alpha1.Assertion, ctx assertionContext) (ok b
 				ok = false
 			}
 		}
-		results = append(results, r)
+		out = append(out, r)
 	}
-	return ok, failedName, results
+	return ok, failedName, out
+}
+
+// outcomeFromOK translates evalAssertions' bool into the wire-level
+// result-class string.
+func outcomeFromOK(ok bool) string {
+	if ok {
+		return "ok"
+	}
+	return "assertion_failed"
+}
+
+// EvalHTTPAssertions evaluates HTTP probe assertions against the raw Result.
+// Returns the outcome result-class string, the failing assertion name (if
+// any), and the per-assertion results. Used by the probe-worker.
+func EvalHTTPAssertions(r Result, assertions []v1alpha1.Assertion) (string, string, []results.AssertionResult) {
+	sslExpiryDays := float64(-1)
+	if r.CertExpiryTime != nil {
+		sslExpiryDays = time.Until(*r.CertExpiryTime).Hours() / 24
+	}
+	ctx := assertionContext{
+		"status_code":     float64(r.StatusCode),
+		"duration_ms":     float64(r.Duration.Milliseconds()),
+		"ssl_expiry_days": sslExpiryDays,
+	}
+	ok, failed, out := evalAssertions(assertions, ctx)
+	return outcomeFromOK(ok), failed, out
+}
+
+// EvalDNSAssertions evaluates DNS probe assertions against the raw result.
+func EvalDNSAssertions(r DNSResult, assertions []v1alpha1.Assertion) (string, string, []results.AssertionResult) {
+	ctx := assertionContext{
+		"answer_count": float64(r.AnswerCount),
+		"duration_ms":  float64(r.Duration.Milliseconds()),
+	}
+	ok, failed, out := evalAssertions(assertions, ctx)
+	return outcomeFromOK(ok), failed, out
 }

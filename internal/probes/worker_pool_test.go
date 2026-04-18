@@ -4,18 +4,15 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
-	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
 )
 
 // --- HTTPExecutor tests (unchanged: test the executor in isolation) ---
@@ -318,60 +315,7 @@ func TestHTTPExecutorBuildRequestError(t *testing.T) {
 	}
 }
 
-// --- resultToProbeState tests: pure conversion of Result → ProbeState ---
-
-func TestResultToProbeStateFields(t *testing.T) {
-	state := resultToProbeState(Result{
-		StatusCode: 200,
-		Completed:  time.Now(),
-		Duration:   50 * time.Millisecond,
-	})
-
-	if state.DurationMilliseconds != 50 {
-		t.Fatalf("expected DurationMilliseconds=50, got %f", state.DurationMilliseconds)
-	}
-	if state.HTTPStatusCode != 200 {
-		t.Fatalf("expected HTTPStatusCode=200, got %f", state.HTTPStatusCode)
-	}
-}
-
-func TestResultToProbeStateTLSCertExpiry(t *testing.T) {
-	expiry := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	state := resultToProbeState(Result{
-		StatusCode:     200,
-		Completed:      time.Now(),
-		CertExpiryTime: &expiry,
-	})
-
-	if state.TLSCertExpiry != float64(expiry.Unix()) {
-		t.Fatalf("expected TLSCertExpiry %f, got %f", float64(expiry.Unix()), state.TLSCertExpiry)
-	}
-}
-
-func TestResultToProbeStateNoTLSCertExpiry(t *testing.T) {
-	state := resultToProbeState(Result{StatusCode: 200, Completed: time.Now()})
-
-	if state.TLSCertExpiry != 0 {
-		t.Fatalf("expected TLSCertExpiry=0 for non-TLS result, got %f", state.TLSCertExpiry)
-	}
-}
-
-// --- WorkerPool tests ---
-
-func TestNewWorkerPoolMinConcurrency(t *testing.T) {
-	pool := NewWorkerPool(logr.Discard(), 0)
-	if cap(pool.queue) != 16 {
-		t.Fatalf("expected queue cap 16 for min concurrency, got %d", cap(pool.queue))
-	}
-}
-
-type fixedExecutor struct{ result Result }
-
-func (f fixedExecutor) Execute(_ context.Context, _ *syntheticsv1alpha1.HTTPProbe) Result {
-	return f.result
-}
-
-// --- newHTTPProbeJob assertion evaluation tests ---
+// --- assertion evaluation tests against EvalHTTPAssertions ---
 
 func makeHTTPProbe(assertions []syntheticsv1alpha1.Assertion) *syntheticsv1alpha1.HTTPProbe {
 	return &syntheticsv1alpha1.HTTPProbe{
@@ -382,148 +326,72 @@ func makeHTTPProbe(assertions []syntheticsv1alpha1.Assertion) *syntheticsv1alpha
 	}
 }
 
-// runHTTPJob is a test helper that builds a Job, runs it synchronously, and
-// returns the ProbeState recorded in the store.
-func runHTTPJob(t *testing.T, probe *syntheticsv1alpha1.HTTPProbe, exec Executor) internalmetrics.ProbeState {
-	t.Helper()
-	store, err := internalmetrics.NewStore()
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	job := NewHTTPJob(probe, exec, store)
-	job.Run(context.Background())
-	state, _ := store.Snapshot(job.Key)
-	return state
-}
-
-func TestHTTPProbeJobAssertionStatusCodePass(t *testing.T) {
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
-		{Name: "status_ok", Expr: "status_code = 200"},
-	})
-	state := runHTTPJob(t, probe, fixedExecutor{result: Result{StatusCode: 200}})
-
-	if state.Result != internalmetrics.ResultOK {
-		t.Fatalf("expected Result=ok, got %q (failed_assertion=%q)", state.Result, state.FailedAssertion)
-	}
-	if state.FailedAssertion != "" {
-		t.Fatalf("expected no failed_assertion, got %q", state.FailedAssertion)
+func TestEvalHTTPAssertions_StatusPass(t *testing.T) {
+	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "status_ok", Expr: "status_code = 200"}})
+	outcome, failed, _ := EvalHTTPAssertions(Result{StatusCode: 200}, probe.Spec.Assertions)
+	if outcome != "ok" || failed != "" {
+		t.Fatalf("expected ok, got outcome=%q failed=%q", outcome, failed)
 	}
 }
 
-func TestHTTPProbeJobAssertionStatusCodeFail(t *testing.T) {
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
-		{Name: "status_ok", Expr: "status_code = 200"},
-	})
-	state := runHTTPJob(t, probe, fixedExecutor{result: Result{StatusCode: 503}})
-
-	if state.Result != internalmetrics.ResultAssertionFailed {
-		t.Fatalf("expected Result=assertion_failed, got %q", state.Result)
-	}
-	if state.FailedAssertion != "status_ok" {
-		t.Fatalf("expected FailedAssertion=status_ok, got %q", state.FailedAssertion)
+func TestEvalHTTPAssertions_StatusFail(t *testing.T) {
+	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "status_ok", Expr: "status_code = 200"}})
+	outcome, failed, _ := EvalHTTPAssertions(Result{StatusCode: 503}, probe.Spec.Assertions)
+	if outcome != "assertion_failed" || failed != "status_ok" {
+		t.Fatalf("expected assertion_failed status_ok, got outcome=%q failed=%q", outcome, failed)
 	}
 }
 
-func TestHTTPProbeJobAssertionDurationPass(t *testing.T) {
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
-		{Name: "fast", Expr: "duration_ms < 500"},
-	})
-	state := runHTTPJob(t, probe, fixedExecutor{result: Result{StatusCode: 200, Duration: 100 * time.Millisecond}})
-
-	if state.Result != internalmetrics.ResultOK {
-		t.Fatalf("expected Result=ok, got %q (failed_assertion=%q)", state.Result, state.FailedAssertion)
+func TestEvalHTTPAssertions_DurationPass(t *testing.T) {
+	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "fast", Expr: "duration_ms < 500"}})
+	outcome, _, _ := EvalHTTPAssertions(Result{StatusCode: 200, Duration: 100 * time.Millisecond}, probe.Spec.Assertions)
+	if outcome != "ok" {
+		t.Fatalf("expected ok, got %q", outcome)
 	}
 }
 
-func TestHTTPProbeJobAssertionDurationFail(t *testing.T) {
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
-		{Name: "fast", Expr: "duration_ms < 500"},
-	})
-	state := runHTTPJob(t, probe, fixedExecutor{result: Result{StatusCode: 200, Duration: 600 * time.Millisecond}})
-
-	if state.Result != internalmetrics.ResultAssertionFailed {
-		t.Fatalf("expected Result=assertion_failed, got %q", state.Result)
-	}
-	if state.FailedAssertion != "fast" {
-		t.Fatalf("expected FailedAssertion=fast, got %q", state.FailedAssertion)
+func TestEvalHTTPAssertions_DurationFail(t *testing.T) {
+	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "fast", Expr: "duration_ms < 500"}})
+	outcome, failed, _ := EvalHTTPAssertions(Result{StatusCode: 200, Duration: 600 * time.Millisecond}, probe.Spec.Assertions)
+	if outcome != "assertion_failed" || failed != "fast" {
+		t.Fatalf("expected assertion_failed fast, got outcome=%q failed=%q", outcome, failed)
 	}
 }
 
-func TestHTTPProbeJobAssertionSSLExpiryWithCert(t *testing.T) {
+func TestEvalHTTPAssertions_SSLExpiryWithCert(t *testing.T) {
 	expiry := time.Now().Add(30 * 24 * time.Hour)
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
-		{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"},
-	})
-	state := runHTTPJob(t, probe, fixedExecutor{result: Result{
-		StatusCode:     200,
-		CertExpiryTime: &expiry,
-	}})
-
-	if state.Result != internalmetrics.ResultOK {
-		t.Fatalf("expected Result=ok, got %q", state.Result)
+	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"}})
+	outcome, _, _ := EvalHTTPAssertions(Result{StatusCode: 200, CertExpiryTime: &expiry}, probe.Spec.Assertions)
+	if outcome != "ok" {
+		t.Fatalf("expected ok, got %q", outcome)
 	}
 }
 
-func TestHTTPProbeJobAssertionSSLExpiryExpiringSoon(t *testing.T) {
+func TestEvalHTTPAssertions_SSLExpiryExpiringSoon(t *testing.T) {
 	expiry := time.Now().Add(5 * 24 * time.Hour)
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
-		{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"},
-	})
-	state := runHTTPJob(t, probe, fixedExecutor{result: Result{
-		StatusCode:     200,
-		CertExpiryTime: &expiry,
-	}})
-
-	if state.Result != internalmetrics.ResultAssertionFailed {
-		t.Fatalf("expected Result=assertion_failed, got %q", state.Result)
-	}
-	if state.FailedAssertion != "ssl_ok" {
-		t.Fatalf("expected FailedAssertion=ssl_ok, got %q", state.FailedAssertion)
+	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"}})
+	outcome, failed, _ := EvalHTTPAssertions(Result{StatusCode: 200, CertExpiryTime: &expiry}, probe.Spec.Assertions)
+	if outcome != "assertion_failed" || failed != "ssl_ok" {
+		t.Fatalf("expected assertion_failed ssl_ok, got outcome=%q failed=%q", outcome, failed)
 	}
 }
 
-func TestHTTPProbeJobAssertionSSLExpiryNoCert(t *testing.T) {
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
-		{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"},
-	})
-	state := runHTTPJob(t, probe, fixedExecutor{result: Result{StatusCode: 200}})
-
-	if state.Result != internalmetrics.ResultAssertionFailed {
-		t.Fatalf("expected Result=assertion_failed when no cert, got %q", state.Result)
+func TestEvalHTTPAssertions_SSLExpiryNoCert(t *testing.T) {
+	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"}})
+	outcome, _, _ := EvalHTTPAssertions(Result{StatusCode: 200}, probe.Spec.Assertions)
+	if outcome != "assertion_failed" {
+		t.Fatalf("expected assertion_failed when no cert, got %q", outcome)
 	}
 }
 
-func TestHTTPProbeJobConfigError(t *testing.T) {
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{
-		{Name: "status_ok", Expr: "status_code = 200"},
-	})
-	state := runHTTPJob(t, probe, fixedExecutor{result: Result{ConfigError: true}})
-
-	if state.Result != internalmetrics.ResultConfigError {
-		t.Fatalf("expected Result=config_error, got %q", state.Result)
+func TestClassifyHTTPTransport_FallbacksToConnectRefused(t *testing.T) {
+	// Raw error string won't classify as dns/dial/tls — falls through to connect_refused.
+	outcome := ClassifyHTTPTransport(unknownError{})
+	if outcome != "connect_refused" {
+		t.Fatalf("expected connect_refused fallback, got %q", outcome)
 	}
 }
 
-func TestHTTPProbeJobTransportError(t *testing.T) {
-	// No assertions, transport returned an error.
-	probe := makeHTTPProbe(nil)
-	state := runHTTPJob(t, probe, fixedExecutor{result: Result{TransportErr: errors.New("connection refused")}})
+type unknownError struct{}
 
-	if state.Result == internalmetrics.ResultOK {
-		t.Fatalf("expected non-ok Result on transport error, got %q", state.Result)
-	}
-	// Raw error string won't classify as dial/DNS/TLS — falls through to connect_refused.
-	if state.Result != internalmetrics.ResultConnectRefused {
-		t.Fatalf("expected Result=connect_refused for fallback, got %q", state.Result)
-	}
-}
-
-func TestHTTPProbeJobNoAssertionsNoTransportError(t *testing.T) {
-	// No assertions, transport OK — probe is ok (no checks to fail).
-	probe := makeHTTPProbe(nil)
-	state := runHTTPJob(t, probe, fixedExecutor{result: Result{StatusCode: 200}})
-
-	if state.Result != internalmetrics.ResultOK {
-		t.Fatalf("expected Result=ok, got %q", state.Result)
-	}
-}
+func (unknownError) Error() string { return "something else" }

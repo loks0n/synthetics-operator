@@ -25,7 +25,7 @@ metadata:
 spec:
   selector:
     app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
-    app.kubernetes.io/component: controller
+    app.kubernetes.io/component: metrics
   ports:
     - name: metrics
       port: 8080

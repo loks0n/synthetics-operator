@@ -9,34 +9,44 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
+// JobPublisher is the subset of the NATS bus the scheduler needs to publish
+// probe jobs. Defined as an interface so tests can inject a fake.
+type JobPublisher interface {
+	PublishProbeJob(ctx context.Context, msg results.ProbeJob) error
+}
+
+// Scheduler maintains a timer per registered probe and publishes a ProbeJob
+// to NATS each tick. Probe-workers pick the job up via a queue-group
+// subscription, so each tick is handled exactly once regardless of worker
+// count.
 type Scheduler struct {
-	logger   logr.Logger
-	pool     *WorkerPool
-	mu       sync.Mutex
-	probes   map[types.NamespacedName]*scheduledProbe
-	started  bool
-	startCtx context.Context
+	logger    logr.Logger
+	publisher JobPublisher
+	mu        sync.Mutex
+	probes    map[types.NamespacedName]*scheduledProbe
+	started   bool
+	startCtx  context.Context
 }
 
 type scheduledProbe struct {
-	stop chan struct{}
+	kind     results.Kind
+	interval time.Duration
+	stop     chan struct{}
 }
 
-func NewScheduler(logger logr.Logger, pool *WorkerPool) *Scheduler {
+func NewScheduler(logger logr.Logger, publisher JobPublisher) *Scheduler {
 	return &Scheduler{
-		logger: logger,
-		pool:   pool,
-		probes: make(map[types.NamespacedName]*scheduledProbe),
+		logger:    logger,
+		publisher: publisher,
+		probes:    make(map[types.NamespacedName]*scheduledProbe),
 	}
 }
 
 func (s *Scheduler) Start(ctx context.Context) error {
-	go func() {
-		_ = s.pool.Start(ctx)
-	}()
-
 	s.mu.Lock()
 	s.started = true
 	s.startCtx = ctx
@@ -53,44 +63,60 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *Scheduler) Register(job Job) {
+// Register adds (or replaces) a scheduled probe. Re-registering with the
+// same key resets the timer. Called by reconcilers whenever a probe's spec
+// changes; the interval may change across calls.
+func (s *Scheduler) Register(key types.NamespacedName, kind results.Kind, interval time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if scheduled, ok := s.probes[job.Key]; ok {
+	if scheduled, ok := s.probes[key]; ok {
 		close(scheduled.stop)
-		delete(s.probes, job.Key)
+		delete(s.probes, key)
 	}
 	if !s.started {
 		return
 	}
 
-	scheduled := &scheduledProbe{stop: make(chan struct{})}
-	s.probes[job.Key] = scheduled
-	go s.runLoop(newStopContext(s.startCtx, scheduled.stop), job)
+	scheduled := &scheduledProbe{
+		kind:     kind,
+		interval: interval,
+		stop:     make(chan struct{}),
+	}
+	s.probes[key] = scheduled
+	go s.runLoop(newStopContext(s.startCtx, scheduled.stop), key, scheduled)
 }
 
-func (s *Scheduler) Unregister(name types.NamespacedName) {
+// Unregister stops the scheduled probe if present.
+func (s *Scheduler) Unregister(key types.NamespacedName) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if scheduled, ok := s.probes[name]; ok {
+	if scheduled, ok := s.probes[key]; ok {
 		close(scheduled.stop)
-		delete(s.probes, name)
+		delete(s.probes, key)
 	}
 }
 
-func (s *Scheduler) runLoop(ctx context.Context, job Job) {
-	offset := ProbeOffset(job.Key.Namespace, job.Key.Name, job.Interval)
-	timer := time.NewTimer(initialDelay(time.Now(), job.Interval, offset))
+func (s *Scheduler) runLoop(ctx context.Context, key types.NamespacedName, scheduled *scheduledProbe) {
+	offset := ProbeOffset(key.Namespace, key.Name, scheduled.interval)
+	timer := time.NewTimer(initialDelay(time.Now(), scheduled.interval, offset))
 	defer timer.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-timer.C:
-			s.pool.Enqueue(ctx, job)
-			timer.Reset(job.Interval)
+		case now := <-timer.C:
+			msg := results.ProbeJob{
+				Kind:        scheduled.kind,
+				Name:        key.Name,
+				Namespace:   key.Namespace,
+				ScheduledAt: now,
+			}
+			if err := s.publisher.PublishProbeJob(ctx, msg); err != nil {
+				s.logger.Error(err, "publish probe job", "kind", scheduled.kind, "namespace", key.Namespace, "name", key.Name)
+			}
+			timer.Reset(scheduled.interval)
 		}
 	}
 }
@@ -139,14 +165,8 @@ func newStopContext(parent context.Context, stop <-chan struct{}) context.Contex
 	return ctx
 }
 
-func (c *stopContext) Deadline() (time.Time, bool) {
-	return c.parent.Deadline()
-}
-
-func (c *stopContext) Done() <-chan struct{} {
-	return c.done
-}
-
+func (c *stopContext) Deadline() (time.Time, bool) { return c.parent.Deadline() }
+func (c *stopContext) Done() <-chan struct{}       { return c.done }
 func (c *stopContext) Err() error {
 	select {
 	case <-c.parent.Done():
@@ -160,7 +180,4 @@ func (c *stopContext) Err() error {
 		return nil
 	}
 }
-
-func (c *stopContext) Value(key any) any {
-	return c.parent.Value(key)
-}
+func (c *stopContext) Value(key any) any { return c.parent.Value(key) }

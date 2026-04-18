@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-probe-worker
+spec:
+  replicas: {{ .Values.probeWorker.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+      app.kubernetes.io/component: probe-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+        app.kubernetes.io/component: probe-worker
+    spec:
+      serviceAccountName: {{ include "synthetics-operator.fullname" . }}-probe-worker
+      containers:
+        - name: worker
+          image: {{ include "synthetics-operator.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --role=probe-worker
+            - --nats-url={{ include "synthetics-operator.natsURL" . }}
+          ports:
+            - name: healthz
+              containerPort: 8081
+          resources:
+{{ toYaml .Values.probeWorker.resources | indent 12 }}

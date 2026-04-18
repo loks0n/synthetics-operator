@@ -4,19 +4,15 @@ image:
   tag: latest
   pullPolicy: IfNotPresent
 
-# Controller Deployment replica count.
+# Controller Deployment.
 #
-# HA posture today is active-passive: only the leader runs the scheduler,
-# worker pool, NATS consumer, and reconcilers. Followers sit idle serving
-# /metrics (empty until they become leader). Horizontal scaling of probe
-# execution is Phase 14.
+# Runs reconcilers + the NATS scheduler + the event notifier. Publishes
+# spec updates and probe jobs onto NATS; does not execute probes or serve
+# /metrics — those live in the probe-worker and metrics Deployments.
 #
-# If you set replicaCount > 1, also set leaderElection: true. Without leader
-# election multiple replicas would double-reconcile and double-execute probes.
+# Active-passive: multi-replica requires leaderElection: true so only one
+# leader reconciles and dispatches jobs at a time.
 replicaCount: 1
-
-# Turn on the `--leader-elect` flag. Required when replicaCount > 1.
-# Adds a lease resource in the release namespace for leader election.
 leaderElection: false
 
 serviceAccount:
@@ -25,20 +21,36 @@ serviceAccount:
 
 resources: {}
 
+# probe-worker Deployment.
+#
+# Stateless. Subscribes to NATS (synthetics.specs + synthetics.probes.jobs
+# via a queue group) and executes HTTPProbe / DNSProbe runs. Horizontally
+# scalable — NATS queue groups load-balance jobs across replicas.
+probeWorker:
+  replicaCount: 1
+  resources: {}
+
+# metrics Deployment.
+#
+# Stateless Prometheus endpoint. Subscribes to NATS spec updates + probe
+# results + test results, maintains an in-memory metrics store, serves
+# /metrics. Scale replicas for scrape availability — each replica holds
+# identical state from the NATS stream.
+metrics:
+  replicaCount: 1
+  resources: {}
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
 webhookDeployment:
   replicaCount: 2
   # Elevated priority keeps the webhook available under node pressure.
   # If evicted, kubectl apply fails for all CRD types cluster-wide.
   priorityClassName: system-cluster-critical
   resources: {}
-
-metrics:
-  serviceMonitor:
-    enabled: false
-    interval: 30s
-    scrapeTimeout: 10s
-    # Additional labels to add to the ServiceMonitor, e.g. for Prometheus Operator label selectors.
-    labels: {}
 
 webhook:
   serviceName: synthetics-operator-webhook-service

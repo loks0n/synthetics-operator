@@ -8,16 +8,14 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"k8s.io/apimachinery/pkg/types"
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
-	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
 )
 
 // DNSResult holds the outcome of a single DNS probe execution.
 type DNSResult struct {
 	ConfigError      bool
-	ResolverErr      error // non-nil when the DNS client returned an error
+	ResolverErr      error
 	Duration         time.Duration
 	Completed        time.Time
 	Message          string
@@ -68,7 +66,6 @@ func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSP
 		resolver = systemResolver()
 	}
 
-	// Validate resolver format — net.SplitHostPort accepts host:port only.
 	host, port, err := net.SplitHostPort(resolver)
 	if err != nil || host == "" || port == "" {
 		return DNSResult{
@@ -85,7 +82,6 @@ func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSP
 
 	client := &dns.Client{}
 
-	// Respect context deadline.
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -126,7 +122,6 @@ func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSP
 	return result
 }
 
-// extractAnswerValue returns a string representation of the first RR's data.
 func extractAnswerValue(rr dns.RR) string {
 	switch r := rr.(type) {
 	case *dns.A:
@@ -144,7 +139,6 @@ func extractAnswerValue(rr dns.RR) string {
 	case *dns.TXT:
 		return strings.Join(r.Txt, " ")
 	default:
-		// Fallback: strip the header and return the remainder.
 		s := rr.String()
 		parts := strings.Fields(s)
 		if len(parts) > 4 {
@@ -154,65 +148,4 @@ func extractAnswerValue(rr dns.RR) string {
 	}
 }
 
-// systemResolver returns 8.8.8.8:53 as the fallback DNS resolver.
-func systemResolver() string {
-	return "8.8.8.8:53"
-}
-
-// dnsToProbeState converts a DNSResult into a ProbeState for the metrics store.
-// Callers set Result after this via assertions or classifyDNS.
-func dnsToProbeState(r DNSResult) internalmetrics.ProbeState {
-	return internalmetrics.ProbeState{
-		Kind:                 "DNSProbe",
-		DurationMilliseconds: float64(r.Duration.Milliseconds()),
-		LastRunTimestamp:     float64(r.Completed.Unix()),
-		DNSFirstAnswerValue:  r.FirstAnswerValue,
-		DNSFirstAnswerType:   r.FirstAnswerType,
-		DNSAnswerCount:       float64(r.AnswerCount),
-		DNSAuthorityCount:    float64(r.AuthorityCount),
-		DNSAdditionalCount:   float64(r.AdditionalCount),
-	}
-}
-
-func applyDNSAssertions(state *internalmetrics.ProbeState, r DNSResult, assertions []syntheticsv1alpha1.Assertion) {
-	ac := assertionContext{
-		"answer_count": float64(r.AnswerCount),
-		"duration_ms":  float64(r.Duration.Milliseconds()),
-	}
-	ok, failedName, results := evalAssertions(assertions, ac)
-	state.AssertionResults = results
-	if ok {
-		state.Result = internalmetrics.ResultOK
-		state.FailedAssertion = ""
-		return
-	}
-	state.Result = internalmetrics.ResultAssertionFailed
-	state.FailedAssertion = failedName
-}
-
-// NewDNSJob constructs a Job for a DNSProbe. This is the only place in the
-// codebase that couples the Job abstraction to the DNSProbe CRD type.
-func NewDNSJob(probe *syntheticsv1alpha1.DNSProbe, exec DNSExecutor, store *internalmetrics.Store) Job {
-	snapshot := probe.DeepCopy()
-	key := types.NamespacedName{Namespace: probe.Namespace, Name: probe.Name}
-	return Job{
-		Key:      key,
-		Interval: snapshot.Spec.Interval.Duration,
-		Timeout:  snapshot.Spec.Timeout.Duration,
-		Run: func(ctx context.Context) {
-			r := exec.Execute(ctx, snapshot)
-			state := dnsToProbeState(r)
-			switch {
-			case r.ConfigError:
-				state.Result = internalmetrics.ResultConfigError
-			case r.ResolverErr != nil:
-				state.Result = internalmetrics.ResultDNSFailed
-			case len(snapshot.Spec.Assertions) > 0:
-				applyDNSAssertions(&state, r, snapshot.Spec.Assertions)
-			default:
-				state.Result = internalmetrics.ResultOK
-			}
-			store.Upsert(key, state)
-		},
-	}
-}
+func systemResolver() string { return "8.8.8.8:53" }

@@ -215,6 +215,8 @@ jobs:
           kubectl -n synthetics-system rollout status deployment/synthetics-operator --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-webhook --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-nats --timeout=120s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-probe-worker --timeout=180s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-metrics --timeout=180s
 
       - name: Deploy echo service
         run: |
@@ -376,9 +378,13 @@ jobs:
           helm upgrade --install synthetics-operator charts/synthetics-operator \
             --namespace synthetics-system \
             --set-string image.ref="$IMAGE" \
-            --set image.pullPolicy=IfNotPresent
+            --set image.pullPolicy=IfNotPresent \
+            --set nats.enabled=true
 
       - name: Wait for operator rollout
         run: |
           kubectl -n synthetics-system rollout status deployment/synthetics-operator --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-webhook --timeout=180s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-probe-worker --timeout=180s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-metrics --timeout=180s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-nats --timeout=120s

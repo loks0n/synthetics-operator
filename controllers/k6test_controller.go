@@ -16,13 +16,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
-	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
+	"github.com/loks0n/synthetics-operator/internal/natsbus"
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
 type K6TestReconciler struct {
 	client.Client
 	Scheme           *runtime.Scheme
-	Metrics          *internalmetrics.Store
+	Publisher        natsbus.Publisher
 	Clock            func() time.Time
 	NATSUrl          string
 	TestSidecarImage string
@@ -31,26 +32,20 @@ type K6TestReconciler struct {
 
 func (r *K6TestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var test syntheticsv1alpha1.K6Test
-	kind := string(syntheticsv1alpha1.DependencyKindK6Test)
 	if err := r.Get(ctx, req.NamespacedName, &test); err != nil {
 		if apierrors.IsNotFound(err) {
-			r.Metrics.Delete(req.NamespacedName)
-			r.Metrics.ClearDepends(kind, req.NamespacedName)
-			r.Metrics.ClearMetricLabels(kind, req.NamespacedName)
-			return ctrl.Result{}, nil
+			return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindK6Test, req.Namespace, req.Name))
 		}
 		return ctrl.Result{}, err
 	}
 
 	if !test.DeletionTimestamp.IsZero() {
-		r.Metrics.Delete(req.NamespacedName)
-		r.Metrics.ClearDepends(kind, req.NamespacedName)
-		r.Metrics.ClearMetricLabels(kind, req.NamespacedName)
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindK6Test, test.Namespace, test.Name))
 	}
 
-	r.Metrics.SetDepends(kind, req.NamespacedName, test.Spec.Depends)
-	r.Metrics.SetMetricLabels(kind, req.NamespacedName, test.Spec.MetricLabels)
+	if err := r.Publisher.PublishSpec(ctx, k6TestSpecUpdate(&test)); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	original := test.DeepCopy()
 	now := metav1.NewTime(r.Clock())

@@ -13,43 +13,39 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
-	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
-	internalprobes "github.com/loks0n/synthetics-operator/internal/probes"
+	"github.com/loks0n/synthetics-operator/internal/natsbus"
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
+// DNSProbeReconciler reconciles the DNSProbe CRD. Same Phase-14 split as
+// HTTPProbeReconciler — publishes specs, registers with the scheduler,
+// does not execute probes.
 type DNSProbeReconciler struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	Scheduler   ProbeScheduler
-	DNSExecutor internalprobes.DNSExecutor
-	Metrics     *internalmetrics.Store
-	Clock       func() time.Time
+	Scheme    *runtime.Scheme
+	Scheduler ProbeScheduler
+	Publisher natsbus.Publisher
+	Clock     func() time.Time
 }
 
 func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var probe syntheticsv1alpha1.DNSProbe
-	kind := string(syntheticsv1alpha1.DependencyKindDNSProbe)
 	if err := r.Get(ctx, req.NamespacedName, &probe); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.Scheduler.Unregister(req.NamespacedName)
-			r.Metrics.Delete(req.NamespacedName)
-			r.Metrics.ClearDepends(kind, req.NamespacedName)
-			r.Metrics.ClearMetricLabels(kind, req.NamespacedName)
-			return ctrl.Result{}, nil
+			return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindDNSProbe, req.Namespace, req.Name))
 		}
 		return ctrl.Result{}, err
 	}
 
 	if !probe.DeletionTimestamp.IsZero() {
 		r.Scheduler.Unregister(req.NamespacedName)
-		r.Metrics.Delete(req.NamespacedName)
-		r.Metrics.ClearDepends(kind, req.NamespacedName)
-		r.Metrics.ClearMetricLabels(kind, req.NamespacedName)
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindDNSProbe, probe.Namespace, probe.Name))
 	}
 
-	r.Metrics.SetDepends(kind, req.NamespacedName, probe.Spec.Depends)
-	r.Metrics.SetMetricLabels(kind, req.NamespacedName, probe.Spec.MetricLabels)
+	if err := r.Publisher.PublishSpec(ctx, dnsProbeSpecUpdate(&probe)); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	original := probe.DeepCopy()
 	now := metav1.NewTime(r.Clock())
@@ -59,9 +55,8 @@ func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if probe.Spec.Suspend {
 		r.Scheduler.Unregister(req.NamespacedName)
-		r.Metrics.Delete(req.NamespacedName)
 	} else {
-		r.Scheduler.Register(internalprobes.NewDNSJob(&probe, r.DNSExecutor, r.Metrics))
+		r.Scheduler.Register(req.NamespacedName, results.KindDNSProbe, probe.Spec.Interval.Duration)
 	}
 
 	if probeStatusChanged(original.Status.ObservedGeneration, probe.Status.ObservedGeneration, original.Status.Conditions, probe.Status.Conditions) {

@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-metrics
+spec:
+  replicas: {{ .Values.metrics.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+      app.kubernetes.io/component: metrics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+        app.kubernetes.io/component: metrics
+    spec:
+      serviceAccountName: {{ include "synthetics-operator.fullname" . }}-metrics
+      containers:
+        - name: metrics
+          image: {{ include "synthetics-operator.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --role=metrics
+            - --nats-url={{ include "synthetics-operator.natsURL" . }}
+            - --metrics-bind-address=:8080
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: healthz
+              containerPort: 8081
+          resources:
+{{ toYaml .Values.metrics.resources | indent 12 }}

@@ -25,8 +25,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
           args:
-            - --webhook-only=false
-            - --metrics-bind-address=:8080
+            - --role=controller
             - --webhook-namespace=$(POD_NAMESPACE)
             - --webhook-service-name={{ include "synthetics-operator.webhookServiceName" . }}
             - --webhook-secret-name={{ .Values.webhook.secretName }}
@@ -35,12 +34,7 @@ spec:
             {{- if .Values.leaderElection }}
             - --leader-elect=true
             {{- end }}
-            {{- with (include "synthetics-operator.natsURL" .) }}
-            # The test-sidecar container receives this URL via reconciler
-            # plumbing, so it must be reachable from the user's namespace —
-            # hence the FQDN in the internal default.
-            - --nats-url={{ . }}
-            {{- end }}
+            - --nats-url={{ include "synthetics-operator.natsURL" . }}
             {{- if .Values.testSidecar.image }}
             - --test-sidecar-image={{ .Values.testSidecar.image }}
             {{- end }}
@@ -51,8 +45,6 @@ spec:
             - --playwright-runner-image={{ .Values.playwrightRunner.image }}
             {{- end }}
           ports:
-            - name: metrics
-              containerPort: 8080
             - name: healthz
               containerPort: 8081
           resources:

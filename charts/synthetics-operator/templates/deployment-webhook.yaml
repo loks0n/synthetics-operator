@@ -28,10 +28,13 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
           args:
-            - --webhook-only=true
+            - --role=webhook
             - --webhook-port=9443
             - --webhook-namespace=$(POD_NAMESPACE)
             - --webhook-secret-name={{ .Values.webhook.secretName }}
+            - --webhook-service-name={{ include "synthetics-operator.webhookServiceName" . }}
+            - --validating-webhook-configuration={{ .Values.webhook.validatingWebhookConfigurationName }}
+            - --mutating-webhook-configuration={{ .Values.webhook.mutatingWebhookConfigurationName }}
           ports:
             - name: webhook
               containerPort: 9443
