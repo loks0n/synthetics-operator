@@ -7,15 +7,37 @@ synthetics-operator
 {{- end -}}
 
 {{/*
-synthetics-operator.componentImage renders the image reference for a
-component. Pass a dict: { "ctx": ., "image": .Values.controller.image }.
-Precedence: .image.ref > printf "%s:%s" .image.repository .image.tag.
+synthetics-operator.componentImage renders the image reference for one of
+the operator's four components. Pass a dict:
+    { "ctx": ., "image": .Values.controller.image }.
+Precedence:
+  1. .image.ref — full image ref override.
+  2. {.image.repository}:{.image.tag}, where tag falls back to the chart
+     AppVersion when left empty in values. Releases stamp Chart.yaml's
+     appVersion from the git tag, so a user can `helm install --version 1.2.3`
+     and get matching images for free.
 */}}
 {{- define "synthetics-operator.componentImage" -}}
 {{- if .image.ref -}}
 {{ .image.ref }}
 {{- else -}}
-{{ printf "%s:%s" .image.repository .image.tag }}
+{{- $tag := default .ctx.Chart.AppVersion .image.tag -}}
+{{ printf "%s:%s" .image.repository $tag }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+synthetics-operator.runnerImage renders an image ref for a runner — test-
+sidecar, k6-runner, playwright-runner. Each runner's Values block is a
+single `image:` string (not repository+tag), matching how the operator
+controller takes them on the CLI. Empty value falls back to the well-known
+GHCR coordinate pinned to the chart AppVersion.
+*/}}
+{{- define "synthetics-operator.runnerImage" -}}
+{{- if .override -}}
+{{ .override }}
+{{- else -}}
+{{ printf "%s:%s" .defaultRepo .ctx.Chart.AppVersion }}
 {{- end -}}
 {{- end -}}
 

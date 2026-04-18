@@ -17,7 +17,7 @@ spec:
       serviceAccountName: {{ include "synthetics-operator.fullname" . }}-metrics
       containers:
         - name: metrics
-          image: {{ include "synthetics-operator.componentImage" (dict "image" .Values.metrics.image) | quote }}
+          image: {{ include "synthetics-operator.componentImage" (dict "ctx" . "image" .Values.metrics.image) | quote }}
           imagePullPolicy: {{ .Values.metrics.image.pullPolicy }}
           args:
             - --nats-url={{ include "synthetics-operator.natsURL" . }}

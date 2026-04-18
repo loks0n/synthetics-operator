@@ -20,7 +20,7 @@ spec:
       {{- end }}
       containers:
         - name: webhook
-          image: {{ include "synthetics-operator.componentImage" (dict "image" .Values.webhook.image) | quote }}
+          image: {{ include "synthetics-operator.componentImage" (dict "ctx" . "image" .Values.webhook.image) | quote }}
           imagePullPolicy: {{ .Values.webhook.image.pullPolicy }}
           env:
             - name: POD_NAMESPACE

@@ -10,7 +10,8 @@ controller:
   image:
     ref: ""
     repository: ghcr.io/loks0n/synthetics-operator-controller
-    tag: latest
+    # Empty tag defaults to the chart AppVersion (stamped from the git tag at release).
+    tag: ""
     pullPolicy: IfNotPresent
   replicaCount: 1
   leaderElection: false
@@ -25,7 +26,8 @@ webhook:
   image:
     ref: ""
     repository: ghcr.io/loks0n/synthetics-operator-webhook
-    tag: latest
+    # Empty tag defaults to the chart AppVersion (stamped from the git tag at release).
+    tag: ""
     pullPolicy: IfNotPresent
   replicaCount: 2
   # Elevated priority keeps the webhook available under node pressure.
@@ -47,7 +49,8 @@ prober:
   image:
     ref: ""
     repository: ghcr.io/loks0n/synthetics-operator-prober
-    tag: latest
+    # Empty tag defaults to the chart AppVersion (stamped from the git tag at release).
+    tag: ""
     pullPolicy: IfNotPresent
   replicaCount: 1
   resources: {}
@@ -62,7 +65,8 @@ metrics:
   image:
     ref: ""
     repository: ghcr.io/loks0n/synthetics-operator-metrics
-    tag: latest
+    # Empty tag defaults to the chart AppVersion (stamped from the git tag at release).
+    tag: ""
     pullPolicy: IfNotPresent
   replicaCount: 1
   resources: {}

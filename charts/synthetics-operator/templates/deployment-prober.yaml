@@ -17,7 +17,7 @@ spec:
       serviceAccountName: {{ include "synthetics-operator.fullname" . }}-prober
       containers:
         - name: prober
-          image: {{ include "synthetics-operator.componentImage" (dict "image" .Values.prober.image) | quote }}
+          image: {{ include "synthetics-operator.componentImage" (dict "ctx" . "image" .Values.prober.image) | quote }}
           imagePullPolicy: {{ .Values.prober.image.pullPolicy }}
           args:
             - --nats-url={{ include "synthetics-operator.natsURL" . }}

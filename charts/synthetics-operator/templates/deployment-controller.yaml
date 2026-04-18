@@ -17,7 +17,7 @@ spec:
       serviceAccountName: {{ include "synthetics-operator.serviceAccountName" . }}
       containers:
         - name: controller
-          image: {{ include "synthetics-operator.componentImage" (dict "image" .Values.controller.image) | quote }}
+          image: {{ include "synthetics-operator.componentImage" (dict "ctx" . "image" .Values.controller.image) | quote }}
           imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
           env:
             - name: POD_NAMESPACE
@@ -34,15 +34,9 @@ spec:
             - --leader-elect=true
             {{- end }}
             - --nats-url={{ include "synthetics-operator.natsURL" . }}
-            {{- if .Values.testSidecar.image }}
-            - --test-sidecar-image={{ .Values.testSidecar.image }}
-            {{- end }}
-            {{- if .Values.k6Runner.image }}
-            - --k6-runner-image={{ .Values.k6Runner.image }}
-            {{- end }}
-            {{- if .Values.playwrightRunner.image }}
-            - --playwright-runner-image={{ .Values.playwrightRunner.image }}
-            {{- end }}
+            - --test-sidecar-image={{ include "synthetics-operator.runnerImage" (dict "ctx" . "override" .Values.testSidecar.image "defaultRepo" "ghcr.io/loks0n/synthetics-test-sidecar") }}
+            - --k6-runner-image={{ include "synthetics-operator.runnerImage" (dict "ctx" . "override" .Values.k6Runner.image "defaultRepo" "ghcr.io/loks0n/synthetics-k6-runner") }}
+            - --playwright-runner-image={{ include "synthetics-operator.runnerImage" (dict "ctx" . "override" .Values.playwrightRunner.image "defaultRepo" "ghcr.io/loks0n/synthetics-playwright-runner") }}
           ports:
             - name: healthz
               containerPort: 8081

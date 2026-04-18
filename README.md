@@ -56,11 +56,10 @@ helm install synthetics-operator \
   oci://ghcr.io/loks0n/charts/synthetics-operator \
   --version <release> \
   --namespace synthetics-system --create-namespace \
-  --set nats.enabled=true \
-  --set-string testSidecar.image=ghcr.io/loks0n/synthetics-test-sidecar:<release> \
-  --set-string k6Runner.image=ghcr.io/loks0n/synthetics-k6-runner:<release> \
-  --set-string playwrightRunner.image=ghcr.io/loks0n/synthetics-playwright-runner:<release>
+  --set nats.enabled=true
 ```
+
+Every image (controller, webhook, prober, metrics, test-sidecar, k6-runner, playwright-runner) defaults to the chart's AppVersion — no image pinning flags needed for a straight install. Override individually with `--set controller.image.ref=…` etc. if you need custom builds.
 
 `nats.enabled=true` spins up a single-node NATS alongside the operator. For production, point `nats.externalUrl` at an existing NATS cluster you manage.
 
