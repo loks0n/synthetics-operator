@@ -24,6 +24,7 @@ import (
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
 	"github.com/loks0n/synthetics-operator/controllers"
 	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
+	"github.com/loks0n/synthetics-operator/internal/natsconsumer"
 	internalprobes "github.com/loks0n/synthetics-operator/internal/probes"
 	internalwebhookcerts "github.com/loks0n/synthetics-operator/internal/webhookcerts"
 )
@@ -43,6 +44,7 @@ func main() {
 	var webhookSecretName string
 	var validatingWebhookConfiguration string
 	var mutatingWebhookConfiguration string
+	var natsURL string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.IntVar(&probeConcurrency, "probe-concurrency", 4, "Number of concurrent HTTP probes.")
@@ -54,6 +56,7 @@ func main() {
 	flag.StringVar(&webhookSecretName, "webhook-secret-name", "synthetics-webhook-certs", "Secret name for self-managed webhook certificates.")
 	flag.StringVar(&validatingWebhookConfiguration, "validating-webhook-configuration", "synthetics-operator-validating-webhook-configuration", "ValidatingWebhookConfiguration name to inject with the CA bundle.")
 	flag.StringVar(&mutatingWebhookConfiguration, "mutating-webhook-configuration", "synthetics-operator-mutating-webhook-configuration", "MutatingWebhookConfiguration name to inject with the CA bundle.")
+	flag.StringVar(&natsURL, "nats-url", "", "NATS server URL for consuming CronJob probe results (e.g. nats://nats:4222). Empty disables NATS.")
 	flag.Parse()
 
 	ctrl.SetLogger(logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
@@ -82,7 +85,7 @@ func main() {
 	if webhookOnly {
 		runErr = runWebhookOnly(cfg, scheme, certManager, webhookPort)
 	} else {
-		runErr = runController(cfg, scheme, certManager, metricsAddr, probeConcurrency, enableLeaderElection)
+		runErr = runController(cfg, scheme, certManager, metricsAddr, natsURL, probeConcurrency, enableLeaderElection)
 	}
 	if runErr != nil {
 		ctrl.Log.WithName("setup").Error(runErr, "manager exited with error")
@@ -147,7 +150,7 @@ func runController(
 	cfg *rest.Config,
 	scheme *runtime.Scheme,
 	certManager *internalwebhookcerts.Manager,
-	metricsAddr string,
+	metricsAddr, natsURL string,
 	probeConcurrency int,
 	enableLeaderElection bool,
 ) error {
@@ -179,6 +182,13 @@ func runController(
 
 	if err := mgr.Add(certManager); err != nil {
 		return fmt.Errorf("adding cert manager: %w", err)
+	}
+
+	if natsURL != "" {
+		consumer := natsconsumer.New(ctrl.Log.WithName("nats-consumer"), natsURL, store)
+		if err := mgr.Add(consumer); err != nil {
+			return fmt.Errorf("adding nats consumer: %w", err)
+		}
 	}
 
 	scheduler := internalprobes.NewScheduler(

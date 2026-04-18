@@ -1,0 +1,29 @@
+{{- if .Values.nats.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-nats
+spec:
+  replicas: {{ .Values.nats.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+      app.kubernetes.io/component: nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+        app.kubernetes.io/component: nats
+    spec:
+      serviceAccountName: {{ include "synthetics-operator.fullname" . }}-nats
+      containers:
+        - name: nats
+          image: {{ .Values.nats.image | quote }}
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: monitor
+              containerPort: 8222
+          resources:
+{{ toYaml .Values.nats.resources | indent 12 }}
+{{- end }}

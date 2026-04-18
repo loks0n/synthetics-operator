@@ -1,0 +1,17 @@
+{{- if .Values.nats.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-nats
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+    app.kubernetes.io/component: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: client
+    - name: monitor
+      port: 8222
+      targetPort: monitor
+{{- end }}

@@ -161,10 +161,10 @@ func (m *Manager) startSecretInformer(ctx context.Context) error {
 	informer := factory.Core().V1().Secrets().Informer()
 	_, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
-			m.handleSecret(obj)
+			m.reloadCertFromSecret(obj)
 		},
 		UpdateFunc: func(_, newObj any) {
-			m.handleSecret(newObj)
+			m.reloadCertFromSecret(newObj)
 		},
 	})
 	if err != nil {
@@ -178,7 +178,7 @@ func (m *Manager) startSecretInformer(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) handleSecret(obj any) {
+func (m *Manager) reloadCertFromSecret(obj any) {
 	secret, ok := obj.(*corev1.Secret)
 	if !ok || secret.Name != m.secretName || secret.Namespace != m.namespace {
 		return

@@ -50,12 +50,35 @@ type ProbeState struct {
 	DNSAdditionalCount  float64
 }
 
+type instruments struct {
+	successGauge             apimetric.Float64ObservableGauge
+	durationGauge            apimetric.Float64ObservableGauge
+	lastRunGauge             apimetric.Float64ObservableGauge
+	configErrorGauge         apimetric.Float64ObservableGauge
+	tlsCertExpiryGauge       apimetric.Float64ObservableGauge
+	httpStatusCodeGauge      apimetric.Float64ObservableGauge
+	httpVersionGauge         apimetric.Float64ObservableGauge
+	httpPhaseDurationGauge   apimetric.Float64ObservableGauge
+	httpInfoGauge            apimetric.Float64ObservableGauge
+	assertionResultGauge     apimetric.Float64ObservableGauge
+	dnsSuccessGauge          apimetric.Float64ObservableGauge
+	dnsResponseMsGauge       apimetric.Float64ObservableGauge
+	dnsFirstAnswerValueGauge apimetric.Float64ObservableGauge
+	dnsFirstAnswerTypeGauge  apimetric.Float64ObservableGauge
+	dnsAnswerCountGauge      apimetric.Float64ObservableGauge
+	dnsAuthorityCountGauge   apimetric.Float64ObservableGauge
+	dnsAdditionalCountGauge  apimetric.Float64ObservableGauge
+	resultsReceivedTotal     apimetric.Int64Counter
+	resultsParseFailTotal    apimetric.Int64Counter
+}
+
 type Store struct {
 	mu       sync.RWMutex
 	probes   map[types.NamespacedName]ProbeState
 	registry *promclient.Registry
 	exporter *otelprom.Exporter
 	provider *metric.MeterProvider
+	instr    instruments
 }
 
 func NewStore() (*Store, error) {
@@ -67,170 +90,206 @@ func NewStore() (*Store, error) {
 	provider := metric.NewMeterProvider(metric.WithReader(exporter))
 	meter := provider.Meter("synthetics-operator")
 
+	instr, err := newInstruments(meter)
+	if err != nil {
+		return nil, err
+	}
+
 	store := &Store{
 		probes:   map[types.NamespacedName]ProbeState{},
 		registry: registry,
 		exporter: exporter,
 		provider: provider,
+		instr:    instr,
 	}
 
-	successGauge, err := meter.Float64ObservableGauge("synthetics_probe_up")
-	if err != nil {
+	if err := store.registerCallback(meter); err != nil {
 		return nil, err
 	}
-	durationGauge, err := meter.Float64ObservableGauge("synthetics_probe_duration_ms")
-	if err != nil {
-		return nil, err
-	}
-	lastRunGauge, err := meter.Float64ObservableGauge("synthetics_last_run_timestamp")
-	if err != nil {
-		return nil, err
-	}
-	configErrorGauge, err := meter.Float64ObservableGauge("synthetics_probe_config_error")
-	if err != nil {
-		return nil, err
-	}
-	tlsCertExpiryGauge, err := meter.Float64ObservableGauge("synthetics_probe_tls_cert_expiry_timestamp_seconds")
-	if err != nil {
-		return nil, err
-	}
-	httpStatusCodeGauge, err := meter.Float64ObservableGauge("synthetics_probe_http_status_code")
-	if err != nil {
-		return nil, err
-	}
-	httpVersionGauge, err := meter.Float64ObservableGauge("synthetics_probe_http_version")
-	if err != nil {
-		return nil, err
-	}
-	httpPhaseDurationGauge, err := meter.Float64ObservableGauge("synthetics_probe_http_phase_duration_ms")
-	if err != nil {
-		return nil, err
-	}
+	return store, nil
+}
 
-	dnsSuccessGauge, err := meter.Float64ObservableGauge("synthetics_dns_success")
-	if err != nil {
-		return nil, err
-	}
-	dnsResponseMsGauge, err := meter.Float64ObservableGauge("synthetics_dns_response_ms")
-	if err != nil {
-		return nil, err
-	}
-	dnsFirstAnswerValueGauge, err := meter.Float64ObservableGauge("synthetics_dns_response_first_answer_value")
-	if err != nil {
-		return nil, err
-	}
-	dnsFirstAnswerTypeGauge, err := meter.Float64ObservableGauge("synthetics_dns_response_first_answer_type")
-	if err != nil {
-		return nil, err
-	}
-	dnsAnswerCountGauge, err := meter.Float64ObservableGauge("synthetics_dns_response_answer_count")
-	if err != nil {
-		return nil, err
-	}
-	dnsAuthorityCountGauge, err := meter.Float64ObservableGauge("synthetics_dns_response_authority_count")
-	if err != nil {
-		return nil, err
-	}
-	dnsAdditionalCountGauge, err := meter.Float64ObservableGauge("synthetics_dns_response_additional_count")
-	if err != nil {
-		return nil, err
-	}
-	assertionResultGauge, err := meter.Float64ObservableGauge("synthetics_probe_assertion_result",
-		apimetric.WithDescription("Per-assertion pass (1) / fail (0) result for the last probe run"))
-	if err != nil {
-		return nil, err
-	}
-	httpInfoGauge, err := meter.Float64ObservableGauge("synthetics_probe_http_info",
-		apimetric.WithDescription("Static information about an HTTP probe (value is always 1)"))
-	if err != nil {
-		return nil, err
-	}
+func newInstruments(meter apimetric.Meter) (instruments, error) {
+	var instr instruments
+	var err error
 
-	_, err = meter.RegisterCallback(func(_ context.Context, observer apimetric.Observer) error {
-		store.mu.RLock()
-		defer store.mu.RUnlock()
-		for name, state := range store.probes {
-			kind := state.Kind
-			if kind == "" {
-				kind = "HTTPProbe"
-			}
-			attrs := []attribute.KeyValue{
-				attribute.String("name", name.Name),
-				attribute.String("namespace", name.Namespace),
-				attribute.String("kind", kind),
-			}
-			if kind == "HTTPProbe" && state.URL != "" {
-				attrs = append(attrs, attribute.String("url", state.URL))
-			}
+	if instr.successGauge, err = meter.Float64ObservableGauge("synthetics_probe_up"); err != nil {
+		return instr, err
+	}
+	if instr.durationGauge, err = meter.Float64ObservableGauge("synthetics_probe_duration_ms"); err != nil {
+		return instr, err
+	}
+	if instr.lastRunGauge, err = meter.Float64ObservableGauge("synthetics_last_run_timestamp"); err != nil {
+		return instr, err
+	}
+	if instr.configErrorGauge, err = meter.Float64ObservableGauge("synthetics_probe_config_error"); err != nil {
+		return instr, err
+	}
+	if instr.tlsCertExpiryGauge, err = meter.Float64ObservableGauge("synthetics_probe_tls_cert_expiry_timestamp_seconds"); err != nil {
+		return instr, err
+	}
+	if instr.httpStatusCodeGauge, err = meter.Float64ObservableGauge("synthetics_probe_http_status_code"); err != nil {
+		return instr, err
+	}
+	if instr.httpVersionGauge, err = meter.Float64ObservableGauge("synthetics_probe_http_version"); err != nil {
+		return instr, err
+	}
+	if instr.httpPhaseDurationGauge, err = meter.Float64ObservableGauge("synthetics_probe_http_phase_duration_ms"); err != nil {
+		return instr, err
+	}
+	if instr.assertionResultGauge, err = meter.Float64ObservableGauge("synthetics_probe_assertion_result",
+		apimetric.WithDescription("Per-assertion pass (1) / fail (0) result for the last probe run")); err != nil {
+		return instr, err
+	}
+	if instr.httpInfoGauge, err = meter.Float64ObservableGauge("synthetics_probe_http_info",
+		apimetric.WithDescription("Static information about an HTTP probe (value is always 1)")); err != nil {
+		return instr, err
+	}
+	if instr.dnsSuccessGauge, err = meter.Float64ObservableGauge("synthetics_dns_success"); err != nil {
+		return instr, err
+	}
+	if instr.dnsResponseMsGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_ms"); err != nil {
+		return instr, err
+	}
+	if instr.dnsFirstAnswerValueGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_first_answer_value"); err != nil {
+		return instr, err
+	}
+	if instr.dnsFirstAnswerTypeGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_first_answer_type"); err != nil {
+		return instr, err
+	}
+	if instr.dnsAnswerCountGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_answer_count"); err != nil {
+		return instr, err
+	}
+	if instr.dnsAuthorityCountGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_authority_count"); err != nil {
+		return instr, err
+	}
+	if instr.dnsAdditionalCountGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_additional_count"); err != nil {
+		return instr, err
+	}
+	if instr.resultsReceivedTotal, err = meter.Int64Counter("synthetics_cronjob_results_received_total",
+		apimetric.WithDescription("Total CronJob probe results received via NATS")); err != nil {
+		return instr, err
+	}
+	if instr.resultsParseFailTotal, err = meter.Int64Counter("synthetics_cronjob_results_parse_failed_total",
+		apimetric.WithDescription("Total CronJob probe result messages that failed to parse")); err != nil {
+		return instr, err
+	}
+	return instr, nil
+}
 
-			// Shared gauges for all probe types.
-			successAttrs := append(attrs, attribute.String("reason", state.FailureReason))
-			observer.ObserveFloat64(successGauge, state.Success, apimetric.WithAttributes(successAttrs...))
-			observer.ObserveFloat64(durationGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
-			observer.ObserveFloat64(lastRunGauge, state.LastRunTimestamp, apimetric.WithAttributes(attrs...))
-			observer.ObserveFloat64(configErrorGauge, state.ConfigError, apimetric.WithAttributes(attrs...))
-
-			for _, ar := range state.AssertionResults {
-				aAttrs := append(attrs,
-					attribute.String("assertion", ar.Name),
-					attribute.String("expr", ar.Expr),
-				)
-				observer.ObserveFloat64(assertionResultGauge, ar.Result, apimetric.WithAttributes(aAttrs...))
-			}
-
-			if kind == "HTTPProbe" {
-				infoAttrs := append(attrs,
-					attribute.String("method", state.Method),
-				)
-				observer.ObserveFloat64(httpInfoGauge, 1, apimetric.WithAttributes(infoAttrs...))
-
-				observer.ObserveFloat64(httpStatusCodeGauge, state.HTTPStatusCode, apimetric.WithAttributes(attrs...))
-				observer.ObserveFloat64(httpVersionGauge, state.HTTPVersion, apimetric.WithAttributes(attrs...))
-				if state.TLSCertExpiry > 0 {
-					observer.ObserveFloat64(tlsCertExpiryGauge, state.TLSCertExpiry, apimetric.WithAttributes(attrs...))
-				}
-				phases := []struct {
-					name string
-					val  float64
-				}{
-					{"dns", state.HTTPPhaseDNSMs},
-					{"connect", state.HTTPPhaseConnectMs},
-					{"tls", state.HTTPPhaseTLSMs},
-					{"processing", state.HTTPPhaseProcessingMs},
-					{"transfer", state.HTTPPhaseTransferMs},
-				}
-				for _, ph := range phases {
-					phAttrs := append(attrs, attribute.String("phase", ph.name))
-					observer.ObserveFloat64(httpPhaseDurationGauge, ph.val, apimetric.WithAttributes(phAttrs...))
-				}
-			}
-
-			if kind == "DNSProbe" {
-				observer.ObserveFloat64(dnsSuccessGauge, state.Success, apimetric.WithAttributes(attrs...))
-				observer.ObserveFloat64(dnsResponseMsGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
-				observer.ObserveFloat64(dnsAnswerCountGauge, state.DNSAnswerCount, apimetric.WithAttributes(attrs...))
-				observer.ObserveFloat64(dnsAuthorityCountGauge, state.DNSAuthorityCount, apimetric.WithAttributes(attrs...))
-				observer.ObserveFloat64(dnsAdditionalCountGauge, state.DNSAdditionalCount, apimetric.WithAttributes(attrs...))
-				if state.DNSFirstAnswerValue != "" {
-					valueAttrs := append(attrs, attribute.String("value", state.DNSFirstAnswerValue))
-					observer.ObserveFloat64(dnsFirstAnswerValueGauge, 1, apimetric.WithAttributes(valueAttrs...))
-				}
-				if state.DNSFirstAnswerType != "" {
-					typeAttrs := append(attrs, attribute.String("type", state.DNSFirstAnswerType))
-					observer.ObserveFloat64(dnsFirstAnswerTypeGauge, 1, apimetric.WithAttributes(typeAttrs...))
-				}
-			}
+func (s *Store) registerCallback(meter apimetric.Meter) error {
+	instr := s.instr
+	_, err := meter.RegisterCallback(func(_ context.Context, observer apimetric.Observer) error {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		for name, state := range s.probes {
+			s.observeProbe(observer, name, state, instr)
 		}
 		return nil
-	}, successGauge, durationGauge, lastRunGauge, configErrorGauge, tlsCertExpiryGauge, httpStatusCodeGauge, httpVersionGauge,
-		httpPhaseDurationGauge, httpInfoGauge, assertionResultGauge,
-		dnsSuccessGauge, dnsResponseMsGauge, dnsFirstAnswerValueGauge, dnsFirstAnswerTypeGauge,
-		dnsAnswerCountGauge, dnsAuthorityCountGauge, dnsAdditionalCountGauge)
-	if err != nil {
-		return nil, err
+	}, instr.successGauge, instr.durationGauge, instr.lastRunGauge, instr.configErrorGauge,
+		instr.tlsCertExpiryGauge, instr.httpStatusCodeGauge, instr.httpVersionGauge,
+		instr.httpPhaseDurationGauge, instr.httpInfoGauge, instr.assertionResultGauge,
+		instr.dnsSuccessGauge, instr.dnsResponseMsGauge, instr.dnsFirstAnswerValueGauge,
+		instr.dnsFirstAnswerTypeGauge, instr.dnsAnswerCountGauge, instr.dnsAuthorityCountGauge,
+		instr.dnsAdditionalCountGauge)
+	return err
+}
+
+func (s *Store) observeProbe(observer apimetric.Observer, name types.NamespacedName, state ProbeState, instr instruments) {
+	kind := state.Kind
+	if kind == "" {
+		kind = "HTTPProbe"
+	}
+	attrs := []attribute.KeyValue{
+		attribute.String("name", name.Name),
+		attribute.String("namespace", name.Namespace),
+		attribute.String("kind", kind),
+	}
+	if kind == "HTTPProbe" && state.URL != "" {
+		attrs = append(attrs, attribute.String("url", state.URL))
 	}
 
-	return store, nil
+	observer.ObserveFloat64(instr.successGauge, state.Success, apimetric.WithAttributes(
+		append(attrs, attribute.String("reason", state.FailureReason))...))
+	observer.ObserveFloat64(instr.durationGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.lastRunGauge, state.LastRunTimestamp, apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.configErrorGauge, state.ConfigError, apimetric.WithAttributes(attrs...))
+
+	for _, ar := range state.AssertionResults {
+		observer.ObserveFloat64(instr.assertionResultGauge, ar.Result, apimetric.WithAttributes(
+			append(attrs, attribute.String("assertion", ar.Name), attribute.String("expr", ar.Expr))...))
+	}
+
+	switch kind {
+	case "HTTPProbe":
+		s.observeHTTP(observer, attrs, state, instr)
+	case "DNSProbe":
+		s.observeDNS(observer, attrs, state, instr)
+	}
+}
+
+func (s *Store) observeHTTP(observer apimetric.Observer, attrs []attribute.KeyValue, state ProbeState, instr instruments) {
+	observer.ObserveFloat64(instr.httpInfoGauge, 1, apimetric.WithAttributes(
+		append(attrs, attribute.String("method", state.Method))...))
+	observer.ObserveFloat64(instr.httpStatusCodeGauge, state.HTTPStatusCode, apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.httpVersionGauge, state.HTTPVersion, apimetric.WithAttributes(attrs...))
+	if state.TLSCertExpiry > 0 {
+		observer.ObserveFloat64(instr.tlsCertExpiryGauge, state.TLSCertExpiry, apimetric.WithAttributes(attrs...))
+	}
+	for _, ph := range []struct {
+		name string
+		val  float64
+	}{
+		{"dns", state.HTTPPhaseDNSMs},
+		{"connect", state.HTTPPhaseConnectMs},
+		{"tls", state.HTTPPhaseTLSMs},
+		{"processing", state.HTTPPhaseProcessingMs},
+		{"transfer", state.HTTPPhaseTransferMs},
+	} {
+		observer.ObserveFloat64(instr.httpPhaseDurationGauge, ph.val, apimetric.WithAttributes(
+			append(attrs, attribute.String("phase", ph.name))...))
+	}
+}
+
+func (s *Store) observeDNS(observer apimetric.Observer, attrs []attribute.KeyValue, state ProbeState, instr instruments) {
+	observer.ObserveFloat64(instr.dnsSuccessGauge, state.Success, apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.dnsResponseMsGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.dnsAnswerCountGauge, state.DNSAnswerCount, apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.dnsAuthorityCountGauge, state.DNSAuthorityCount, apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.dnsAdditionalCountGauge, state.DNSAdditionalCount, apimetric.WithAttributes(attrs...))
+	if state.DNSFirstAnswerValue != "" {
+		observer.ObserveFloat64(instr.dnsFirstAnswerValueGauge, 1, apimetric.WithAttributes(
+			append(attrs, attribute.String("value", state.DNSFirstAnswerValue))...))
+	}
+	if state.DNSFirstAnswerType != "" {
+		observer.ObserveFloat64(instr.dnsFirstAnswerTypeGauge, 1, apimetric.WithAttributes(
+			append(attrs, attribute.String("type", state.DNSFirstAnswerType))...))
+	}
+}
+
+// RecordCronJobResult ingests a parsed result from the NATS consumer and
+// updates the probe's state in the store so it appears in metrics.
+func (s *Store) RecordCronJobResult(ctx context.Context, name types.NamespacedName, kind string, success bool, durationMs int64, ts float64) {
+	s.instr.resultsReceivedTotal.Add(ctx, 1, apimetric.WithAttributes(
+		attribute.String("kind", kind),
+		attribute.String("name", name.Name),
+		attribute.String("namespace", name.Namespace),
+	))
+	successVal := float64(0)
+	if success {
+		successVal = 1
+	}
+	s.Upsert(name, ProbeState{
+		Kind:                 kind,
+		Success:              successVal,
+		DurationMilliseconds: float64(durationMs),
+		LastRunTimestamp:     ts,
+	})
+}
+
+// RecordParseFailure increments the parse-failure counter for NATS messages.
+func (s *Store) RecordParseFailure(ctx context.Context) {
+	s.instr.resultsParseFailTotal.Add(ctx, 1)
 }
 
 func (s *Store) Upsert(name types.NamespacedName, state ProbeState) {

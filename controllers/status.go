@@ -3,17 +3,9 @@ package controllers
 import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
-	internalprobes "github.com/loks0n/synthetics-operator/internal/probes"
 )
-
-// ProbeScheduler is the scheduling interface controllers depend on.
-type ProbeScheduler interface {
-	Register(job internalprobes.Job)
-	Unregister(name types.NamespacedName)
-}
 
 func probeStatusChanged(beforeGen, afterGen int64, beforeConds, afterConds []metav1.Condition) bool {
 	if beforeGen != afterGen {

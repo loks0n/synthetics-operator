@@ -32,3 +32,12 @@ webhook:
   secretName: synthetics-webhook-certs
   validatingWebhookConfigurationName: synthetics-operator-validating-webhook-configuration
   mutatingWebhookConfigurationName: synthetics-operator-mutating-webhook-configuration
+
+nats:
+  enabled: false
+  image: nats:2.10-alpine
+  replicas: 1
+  resources: {}
+
+resultsWriter:
+  image: ""

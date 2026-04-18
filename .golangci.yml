@@ -22,6 +22,7 @@ linters:
     - exhaustive
     - exptostd
     - fatcontext
+    - forbidigo
     - gochecknoglobals
     - gocheckcompilerdirectives
     - gomodguard
@@ -119,6 +120,24 @@ linters:
           deny:
             - pkg: "github.com/loks0n/synthetics-operator/controllers"
               desc: "probes must not depend on controllers"
+        no_vague_packages:
+          files:
+            - "$all"
+          deny:
+            - pkg: ".*/util$"
+              desc: "Name the domain concept, not the utility."
+            - pkg: ".*/utils$"
+              desc: "Name the domain concept, not the utility."
+            - pkg: ".*/helpers?$"
+              desc: "Name the domain concept, not the helper."
+            - pkg: ".*/common$"
+              desc: "Move to a domain-specific package."
+            - pkg: ".*/misc$"
+              desc: "Move to a domain-specific package."
+    forbidigo:
+      forbid:
+        - pattern: '^.*[Hh]elpers?\.(New|Get|Make|Do|Run|Process|Handle).*$'
+          msg: "Call the domain operation directly, not via a generic helper."
     dupl:
       threshold: 100
     nestif:

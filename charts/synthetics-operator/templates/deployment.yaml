@@ -32,6 +32,9 @@ spec:
             - --webhook-secret-name={{ .Values.webhook.secretName }}
             - --validating-webhook-configuration={{ .Values.webhook.validatingWebhookConfigurationName }}
             - --mutating-webhook-configuration={{ .Values.webhook.mutatingWebhookConfigurationName }}
+            {{- if .Values.nats.enabled }}
+            - --nats-url=nats://{{ include "synthetics-operator.fullname" . }}-nats:4222
+            {{- end }}
           ports:
             - name: metrics
               containerPort: 8080
