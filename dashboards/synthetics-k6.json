@@ -1,0 +1,127 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [{
+    "title": "Overview",
+    "url": "/d/synthetics-overview",
+    "type": "link",
+    "icon": "arrow-left",
+    "targetBlank": false
+  }],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["synthetics"],
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": {"query": "label_values(synthetics_test_last_run_timestamp{kind=\"K6Test\"}, namespace)", "refId": "A"},
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "test",
+        "label": "Test",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": {"query": "label_values(synthetics_test_last_run_timestamp{namespace=\"$namespace\", kind=\"K6Test\"}, name)", "refId": "A"},
+        "refresh": 2,
+        "sort": 1
+      }
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["10s", "30s", "1m", "5m"]},
+  "timezone": "browser",
+  "title": "Synthetics / K6",
+  "uid": "synthetics-K6Test",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Status",
+      "description": "Last run result.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_test{namespace=\"$namespace\", kind=\"K6Test\", name=\"$test\"})"}],
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]},
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "FAIL", "color": "red", "index": 0}}},
+            {"type": "value", "options": {"1": {"text": "PASS", "color": "green", "index": 1}}}
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Last run",
+      "description": "How long ago the last result was recorded.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "targets": [{"refId": "A", "expr": "time() - max(synthetics_test_last_run_timestamp{namespace=\"$namespace\", kind=\"K6Test\", name=\"$test\"})"}],
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 600}, {"color": "red", "value": 1800}]}}}
+    },
+    {
+      "id": 3,
+      "title": "Duration",
+      "description": "Total wall-clock time of the last test run.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 12, "x": 12, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_test_duration_ms{namespace=\"$namespace\", kind=\"K6Test\", name=\"$test\"})"}],
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "ms", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 30000}, {"color": "red", "value": 120000}]}}}
+    },
+    {
+      "id": 4,
+      "title": "State history",
+      "description": "Pass/fail over the dashboard window.",
+      "type": "status-history",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 5},
+      "maxDataPoints": 200,
+      "targets": [{"refId": "A", "expr": "min by () (min_over_time(synthetics_test{namespace=\"$namespace\", kind=\"K6Test\", name=\"$test\"}[$__interval]))", "legendFormat": "$test", "interval": "$__interval"}],
+      "options": {"showValue": "never", "legend": {"displayMode": "list", "placement": "right", "showLegend": false}, "tooltip": {"mode": "single"}, "rowHeight": 0.85, "colWidth": 0.95},
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 1,
+          "mappings": [
+            {"type": "value", "options": {"0": {"color": "red", "text": "FAIL", "index": 0}}},
+            {"type": "value", "options": {"1": {"color": "green", "text": "OK", "index": 1}}}
+          ],
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Duration over time",
+      "description": "Wall-clock run time with week-over-week overlay.",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 11},
+      "targets": [
+        {"refId": "A", "expr": "synthetics_test_duration_ms{namespace=\"$namespace\", kind=\"K6Test\", name=\"$test\"}", "legendFormat": "now"},
+        {"refId": "B", "expr": "synthetics_test_duration_ms{namespace=\"$namespace\", kind=\"K6Test\", name=\"$test\"} offset 1w", "legendFormat": "1w ago"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "ms", "custom": {"fillOpacity": 15, "lineInterpolation": "smooth", "showPoints": "never"}, "color": {"mode": "palette-classic"}},
+        "overrides": [{"matcher": {"id": "byName", "options": "1w ago"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "gray"}}, {"id": "custom.lineStyle", "value": {"fill": "dash"}}, {"id": "custom.fillOpacity", "value": 0}]}]
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    }
+  ]
+}

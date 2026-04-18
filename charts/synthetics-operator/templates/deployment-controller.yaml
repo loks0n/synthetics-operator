@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "synthetics-operator.fullname" . }}
+  name: {{ include "synthetics-operator.fullname" . }}-controller
 spec:
   replicas: {{ .Values.controller.replicaCount }}
   selector:
@@ -46,5 +46,7 @@ spec:
           ports:
             - name: healthz
               containerPort: 8081
+            - name: metrics
+              containerPort: 8082
           resources:
 {{ toYaml .Values.controller.resources | indent 12 }}

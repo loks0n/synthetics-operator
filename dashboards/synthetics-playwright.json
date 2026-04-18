@@ -1,0 +1,239 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [{
+    "title": "Overview",
+    "url": "/d/synthetics-overview",
+    "type": "link",
+    "icon": "arrow-left",
+    "targetBlank": false
+  }],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["synthetics"],
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": {"query": "label_values(synthetics_test_last_run_timestamp{kind=\"PlaywrightTest\"}, namespace)", "refId": "A"},
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "test",
+        "label": "Test",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": {"query": "label_values(synthetics_test_last_run_timestamp{namespace=\"$namespace\", kind=\"PlaywrightTest\"}, name)", "refId": "A"},
+        "refresh": 2,
+        "sort": 1
+      }
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["10s", "30s", "1m", "5m"]},
+  "timezone": "browser",
+  "title": "Synthetics / Playwright",
+  "uid": "synthetics-PlaywrightTest",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Status",
+      "description": "Last run result.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 5, "x": 0, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_test{namespace=\"$namespace\", kind=\"PlaywrightTest\", name=\"$test\"})"}],
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]},
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "FAIL", "color": "red", "index": 0}}},
+            {"type": "value", "options": {"1": {"text": "PASS", "color": "green", "index": 1}}}
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Last run",
+      "description": "How long ago the last result was recorded.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 5, "x": 5, "y": 0},
+      "targets": [{"refId": "A", "expr": "time() - max(synthetics_test_last_run_timestamp{namespace=\"$namespace\", kind=\"PlaywrightTest\", name=\"$test\"})"}],
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 600}, {"color": "red", "value": 1800}]}}}
+    },
+    {
+      "id": 3,
+      "title": "Duration",
+      "description": "Total wall-clock time of the last test run.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 10, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_test_duration_ms{namespace=\"$namespace\", kind=\"PlaywrightTest\", name=\"$test\"})"}],
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "ms", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 30000}, {"color": "red", "value": 120000}]}}}
+    },
+    {
+      "id": 4,
+      "title": "Cases passed",
+      "description": "Count of test cases passing in the last run.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 4, "x": 16, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_test_playwright_cases_passed{namespace=\"$namespace\", name=\"$test\"})"}],
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "fixed", "fixedColor": "green"}}}
+    },
+    {
+      "id": 5,
+      "title": "Cases failed",
+      "description": "Count of test cases failing in the last run.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 4, "x": 20, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_test_playwright_cases_failed{namespace=\"$namespace\", name=\"$test\"})"}],
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
+    },
+    {
+      "id": 6,
+      "title": "State history",
+      "description": "Pass/fail over the dashboard window. CronJob cadence limits resolution to the test interval.",
+      "type": "status-history",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 5},
+      "maxDataPoints": 200,
+      "targets": [{"refId": "A", "expr": "min by () (min_over_time(synthetics_test{namespace=\"$namespace\", kind=\"PlaywrightTest\", name=\"$test\"}[$__interval]))", "legendFormat": "$test", "interval": "$__interval"}],
+      "options": {"showValue": "never", "legend": {"displayMode": "list", "placement": "right", "showLegend": false}, "tooltip": {"mode": "single"}, "rowHeight": 0.85, "colWidth": 0.95},
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 1,
+          "mappings": [
+            {"type": "value", "options": {"0": {"color": "red", "text": "FAIL", "index": 0}}},
+            {"type": "value", "options": {"1": {"color": "green", "text": "OK", "index": 1}}}
+          ],
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Duration over time",
+      "description": "Wall-clock run time with week-over-week overlay.",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 11},
+      "targets": [
+        {"refId": "A", "expr": "synthetics_test_duration_ms{namespace=\"$namespace\", kind=\"PlaywrightTest\", name=\"$test\"}", "legendFormat": "now"},
+        {"refId": "B", "expr": "synthetics_test_duration_ms{namespace=\"$namespace\", kind=\"PlaywrightTest\", name=\"$test\"} offset 1w", "legendFormat": "1w ago"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "ms", "custom": {"fillOpacity": 15, "lineInterpolation": "smooth", "showPoints": "never"}, "color": {"mode": "palette-classic"}},
+        "overrides": [{"matcher": {"id": "byName", "options": "1w ago"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "gray"}}, {"id": "custom.lineStyle", "value": {"fill": "dash"}}, {"id": "custom.fillOpacity", "value": 0}]}]
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 8,
+      "title": "Cases passing / failing",
+      "description": "Playwright case counts per run.",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 11},
+      "targets": [
+        {"refId": "A", "expr": "synthetics_test_playwright_cases_passed{namespace=\"$namespace\", name=\"$test\"}", "legendFormat": "passed"},
+        {"refId": "B", "expr": "synthetics_test_playwright_cases_failed{namespace=\"$namespace\", name=\"$test\"}", "legendFormat": "failed"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short", "min": 0, "custom": {"fillOpacity": 25, "lineInterpolation": "stepAfter", "showPoints": "never", "stacking": {"mode": "normal", "group": "A"}}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "passed"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]},
+          {"matcher": {"id": "byName", "options": "failed"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}
+        ]
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 9,
+      "title": "Per-case pass/fail",
+      "description": "Status ribbon per test case.",
+      "type": "status-history",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 20},
+      "maxDataPoints": 120,
+      "targets": [{"refId": "A", "expr": "min by (suite, test) (min_over_time(synthetics_test_playwright_case_passed{namespace=\"$namespace\", name=\"$test\"}[$__interval]))", "legendFormat": "{{suite}} — {{test}}", "interval": "$__interval"}],
+      "options": {"showValue": "never", "legend": {"displayMode": "table", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single"}, "rowHeight": 0.85, "colWidth": 0.95},
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 1,
+          "mappings": [
+            {"type": "value", "options": {"0": {"color": "red", "text": "FAIL", "index": 0}}},
+            {"type": "value", "options": {"1": {"color": "green", "text": "OK", "index": 1}}}
+          ],
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Per-case duration",
+      "description": "How long each test case took.",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 20},
+      "targets": [{"refId": "A", "expr": "synthetics_test_playwright_case_duration_ms{namespace=\"$namespace\", name=\"$test\"}", "legendFormat": "{{suite}} — {{test}}"}],
+      "fieldConfig": {"defaults": {"unit": "ms", "custom": {"fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never"}, "color": {"mode": "palette-classic"}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 11,
+      "title": "Cases — latest run",
+      "description": "Pass/fail and last-run duration per case.",
+      "type": "table",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 30},
+      "targets": [
+        {"refId": "A", "expr": "synthetics_test_playwright_case_duration_ms{namespace=\"$namespace\", name=\"$test\"}", "format": "table", "instant": true},
+        {"refId": "B", "expr": "synthetics_test_playwright_case_passed{namespace=\"$namespace\", name=\"$test\"}", "format": "table", "instant": true}
+      ],
+      "transformations": [
+        {"id": "joinByField", "options": {"byField": "test", "mode": "outer"}},
+        {"id": "filterFieldsByName", "options": {"include": {"names": ["suite 1", "test", "Value #A", "Value #B"]}}},
+        {"id": "organize", "options": {"renameByName": {"suite 1": "suite", "Value #A": "duration_ms", "Value #B": "passed"}, "indexByName": {"suite 1": 0, "test": 1, "Value #B": 2, "Value #A": 3}}}
+      ],
+      "options": {"showHeader": true, "sortBy": [{"displayName": "passed", "desc": false}]},
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "left"}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "passed"}, "properties": [
+            {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "basic"}},
+            {"id": "mappings", "value": [
+              {"type": "value", "options": {"0": {"color": "red", "text": "FAIL", "index": 0}}},
+              {"type": "value", "options": {"1": {"color": "green", "text": "PASS", "index": 1}}}
+            ]}
+          ]},
+          {"matcher": {"id": "byName", "options": "duration_ms"}, "properties": [
+            {"id": "unit", "value": "ms"},
+            {"id": "custom.cellOptions", "value": {"type": "color-text"}},
+            {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null}, {"color": "yellow", "value": 3000}, {"color": "red", "value": 10000}
+            ]}}
+          ]}
+        ]
+      }
+    }
+  ]
+}

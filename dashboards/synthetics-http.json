@@ -1,0 +1,233 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [{
+    "title": "Overview",
+    "url": "/d/synthetics-overview",
+    "type": "link",
+    "icon": "arrow-left",
+    "targetBlank": false
+  }],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["synthetics"],
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": {"query": "label_values(synthetics_probe_last_run_timestamp{kind=\"HTTPProbe\"}, namespace)", "refId": "A"},
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "probe",
+        "label": "Probe",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": {"query": "label_values(synthetics_probe_last_run_timestamp{namespace=\"$namespace\", kind=\"HTTPProbe\"}, name)", "refId": "A"},
+        "refresh": 2,
+        "sort": 1
+      }
+    ]
+  },
+  "time": {"from": "now-3h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["10s", "30s", "1m", "5m"]},
+  "timezone": "browser",
+  "title": "Synthetics / HTTP",
+  "uid": "synthetics-HTTPProbe",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Status",
+      "description": "Last run result.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 4, "x": 0, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_probe{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"})"}],
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]},
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "FAIL", "color": "red", "index": 0}}},
+            {"type": "value", "options": {"1": {"text": "PASS", "color": "green", "index": 1}}}
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Failed assertion",
+      "description": "Which named assertion produced the failure, if any.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 4, "y": 0},
+      "targets": [{"refId": "A", "expr": "synthetics_probe_result_info{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"}", "format": "table", "instant": true}],
+      "transformations": [
+        {"id": "organize", "options": {"renameByName": {"failed_assertion": "Failed assertion"}}},
+        {"id": "filterFieldsByName", "options": {"include": {"names": ["Failed assertion"]}}}
+      ],
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/"}},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "text"}, "noValue": "—"}}
+    },
+    {
+      "id": 3,
+      "title": "Last run",
+      "description": "How long ago the last result was recorded.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 4, "x": 10, "y": 0},
+      "targets": [{"refId": "A", "expr": "time() - max(synthetics_probe_last_run_timestamp{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"})"}],
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 120}, {"color": "red", "value": 600}]}}}
+    },
+    {
+      "id": 4,
+      "title": "Duration",
+      "description": "Duration of the last probe run.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 4, "x": 14, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_probe_duration_ms{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"})"}],
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "ms", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1000}, {"color": "red", "value": 5000}]}}}
+    },
+    {
+      "id": 5,
+      "title": "TLS expiry",
+      "description": "Days until the served TLS certificate expires. HTTPS probes only.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "targets": [{"refId": "A", "expr": "(max(synthetics_probe_tls_cert_expiry_timestamp_seconds{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"}) - time()) / 86400"}],
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "d", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 7}, {"color": "yellow", "value": 30}, {"color": "green", "value": 90}]}, "noValue": "—"}}
+    },
+    {
+      "id": 6,
+      "title": "State history",
+      "description": "Pass/fail over the dashboard window. Any failure inside a bucket marks it red.",
+      "type": "status-history",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 5},
+      "maxDataPoints": 200,
+      "targets": [{"refId": "A", "expr": "min by () (min_over_time(synthetics_probe{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"}[$__interval]))", "legendFormat": "$probe", "interval": "$__interval"}],
+      "options": {"showValue": "never", "legend": {"displayMode": "list", "placement": "right", "showLegend": false}, "tooltip": {"mode": "single"}, "rowHeight": 0.85, "colWidth": 0.95},
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 1,
+          "mappings": [
+            {"type": "value", "options": {"0": {"color": "red", "text": "FAIL", "index": 0}}},
+            {"type": "value", "options": {"1": {"color": "green", "text": "OK", "index": 1}}}
+          ],
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Duration over time",
+      "description": "Probe duration with week-over-week overlay.",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 11},
+      "targets": [
+        {"refId": "A", "expr": "synthetics_probe_duration_ms{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"}", "legendFormat": "now"},
+        {"refId": "B", "expr": "synthetics_probe_duration_ms{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"} offset 1w", "legendFormat": "1w ago"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "ms", "custom": {"fillOpacity": 15, "lineInterpolation": "smooth", "showPoints": "never"}, "color": {"mode": "palette-classic"}},
+        "overrides": [{"matcher": {"id": "byName", "options": "1w ago"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "gray"}}, {"id": "custom.lineStyle", "value": {"fill": "dash"}}, {"id": "custom.fillOpacity", "value": 0}]}]
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 8,
+      "title": "Assertions",
+      "description": "Pass/fail per named assertion, with expression.",
+      "type": "status-history",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 11},
+      "maxDataPoints": 200,
+      "targets": [{"refId": "A", "expr": "min by (assertion, expr) (min_over_time(synthetics_probe_assertion_result{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"}[$__interval]))", "legendFormat": "{{assertion}} — {{expr}}", "interval": "$__interval"}],
+      "options": {"showValue": "auto", "legend": {"displayMode": "table", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single"}, "rowHeight": 0.8, "colWidth": 0.95},
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 1,
+          "mappings": [
+            {"type": "value", "options": {"0": {"color": "red", "text": "FAIL", "index": 0}}},
+            {"type": "value", "options": {"1": {"color": "green", "text": "OK", "index": 1}}}
+          ],
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Phase breakdown",
+      "description": "Time spent in each HTTP phase. DNS = local resolution, TLS = handshake, processing = server think time, transfer = body download.",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 20},
+      "targets": [{"refId": "A", "expr": "synthetics_probe_http_phase_duration_ms{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"}", "legendFormat": "{{phase}}"}],
+      "fieldConfig": {
+        "defaults": {"unit": "ms", "custom": {"fillOpacity": 40, "lineInterpolation": "smooth", "showPoints": "never", "stacking": {"mode": "normal", "group": "A"}}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "dns"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "purple"}}]},
+          {"matcher": {"id": "byName", "options": "connect"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}]},
+          {"matcher": {"id": "byName", "options": "tls"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
+          {"matcher": {"id": "byName", "options": "processing"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]},
+          {"matcher": {"id": "byName", "options": "transfer"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]}
+        ]
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"]}}
+    },
+    {
+      "id": 10,
+      "title": "Status code",
+      "description": "HTTP response status over time.",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 20},
+      "targets": [{"refId": "A", "expr": "synthetics_probe_http_status_code{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"}", "legendFormat": "status"}],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0, "max": 600,
+          "custom": {"lineInterpolation": "stepAfter", "fillOpacity": 20, "showPoints": "always"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 300}, {"color": "red", "value": 400}, {"color": "dark-red", "value": 500}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 11,
+      "title": "HTTP info",
+      "description": "Request method + negotiated HTTP version for this probe.",
+      "type": "table",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 24, "x": 0, "y": 29},
+      "targets": [{
+        "refId": "A",
+        "expr": "synthetics_probe_http_version{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"} * on (namespace, kind, name) group_left (method) synthetics_probe_http_info{namespace=\"$namespace\", kind=\"HTTPProbe\", name=\"$probe\"}",
+        "format": "table",
+        "instant": true
+      }],
+      "transformations": [
+        {"id": "filterFieldsByName", "options": {"include": {"names": ["method", "url", "Value"]}}},
+        {"id": "organize", "options": {"renameByName": {"Value": "http_version"}, "indexByName": {"method": 0, "url": 1, "http_version": 2}}}
+      ],
+      "options": {"showHeader": true},
+      "fieldConfig": {"defaults": {"custom": {"align": "left"}}}
+    }
+  ]
+}

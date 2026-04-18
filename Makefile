@@ -17,7 +17,7 @@ KIND_CLUSTER ?= synthetics-dev
 
 .PHONY: tools generate lint test test-envtest helm-lint helm-template \
         ko-build-local ko-build-controller-local ko-build-webhook-local \
-        ko-build-probe-worker-local ko-build-metrics-local \
+        ko-build-prober-local ko-build-metrics-local \
         ko-build-test-sidecar-local ko-build-k6-runner-local docker-build-playwright-runner-local \
         kind-create kind-delete dev
 
@@ -57,7 +57,7 @@ kind-delete:
 dev: tools kind-create
 	tilt up
 
-ko-build-local: ko-build-controller-local ko-build-webhook-local ko-build-probe-worker-local ko-build-metrics-local
+ko-build-local: ko-build-controller-local ko-build-webhook-local ko-build-prober-local ko-build-metrics-local
 
 ko-build-controller-local:
 	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
@@ -67,9 +67,9 @@ ko-build-webhook-local:
 	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
 	@KO_DOCKER_REPO=ko.local/synthetics-operator-webhook $(TOOLS_BIN)/ko build --bare ./cmd/webhook
 
-ko-build-probe-worker-local:
+ko-build-prober-local:
 	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
-	@KO_DOCKER_REPO=ko.local/synthetics-operator-probe-worker $(TOOLS_BIN)/ko build --bare ./cmd/probe-worker
+	@KO_DOCKER_REPO=ko.local/synthetics-operator-prober $(TOOLS_BIN)/ko build --bare ./cmd/prober
 
 ko-build-metrics-local:
 	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
@@ -87,7 +87,7 @@ docker-build-playwright-runner-local:
 	@docker build -t ko.local/synthetics-playwright-runner ./images/playwright-runner
 
 dashboard-configmaps: ## Regenerate hack/dashboard-configmaps.yaml from dashboards/*.json
-	@for entry in "synthetics-overview-dashboard:synthetics-overview.json" "synthetics-http-probe-dashboard:http-probe.json" "synthetics-dns-probe-dashboard:dns-probe.json" "synthetics-playwright-tests-dashboard:playwright-tests.json"; do \
+	@for entry in "synthetics-overview-dashboard:synthetics-overview.json" "synthetics-http-dashboard:synthetics-http.json" "synthetics-dns-dashboard:synthetics-dns.json" "synthetics-playwright-dashboard:synthetics-playwright.json" "synthetics-k6-dashboard:synthetics-k6.json"; do \
 		name=$$(echo $$entry | cut -d: -f1); \
 		file=$$(echo $$entry | cut -d: -f2); \
 		echo "---"; \

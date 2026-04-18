@@ -19,11 +19,39 @@ spec:
       containers:
         - name: nats
           image: {{ .Values.nats.image | quote }}
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          # Override the stock image defaults (cluster `my_cluster`, random
+          # server name) with legible values. Bypasses the built-in config
+          # file — only flag-settable options live here, so we accept NATS's
+          # built-in defaults for the rest (no JetStream, no auth, 1MB max
+          # payload). For anything larger, switch to nats.externalUrl and
+          # run NATS with a real config file.
+          args:
+            - --name=$(POD_NAME)
+            - --cluster_name={{ .Values.nats.clusterName }}
+            - --port=4222
+            - --http_port=8222
           ports:
             - name: client
               containerPort: 4222
             - name: monitor
               containerPort: 8222
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: monitor
+            periodSeconds: 10
+            failureThreshold: 3
           resources:
 {{ toYaml .Values.nats.resources | indent 12 }}
 {{- end }}

@@ -68,7 +68,7 @@ func run(name, namespace string) error {
 	if jsonErr != nil {
 		return fmt.Errorf("marshalling result: %w", jsonErr)
 	}
-	if writeErr := os.WriteFile(outputFile, data, 0o600); writeErr != nil {
+	if writeErr := os.WriteFile(outputFile, data, 0o644); writeErr != nil {
 		return fmt.Errorf("writing result: %w", writeErr)
 	}
 

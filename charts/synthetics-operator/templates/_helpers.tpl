@@ -27,7 +27,7 @@ Precedence: .image.ref > printf "%s:%s" .image.repository .image.tag.
 {{- if .Values.controller.serviceAccount.name -}}
 {{ .Values.controller.serviceAccount.name }}
 {{- else -}}
-{{ include "synthetics-operator.fullname" . }}
+{{ include "synthetics-operator.fullname" . }}-controller
 {{- end -}}
 {{- end -}}
 

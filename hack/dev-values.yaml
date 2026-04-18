@@ -15,9 +15,9 @@ webhook:
   # No priority class needed in the local dev cluster.
   priorityClassName: ""
 
-probeWorker:
+prober:
   image:
-    repository: ko.local/synthetics-operator-probe-worker
+    repository: ko.local/synthetics-operator-prober
     tag: latest
     pullPolicy: Never
 
@@ -26,3 +26,18 @@ metrics:
     repository: ko.local/synthetics-operator-metrics
     tag: latest
     pullPolicy: Never
+
+# In-chart NATS so Playwright/K6 CronJob sidecars and the operator's own
+# consumer have a bus to talk over without needing an external one.
+nats:
+  enabled: true
+
+# Runner images for CronJob-backed tests. Tagged :dev (not :latest) so
+# kubelet uses pullPolicy: IfNotPresent and doesn't try to pull from the
+# fake ko.local registry.
+testSidecar:
+  image: ko.local/synthetics-test-sidecar:dev
+k6Runner:
+  image: ko.local/synthetics-k6-runner:dev
+playwrightRunner:
+  image: ko.local/synthetics-playwright-runner:dev

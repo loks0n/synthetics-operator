@@ -101,7 +101,7 @@ func (c *Client) SubscribeSpecs(ctx context.Context, handler func(context.Contex
 // SubscribeProbeJobs is a queue-group subscription (each job delivered to
 // exactly one worker in the group). Runs until ctx is cancelled.
 func (c *Client) SubscribeProbeJobs(ctx context.Context, handler func(context.Context, results.ProbeJob)) error {
-	return subscribeJSON(ctx, c, results.SubjectProbeJobs, results.ProbeWorkerQueue, handler)
+	return subscribeJSON(ctx, c, results.SubjectProbeJobs, results.ProberQueue, handler)
 }
 
 // SubscribeProbeResults delivers every ProbeResult to handler.

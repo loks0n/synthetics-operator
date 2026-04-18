@@ -1,7 +1,7 @@
 // Command controller runs the reconciler, scheduler, and transition-event
 // notifier. Watches the four CRDs, publishes spec snapshots + probe jobs to
 // NATS. Does not execute probes or serve /metrics — those live in the
-// probe-worker and metrics binaries.
+// prober and metrics binaries.
 package main
 
 import (
@@ -114,7 +114,7 @@ func run(
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "synthetics-operator.synthetics.dev",
 		HealthProbeBindAddress: ":8081",
-		Metrics:                metricsserver.Options{BindAddress: "0"},
+		Metrics:                metricsserver.Options{BindAddress: ":8082"},
 	})
 	if err != nil {
 		return fmt.Errorf("creating manager: %w", err)

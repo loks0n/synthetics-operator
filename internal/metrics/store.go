@@ -92,6 +92,7 @@ type TestState struct {
 type instruments struct {
 	// Probe family — HTTPProbe, DNSProbe
 	probeGauge               apimetric.Float64ObservableGauge
+	probeResultInfo          apimetric.Float64ObservableGauge
 	probeSuppressedGauge     apimetric.Float64ObservableGauge
 	probeDurationGauge       apimetric.Float64ObservableGauge
 	probeLastRunGauge        apimetric.Float64ObservableGauge
@@ -109,6 +110,7 @@ type instruments struct {
 	dnsAdditionalCountGauge  apimetric.Float64ObservableGauge
 	// Test family — K6Test, PlaywrightTest
 	testGauge                apimetric.Float64ObservableGauge
+	testResultInfo           apimetric.Float64ObservableGauge
 	testSuppressedGauge      apimetric.Float64ObservableGauge
 	testDurationGauge        apimetric.Float64ObservableGauge
 	testLastRunGauge         apimetric.Float64ObservableGauge
@@ -202,7 +204,11 @@ func newInstruments(meter apimetric.Meter) (instruments, error) {
 
 	// Probe family
 	if instr.probeGauge, err = meter.Float64ObservableGauge("synthetics_probe",
-		apimetric.WithDescription("Probe pass (1) / fail (0) for the last run. `result` label names the outcome.")); err != nil {
+		apimetric.WithDescription("Probe pass (1) / fail (0) for the last run. For the classification of the outcome, join against synthetics_probe_result_info.")); err != nil {
+		return instr, err
+	}
+	if instr.probeResultInfo, err = meter.Float64ObservableGauge("synthetics_probe_result_info",
+		apimetric.WithDescription("Info gauge (always 1) carrying the current result + failed_assertion labels for each probe. Designed to be joined with synthetics_probe; only the current result/assertion combination is emitted.")); err != nil {
 		return instr, err
 	}
 	if instr.probeSuppressedGauge, err = meter.Float64ObservableGauge("synthetics_probe_suppressed",
@@ -256,7 +262,11 @@ func newInstruments(meter apimetric.Meter) (instruments, error) {
 
 	// Test family
 	if instr.testGauge, err = meter.Float64ObservableGauge("synthetics_test",
-		apimetric.WithDescription("Test pass (1) / fail (0) for the last run. `result` label names the outcome.")); err != nil {
+		apimetric.WithDescription("Test pass (1) / fail (0) for the last run. For the classification of the outcome, join against synthetics_test_result_info.")); err != nil {
+		return instr, err
+	}
+	if instr.testResultInfo, err = meter.Float64ObservableGauge("synthetics_test_result_info",
+		apimetric.WithDescription("Info gauge (always 1) carrying the current result label for each test. Designed to be joined with synthetics_test; only the current result is emitted.")); err != nil {
 		return instr, err
 	}
 	if instr.testSuppressedGauge, err = meter.Float64ObservableGauge("synthetics_test_suppressed",
@@ -316,13 +326,15 @@ func (s *Store) registerCallback(meter apimetric.Meter) error {
 		return nil
 	},
 		// Probe family instruments
-		instr.probeGauge, instr.probeSuppressedGauge, instr.probeDurationGauge, instr.probeLastRunGauge,
+		instr.probeGauge, instr.probeResultInfo, instr.probeSuppressedGauge,
+		instr.probeDurationGauge, instr.probeLastRunGauge,
 		instr.tlsCertExpiryGauge, instr.httpStatusCodeGauge, instr.httpVersionGauge,
 		instr.httpPhaseDurationGauge, instr.httpInfoGauge, instr.assertionResultGauge,
 		instr.dnsResponseMsGauge, instr.dnsFirstAnswerValueGauge, instr.dnsFirstAnswerTypeGauge,
 		instr.dnsAnswerCountGauge, instr.dnsAuthorityCountGauge, instr.dnsAdditionalCountGauge,
 		// Test family instruments
-		instr.testGauge, instr.testSuppressedGauge, instr.testDurationGauge, instr.testLastRunGauge,
+		instr.testGauge, instr.testResultInfo, instr.testSuppressedGauge,
+		instr.testDurationGauge, instr.testLastRunGauge,
 		instr.playwrightCasePassed, instr.playwrightCaseDurationMs,
 		instr.playwrightCasesTotal, instr.playwrightCasesPassed, instr.playwrightCasesFailed,
 	)
@@ -344,11 +356,12 @@ func (s *Store) observeProbe(observer apimetric.Observer, name types.NamespacedN
 	}
 	attrs = append(attrs, s.userLabelsLocked(kind, name)...)
 
-	upAttrs := append(attrs,
-		attribute.String("result", string(state.Result)),
-		attribute.String("failed_assertion", state.FailedAssertion),
-	)
-	observer.ObserveFloat64(instr.probeGauge, state.Result.successValue(), apimetric.WithAttributes(upAttrs...))
+	observer.ObserveFloat64(instr.probeGauge, state.Result.successValue(), apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.probeResultInfo, 1, apimetric.WithAttributes(
+		append(attrs,
+			attribute.String("result", string(state.Result)),
+			attribute.String("failed_assertion", state.FailedAssertion),
+		)...))
 	observer.ObserveFloat64(instr.probeDurationGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
 	observer.ObserveFloat64(instr.probeLastRunGauge, state.LastRunTimestamp, apimetric.WithAttributes(attrs...))
 
@@ -421,8 +434,9 @@ func (s *Store) observeTest(observer apimetric.Observer, name types.NamespacedNa
 	}
 	attrs = append(attrs, s.userLabelsLocked(state.Kind, name)...)
 
-	upAttrs := append(attrs, attribute.String("result", string(state.Result)))
-	observer.ObserveFloat64(instr.testGauge, state.Result.successValue(), apimetric.WithAttributes(upAttrs...))
+	observer.ObserveFloat64(instr.testGauge, state.Result.successValue(), apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.testResultInfo, 1, apimetric.WithAttributes(
+		append(attrs, attribute.String("result", string(state.Result)))...))
 	observer.ObserveFloat64(instr.testDurationGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
 	observer.ObserveFloat64(instr.testLastRunGauge, state.LastRunTimestamp, apimetric.WithAttributes(attrs...))
 

@@ -8,7 +8,7 @@ allow_k8s_contexts('kind-synthetics-dev')
 COMPONENTS = [
     ('controller', 'ko.local/synthetics-operator-controller'),
     ('webhook', 'ko.local/synthetics-operator-webhook'),
-    ('probe-worker', 'ko.local/synthetics-operator-probe-worker'),
+    ('prober', 'ko.local/synthetics-operator-prober'),
     ('metrics', 'ko.local/synthetics-operator-metrics'),
 ]
 
@@ -48,18 +48,18 @@ k8s_yaml(helm(
     values=['hack/dev-values.yaml'],
 ))
 
-# Forward the metrics endpoint so you can curl http://localhost:8080/metrics.
-# objects pulls the namespace (applied separately from the Helm chart) into this resource group.
 k8s_resource(
-    'synthetics-operator',
+    'synthetics-operator-controller',
     labels=['operator'],
     objects=[
         'synthetics-system:namespace',
         'httpprobes.synthetics.dev:customresourcedefinition',
         'dnsprobes.synthetics.dev:customresourcedefinition',
-        'synthetics-operator:clusterrole',
-        'synthetics-operator:clusterrolebinding',
-        'synthetics-operator:serviceaccount',
+        'k6tests.synthetics.dev:customresourcedefinition',
+        'playwrighttests.synthetics.dev:customresourcedefinition',
+        'synthetics-operator-controller:clusterrole',
+        'synthetics-operator-controller:clusterrolebinding',
+        'synthetics-operator-controller:serviceaccount',
         'synthetics-operator-mutating-webhook-configuration:mutatingwebhookconfiguration',
         'synthetics-operator-validating-webhook-configuration:validatingwebhookconfiguration',
     ],
@@ -77,10 +77,10 @@ k8s_resource(
 )
 
 k8s_resource(
-    'synthetics-operator-probe-worker',
+    'synthetics-operator-prober',
     labels=['operator'],
     objects=[
-        'synthetics-operator-probe-worker:serviceaccount',
+        'synthetics-operator-prober:serviceaccount',
     ],
 )
 
@@ -177,8 +177,10 @@ k8s_resource(
     objects=[
         'monitoring:namespace',
         'synthetics-overview-dashboard:configmap:monitoring',
-        'synthetics-http-probe-dashboard:configmap:monitoring',
-        'synthetics-dns-probe-dashboard:configmap:monitoring',
+        'synthetics-http-dashboard:configmap:monitoring',
+        'synthetics-dns-dashboard:configmap:monitoring',
+        'synthetics-playwright-dashboard:configmap:monitoring',
+        'synthetics-k6-dashboard:configmap:monitoring',
     ],
     labels=['monitoring'],
 )

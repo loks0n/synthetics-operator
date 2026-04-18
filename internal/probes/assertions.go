@@ -75,7 +75,7 @@ func outcomeFromOK(ok bool) string {
 
 // EvalHTTPAssertions evaluates HTTP probe assertions against the raw Result.
 // Returns the outcome result-class string, the failing assertion name (if
-// any), and the per-assertion results. Used by the probe-worker.
+// any), and the per-assertion results. Used by the prober.
 func EvalHTTPAssertions(r Result, assertions []v1alpha1.Assertion) (string, string, []results.AssertionResult) {
 	sslExpiryDays := float64(-1)
 	if r.CertExpiryTime != nil {

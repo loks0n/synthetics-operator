@@ -1,5 +1,4 @@
 # prometheus-community/prometheus values for local dev.
-# Scrapes the synthetics-operator metrics endpoint via a static job.
 
 alertmanager:
   enabled: false
@@ -20,16 +19,46 @@ server:
       memory: 256Mi
   retention: 24h
 
-# Static scrape job for the synthetics operator.
-# The operator exposes /metrics on port 8080 via the webhook service.
+# Scrape strategy:
+#
+#   1. synthetics-operator-metrics: scrape the Service, not individual pods.
+#      Every metrics replica subscribes independently to NATS and emits the
+#      same synthetics_probe_* / synthetics_test_* series; scraping all
+#      replicas would multiply counts by replica count. The Service round-
+#      robins to a single replica per scrape, keeping cardinality honest.
+#
+#   2. synthetics-operator-runtime: scrape the controller / webhook / prober
+#      pods directly for controller_runtime_* + go_* metrics. These are
+#      per-pod (workqueue depth, reconcile rate, heap) so per-pod cardinality
+#      is what we actually want.
 serverFiles:
   prometheus.yml:
     scrape_configs:
-      - job_name: synthetics-operator
+      - job_name: synthetics-operator-metrics
         scrape_interval: 15s
         static_configs:
           - targets:
-              - synthetics-operator-webhook-service.synthetics-system.svc.cluster.local:8080
+              - synthetics-operator-metrics.synthetics-system.svc.cluster.local:8080
+      - job_name: synthetics-operator-runtime
+        scrape_interval: 15s
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [synthetics-system]
+        relabel_configs:
+          # Port named `metrics`, but skip the metrics deployment — that one
+          # is scraped via the Service above. This leaves controller / webhook
+          # / prober (port 8082) in the target list.
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            regex: metrics
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            regex: metrics
+            action: drop
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            target_label: component
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
       # Scrape OTLP metrics forwarded through the OTel collector.
       - job_name: otel-collector
         scrape_interval: 15s

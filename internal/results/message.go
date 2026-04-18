@@ -1,10 +1,10 @@
 // Package results defines the JSON wire types carried over NATS between the
-// three Phase-14 deployments: controller, probe-worker, and metrics.
+// four deployments: controller, webhook, prober, and metrics.
 //
 // Subjects:
-//   - synthetics.specs            — controller → probe-worker + metrics
-//   - synthetics.probes.jobs      — controller scheduler → probe-worker (queue group)
-//   - synthetics.probes.results   — probe-worker → metrics
+//   - synthetics.specs            — controller → prober + metrics
+//   - synthetics.probes.jobs      — controller scheduler → prober (queue group)
+//   - synthetics.probes.results   — prober → metrics
 //   - synthetics.tests.results    — test-sidecar (CronJob pod) → metrics
 package results
 
@@ -17,7 +17,7 @@ const (
 	SubjectProbeJobs    = "synthetics.probes.jobs"
 	SubjectProbeResults = "synthetics.probes.results"
 	SubjectTestResults  = "synthetics.tests.results"
-	ProbeWorkerQueue    = "synthetics-probe-workers"
+	ProberQueue         = "synthetics-probers"
 )
 
 // Kind identifies the CRD type that produced a result. Values match the
@@ -47,7 +47,7 @@ type Assertion struct {
 	Expr string `json:"expr"`
 }
 
-// HTTPProbeSpecPayload carries everything a probe-worker needs to execute
+// HTTPProbeSpecPayload carries everything a prober needs to execute
 // an HTTPProbe. It's a subset of api/v1alpha1.HTTPProbeSpec deliberately —
 // workers don't need status or metadata.
 type HTTPProbeSpecPayload struct {
@@ -66,7 +66,7 @@ type TLSConfig struct {
 	CACert             string `json:"caCert,omitempty"`
 }
 
-// DNSProbeSpecPayload carries everything a probe-worker needs to execute a
+// DNSProbeSpecPayload carries everything a prober needs to execute a
 // DNSProbe.
 type DNSProbeSpecPayload struct {
 	TimeoutMs  int64       `json:"timeoutMs"`
@@ -100,7 +100,7 @@ type SpecUpdate struct {
 }
 
 // ProbeJob is published by the controller's scheduler on each scheduled
-// tick. Workers pull from a NATS queue group (`ProbeWorkerQueue`) so each
+// tick. Workers pull from a NATS queue group (`ProberQueue`) so each
 // job is handled by exactly one worker. The job is deliberately thin — the
 // worker resolves the rest from its spec cache.
 type ProbeJob struct {
@@ -119,7 +119,7 @@ type AssertionResult struct {
 	Result float64 `json:"result"`
 }
 
-// ProbeResult is published by probe-workers after each execution. Carries
+// ProbeResult is published by probers after each execution. Carries
 // everything the metrics consumer needs to emit the probe's metric family —
 // result class, duration, HTTP/DNS telemetry, per-assertion results.
 //

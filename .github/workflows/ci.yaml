@@ -141,12 +141,12 @@ jobs:
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           docker save "$IMAGE" -o /tmp/webhook-image.tar
 
-      - name: Build probe-worker image
-        id: build-probe-worker
+      - name: Build prober image
+        id: build-prober
         run: |
-          IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-probe-worker ko build --local --bare ./cmd/probe-worker)
+          IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-prober ko build --local --bare ./cmd/prober)
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-          docker save "$IMAGE" -o /tmp/probe-worker-image.tar
+          docker save "$IMAGE" -o /tmp/prober-image.tar
 
       - name: Build metrics image
         id: build-metrics
@@ -162,7 +162,7 @@ jobs:
           path: |
             /tmp/controller-image.tar
             /tmp/webhook-image.tar
-            /tmp/probe-worker-image.tar
+            /tmp/prober-image.tar
             /tmp/metrics-image.tar
           retention-days: 1
 
@@ -195,12 +195,12 @@ jobs:
         run: |
           CONTROLLER_IMAGE=$(docker load -i /tmp/controller-image.tar | awk '{print $NF}')
           WEBHOOK_IMAGE=$(docker load -i /tmp/webhook-image.tar | awk '{print $NF}')
-          PROBE_WORKER_IMAGE=$(docker load -i /tmp/probe-worker-image.tar | awk '{print $NF}')
+          PROBER_IMAGE=$(docker load -i /tmp/prober-image.tar | awk '{print $NF}')
           METRICS_IMAGE=$(docker load -i /tmp/metrics-image.tar | awk '{print $NF}')
           {
             echo "CONTROLLER_IMAGE=$CONTROLLER_IMAGE"
             echo "WEBHOOK_IMAGE=$WEBHOOK_IMAGE"
-            echo "PROBE_WORKER_IMAGE=$PROBE_WORKER_IMAGE"
+            echo "PROBER_IMAGE=$PROBER_IMAGE"
             echo "METRICS_IMAGE=$METRICS_IMAGE"
           } >> "$GITHUB_ENV"
 
@@ -228,7 +228,7 @@ jobs:
         run: |
           kind load docker-image "$CONTROLLER_IMAGE" --name synthetics
           kind load docker-image "$WEBHOOK_IMAGE" --name synthetics
-          kind load docker-image "$PROBE_WORKER_IMAGE" --name synthetics
+          kind load docker-image "$PROBER_IMAGE" --name synthetics
           kind load docker-image "$METRICS_IMAGE" --name synthetics
           kind load docker-image "$SIDECAR_IMAGE" --name synthetics
           kind load docker-image "$PLAYWRIGHT_IMAGE" --name synthetics
@@ -242,8 +242,8 @@ jobs:
             --set controller.image.pullPolicy=IfNotPresent \
             --set-string webhook.image.ref="$WEBHOOK_IMAGE" \
             --set webhook.image.pullPolicy=IfNotPresent \
-            --set-string probeWorker.image.ref="$PROBE_WORKER_IMAGE" \
-            --set probeWorker.image.pullPolicy=IfNotPresent \
+            --set-string prober.image.ref="$PROBER_IMAGE" \
+            --set prober.image.pullPolicy=IfNotPresent \
             --set-string metrics.image.ref="$METRICS_IMAGE" \
             --set metrics.image.pullPolicy=IfNotPresent \
             --set nats.enabled=true \
@@ -252,10 +252,10 @@ jobs:
 
       - name: Wait for operator rollout
         run: |
-          kubectl -n synthetics-system rollout status deployment/synthetics-operator --timeout=180s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-controller --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-webhook --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-nats --timeout=120s
-          kubectl -n synthetics-system rollout status deployment/synthetics-operator-probe-worker --timeout=180s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-prober --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-metrics --timeout=180s
 
       - name: Deploy echo service
@@ -363,7 +363,7 @@ jobs:
           echo "--- port-forward log ---"
           cat /tmp/pf-pw.log || true
           echo "--- operator logs ---"
-          kubectl -n synthetics-system logs deployment/synthetics-operator --tail=100 || true
+          kubectl -n synthetics-system logs deployment/synthetics-operator-controller --tail=100 || true
           echo "--- playwright cronjob status ---"
           kubectl describe cronjob smoke-echo || true
           echo "--- most recent playwright pod ---"
@@ -403,12 +403,12 @@ jobs:
         run: |
           CONTROLLER_IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-controller ko build --local --bare ./cmd/controller)
           WEBHOOK_IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-webhook ko build --local --bare ./cmd/webhook)
-          PROBE_WORKER_IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-probe-worker ko build --local --bare ./cmd/probe-worker)
+          PROBER_IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-prober ko build --local --bare ./cmd/prober)
           METRICS_IMAGE=$(KO_DOCKER_REPO=ko.local/synthetics-operator-metrics ko build --local --bare ./cmd/metrics)
           {
             echo "CONTROLLER_IMAGE=$CONTROLLER_IMAGE"
             echo "WEBHOOK_IMAGE=$WEBHOOK_IMAGE"
-            echo "PROBE_WORKER_IMAGE=$PROBE_WORKER_IMAGE"
+            echo "PROBER_IMAGE=$PROBER_IMAGE"
             echo "METRICS_IMAGE=$METRICS_IMAGE"
           } >> "$GITHUB_ENV"
 
@@ -421,7 +421,7 @@ jobs:
         run: |
           kind load docker-image "$CONTROLLER_IMAGE" --name synthetics
           kind load docker-image "$WEBHOOK_IMAGE" --name synthetics
-          kind load docker-image "$PROBE_WORKER_IMAGE" --name synthetics
+          kind load docker-image "$PROBER_IMAGE" --name synthetics
           kind load docker-image "$METRICS_IMAGE" --name synthetics
 
       - name: Install chart
@@ -433,16 +433,16 @@ jobs:
             --set controller.image.pullPolicy=IfNotPresent \
             --set-string webhook.image.ref="$WEBHOOK_IMAGE" \
             --set webhook.image.pullPolicy=IfNotPresent \
-            --set-string probeWorker.image.ref="$PROBE_WORKER_IMAGE" \
-            --set probeWorker.image.pullPolicy=IfNotPresent \
+            --set-string prober.image.ref="$PROBER_IMAGE" \
+            --set prober.image.pullPolicy=IfNotPresent \
             --set-string metrics.image.ref="$METRICS_IMAGE" \
             --set metrics.image.pullPolicy=IfNotPresent \
             --set nats.enabled=true
 
       - name: Wait for operator rollout
         run: |
-          kubectl -n synthetics-system rollout status deployment/synthetics-operator --timeout=180s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-controller --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-webhook --timeout=180s
-          kubectl -n synthetics-system rollout status deployment/synthetics-operator-probe-worker --timeout=180s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-prober --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-metrics --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-nats --timeout=120s

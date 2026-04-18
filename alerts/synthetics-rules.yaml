@@ -57,8 +57,10 @@ spec:
               last ran {{ $value | humanizeDuration }} ago.
 
         # ── Config error ─────────────────────────────────────────────────────────
+        # synthetics_probe is 0/1 only; the reason enum (ok, assertion_failed,
+        # config_error, …) lives on synthetics_probe_result_info which is always 1.
         - alert: SyntheticProbeConfigError
-          expr: synthetics_probe{result="config_error"} == 0
+          expr: synthetics_probe_result_info{result="config_error"} == 1
           for: 0m
           labels:
             severity: warning

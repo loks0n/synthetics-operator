@@ -2,7 +2,7 @@
 #
 # Runs reconcilers + the NATS scheduler + the event notifier. Publishes
 # spec updates and probe jobs onto NATS; does not execute probes or serve
-# /metrics — those live in the probe-worker and metrics Deployments.
+# /metrics — those live in the prober and metrics Deployments.
 #
 # Active-passive: multi-replica requires leaderElection: true so only one
 # leader reconciles and dispatches jobs at a time.
@@ -38,15 +38,15 @@ webhook:
   validatingWebhookConfigurationName: synthetics-operator-validating-webhook-configuration
   mutatingWebhookConfigurationName: synthetics-operator-mutating-webhook-configuration
 
-# Probe-worker Deployment.
+# Prober Deployment.
 #
 # Stateless. Subscribes to NATS (synthetics.specs + synthetics.probes.jobs
 # via a queue group) and executes HTTPProbe / DNSProbe runs. Horizontally
 # scalable — NATS queue groups load-balance jobs across replicas.
-probeWorker:
+prober:
   image:
     ref: ""
-    repository: ghcr.io/loks0n/synthetics-operator-probe-worker
+    repository: ghcr.io/loks0n/synthetics-operator-prober
     tag: latest
     pullPolicy: IfNotPresent
   replicaCount: 1
@@ -90,6 +90,9 @@ nats:
   image: nats:2.10-alpine
   replicas: 1
   resources: {}
+  # Human-readable cluster name — shows up in nats-server logs, monitoring
+  # endpoints, and any nats tooling.
+  clusterName: synthetics
   # URL the operator and test-sidecar should use. If set, the in-chart NATS
   # Deployment is skipped regardless of `enabled`. Must be reachable from
   # probe/test namespaces.

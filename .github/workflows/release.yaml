@@ -64,12 +64,12 @@ jobs:
           ko build --bare --platform=linux/amd64,linux/arm64 \
             --tags=${{ steps.version.outputs.version }},latest ./cmd/webhook
 
-      - name: Publish probe-worker image
+      - name: Publish prober image
         env:
-          KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/synthetics-operator-probe-worker
+          KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/synthetics-operator-prober
         run: |
           ko build --bare --platform=linux/amd64,linux/arm64 \
-            --tags=${{ steps.version.outputs.version }},latest ./cmd/probe-worker
+            --tags=${{ steps.version.outputs.version }},latest ./cmd/prober
 
       - name: Publish metrics image
         env:

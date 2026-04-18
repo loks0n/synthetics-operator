@@ -1,4 +1,4 @@
-// Command probe-worker executes HTTPProbe and DNSProbe runs. Stateless:
+// Command prober executes HTTPProbe and DNSProbe runs. Stateless:
 // subscribes to synthetics.specs for the spec cache, pulls jobs from
 // synthetics.probes.jobs via a NATS queue group, publishes results to
 // synthetics.probes.results. No Kubernetes API access.
@@ -19,7 +19,7 @@ import (
 	"github.com/go-logr/logr"
 
 	"github.com/loks0n/synthetics-operator/internal/natsbus"
-	"github.com/loks0n/synthetics-operator/internal/probeworker"
+	"github.com/loks0n/synthetics-operator/internal/prober"
 )
 
 func main() {
@@ -28,7 +28,7 @@ func main() {
 	flag.Parse()
 
 	ctrl := logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	log := ctrl.WithName("probe-worker")
+	log := ctrl.WithName("prober")
 
 	if err := run(log, natsURL); err != nil {
 		log.Error(err, "exiting")
@@ -53,7 +53,7 @@ func run(log logr.Logger, natsURL string) error {
 	healthErr := serveHealth(ctx, log.WithName("health"))
 	workerErr := make(chan error, 1)
 
-	worker := &probeworker.Worker{Log: log, Bus: bus, Publisher: bus}
+	worker := &prober.Worker{Log: log, Bus: bus, Publisher: bus}
 	go func() { workerErr <- worker.Start(ctx) }()
 
 	select {

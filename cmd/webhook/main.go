@@ -86,7 +86,7 @@ func run(
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 scheme,
 		HealthProbeBindAddress: ":8081",
-		Metrics:                metricsserver.Options{BindAddress: "0"},
+		Metrics:                metricsserver.Options{BindAddress: ":8082"},
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port: webhookPort,
 			TLSOpts: []func(*tls.Config){

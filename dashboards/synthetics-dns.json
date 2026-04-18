@@ -1,0 +1,196 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [{
+    "title": "Overview",
+    "url": "/d/synthetics-overview",
+    "type": "link",
+    "icon": "arrow-left",
+    "targetBlank": false
+  }],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["synthetics"],
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": {"query": "label_values(synthetics_probe_last_run_timestamp{kind=\"DNSProbe\"}, namespace)", "refId": "A"},
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "probe",
+        "label": "Probe",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": {"query": "label_values(synthetics_probe_last_run_timestamp{namespace=\"$namespace\", kind=\"DNSProbe\"}, name)", "refId": "A"},
+        "refresh": 2,
+        "sort": 1
+      }
+    ]
+  },
+  "time": {"from": "now-3h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["10s", "30s", "1m", "5m"]},
+  "timezone": "browser",
+  "title": "Synthetics / DNS",
+  "uid": "synthetics-DNSProbe",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Status",
+      "description": "Last run result.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 5, "x": 0, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_probe{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"})"}],
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]},
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "FAIL", "color": "red", "index": 0}}},
+            {"type": "value", "options": {"1": {"text": "PASS", "color": "green", "index": 1}}}
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Failed assertion",
+      "description": "Which named assertion produced the failure, if any.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 7, "x": 5, "y": 0},
+      "targets": [{"refId": "A", "expr": "synthetics_probe_result_info{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"}", "format": "table", "instant": true}],
+      "transformations": [
+        {"id": "organize", "options": {"renameByName": {"failed_assertion": "Failed assertion"}}},
+        {"id": "filterFieldsByName", "options": {"include": {"names": ["Failed assertion"]}}}
+      ],
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/"}},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "text"}, "noValue": "—"}}
+    },
+    {
+      "id": 3,
+      "title": "Last run",
+      "description": "How long ago the last result was recorded.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "targets": [{"refId": "A", "expr": "time() - max(synthetics_probe_last_run_timestamp{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"})"}],
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 120}, {"color": "red", "value": 600}]}}}
+    },
+    {
+      "id": 4,
+      "title": "Duration",
+      "description": "Duration of the last probe run.",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_probe_duration_ms{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"})"}],
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "ms", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 200}, {"color": "red", "value": 1000}]}}}
+    },
+    {
+      "id": 5,
+      "title": "State history",
+      "description": "Pass/fail over the dashboard window.",
+      "type": "status-history",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 5},
+      "maxDataPoints": 200,
+      "targets": [{"refId": "A", "expr": "min by () (min_over_time(synthetics_probe{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"}[$__interval]))", "legendFormat": "$probe", "interval": "$__interval"}],
+      "options": {"showValue": "never", "legend": {"displayMode": "list", "placement": "right", "showLegend": false}, "tooltip": {"mode": "single"}, "rowHeight": 0.85, "colWidth": 0.95},
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 1,
+          "mappings": [
+            {"type": "value", "options": {"0": {"color": "red", "text": "FAIL", "index": 0}}},
+            {"type": "value", "options": {"1": {"color": "green", "text": "OK", "index": 1}}}
+          ],
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Duration over time",
+      "description": "DNS resolution time with week-over-week overlay.",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 11},
+      "targets": [
+        {"refId": "A", "expr": "synthetics_probe_dns_response_ms{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"}", "legendFormat": "now"},
+        {"refId": "B", "expr": "synthetics_probe_dns_response_ms{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"} offset 1w", "legendFormat": "1w ago"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "ms", "custom": {"fillOpacity": 15, "lineInterpolation": "smooth", "showPoints": "never"}, "color": {"mode": "palette-classic"}},
+        "overrides": [{"matcher": {"id": "byName", "options": "1w ago"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "gray"}}, {"id": "custom.lineStyle", "value": {"fill": "dash"}}, {"id": "custom.fillOpacity", "value": 0}]}]
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 7,
+      "title": "Assertions",
+      "description": "Pass/fail per named assertion, with expression.",
+      "type": "status-history",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 11},
+      "maxDataPoints": 200,
+      "targets": [{"refId": "A", "expr": "min by (assertion, expr) (min_over_time(synthetics_probe_assertion_result{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"}[$__interval]))", "legendFormat": "{{assertion}} — {{expr}}", "interval": "$__interval"}],
+      "options": {"showValue": "auto", "legend": {"displayMode": "table", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single"}, "rowHeight": 0.8, "colWidth": 0.95},
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 1,
+          "mappings": [
+            {"type": "value", "options": {"0": {"color": "red", "text": "FAIL", "index": 0}}},
+            {"type": "value", "options": {"1": {"color": "green", "text": "OK", "index": 1}}}
+          ],
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Answer counts",
+      "description": "Answer / authority / additional RR counts from the last DNS response.",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 20},
+      "targets": [
+        {"refId": "A", "expr": "synthetics_probe_dns_response_answer_count{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"}", "legendFormat": "answer"},
+        {"refId": "B", "expr": "synthetics_probe_dns_response_authority_count{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"}", "legendFormat": "authority"},
+        {"refId": "C", "expr": "synthetics_probe_dns_response_additional_count{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"}", "legendFormat": "additional"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"fillOpacity": 15, "lineInterpolation": "stepAfter", "showPoints": "never"}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 9,
+      "title": "First answer",
+      "description": "Value + type of the first record in the answer section. Useful for spotting DNS record drift.",
+      "type": "table",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 20},
+      "targets": [{
+        "refId": "A",
+        "expr": "synthetics_probe_dns_response_first_answer_value{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"} * on (namespace, name) group_left (type) synthetics_probe_dns_response_first_answer_type{namespace=\"$namespace\", kind=\"DNSProbe\", name=\"$probe\"}",
+        "format": "table",
+        "instant": true
+      }],
+      "transformations": [{"id": "filterFieldsByName", "options": {"include": {"names": ["value", "type"]}}}],
+      "options": {"showHeader": true},
+      "fieldConfig": {"defaults": {"custom": {"align": "left"}}}
+    }
+  ]
+}

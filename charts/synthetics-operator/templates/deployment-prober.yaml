@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-prober
+spec:
+  replicas: {{ .Values.prober.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+      app.kubernetes.io/component: prober
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+        app.kubernetes.io/component: prober
+    spec:
+      serviceAccountName: {{ include "synthetics-operator.fullname" . }}-prober
+      containers:
+        - name: prober
+          image: {{ include "synthetics-operator.componentImage" (dict "image" .Values.prober.image) | quote }}
+          imagePullPolicy: {{ .Values.prober.image.pullPolicy }}
+          args:
+            - --nats-url={{ include "synthetics-operator.natsURL" . }}
+          ports:
+            - name: healthz
+              containerPort: 8081
+            - name: metrics
+              containerPort: 8082
+          resources:
+{{ toYaml .Values.prober.resources | indent 12 }}

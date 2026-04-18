@@ -33,7 +33,7 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: 'synthetics_probe{kind="HTTPProbe"} == 0'
+                  expr: 'synthetics_probe{kind="HTTPProbe"} == bool 0'
                   instant: true
                   refId: A
               - refId: C
@@ -60,10 +60,10 @@ data:
               severity: critical
               probe_type: http
             annotations:
-              __dashboardUid__: synthetics-http-probe
+              __dashboardUid__: synthetics-HTTPProbe
               __panelId__: "6"
-              summary: "HTTP probe {{ $labels.name }} is down ({{ $labels.reason }})"
-              description: "Probe {{ $labels.namespace }}/{{ $labels.name }} ({{ $labels.url }}) failed assertion: {{ $labels.reason }}"
+              summary: "HTTP probe {{ $labels.name }} is down"
+              description: "Probe {{ $labels.namespace }}/{{ $labels.name }} is failing. [Open HTTP dashboard](/d/synthetics-HTTPProbe?var-namespace={{ $labels.namespace }}&var-probe={{ $labels.name }})"
       - orgId: 1
         name: DNS Probes
         folder: Synthetics
@@ -79,7 +79,7 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: 'synthetics_probe{kind="DNSProbe"} == 0'
+                  expr: 'synthetics_probe{kind="DNSProbe"} == bool 0'
                   instant: true
                   refId: A
               - refId: C
@@ -106,7 +106,7 @@ data:
               severity: critical
               probe_type: dns
             annotations:
-              __dashboardUid__: synthetics-dns-probe
+              __dashboardUid__: synthetics-DNSProbe
               __panelId__: "1"
               summary: "DNS probe {{ $labels.name }} is down"
-              description: "Probe {{ $labels.namespace }}/{{ $labels.name }} is failing"
+              description: "Probe {{ $labels.namespace }}/{{ $labels.name }} is failing. [Open DNS dashboard](/d/synthetics-DNSProbe?var-namespace={{ $labels.namespace }}&var-probe={{ $labels.name }})"

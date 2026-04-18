@@ -1,8 +1,7 @@
-// Package probeworker is the Phase-14 probe-worker binary role: subscribes
-// to NATS for spec updates and probe jobs, executes probes, publishes
-// results. Stateless — the in-memory spec cache hydrates from the NATS
-// stream at startup.
-package probeworker
+// Package prober subscribes to NATS for spec updates and probe jobs,
+// executes probes, publishes results. Stateless — the in-memory spec
+// cache hydrates from the NATS stream at startup.
+package prober
 
 import (
 	"context"
@@ -98,6 +97,10 @@ func (w *Worker) onJob(ctx context.Context, job results.ProbeJob) {
 	}
 
 	res := w.execute(ctx, spec, job)
+	w.Log.Info("probed",
+		"kind", job.Kind, "namespace", job.Namespace, "name", job.Name,
+		"result", res.Result, "failed_assertion", res.FailedAssertion,
+		"duration_ms", res.DurationMs)
 	if err := w.Publisher.PublishProbeResult(ctx, res); err != nil {
 		w.Log.Error(err, "publish probe result", "kind", job.Kind, "namespace", job.Namespace, "name", job.Name)
 	}

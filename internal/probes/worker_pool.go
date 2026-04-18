@@ -1,6 +1,6 @@
 // Package probes implements HTTP and DNS probe execution plus the
 // in-process scheduler. The scheduler publishes probe jobs to NATS; the
-// executors themselves are pure logic shared with the probe-worker
+// executors themselves are pure logic shared with the prober
 // deployment.
 package probes
 
@@ -22,7 +22,7 @@ import (
 )
 
 // Executor runs a single HTTP probe and returns the result. Declared as an
-// interface so the probe-worker package can call against the abstraction
+// interface so the prober package can call against the abstraction
 // without importing the concrete transport-specific details.
 type Executor interface {
 	Execute(context.Context, *syntheticsv1alpha1.HTTPProbe) Result
@@ -192,7 +192,7 @@ func newTransport() *http.Transport {
 }
 
 // ClassifyHTTPTransport maps an http.Client.Do error to a result-class
-// string (matching metrics.Result values). Called by probe-workers after
+// string (matching metrics.Result values). Called by probers after
 // Execute when TransportErr is non-nil.
 func ClassifyHTTPTransport(err error) string {
 	var dnsErr *net.DNSError
