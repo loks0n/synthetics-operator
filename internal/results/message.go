@@ -13,11 +13,11 @@ import "time"
 // Subject constants. Colocate them here so every producer/consumer sees the
 // same strings — a typo in a subject name is silent.
 const (
-	SubjectSpecs         = "synthetics.specs"
-	SubjectProbeJobs     = "synthetics.probes.jobs"
-	SubjectProbeResults  = "synthetics.probes.results"
-	SubjectTestResults   = "synthetics.tests.results"
-	ProbeWorkerQueue     = "synthetics-probe-workers"
+	SubjectSpecs        = "synthetics.specs"
+	SubjectProbeJobs    = "synthetics.probes.jobs"
+	SubjectProbeResults = "synthetics.probes.results"
+	SubjectTestResults  = "synthetics.tests.results"
+	ProbeWorkerQueue    = "synthetics-probe-workers"
 )
 
 // Kind identifies the CRD type that produced a result. Values match the
@@ -136,16 +136,16 @@ type ProbeResult struct {
 	FailedAssertion string    `json:"failedAssertion,omitempty"`
 
 	// HTTP telemetry
-	HTTPStatusCode        int       `json:"httpStatusCode,omitempty"`
-	HTTPVersion           float64   `json:"httpVersion,omitempty"`
-	URL                   string    `json:"url,omitempty"`
-	Method                string    `json:"method,omitempty"`
-	TLSCertExpiryUnix     int64     `json:"tlsCertExpiryUnix,omitempty"`
-	HTTPPhaseDNSMs        float64   `json:"httpPhaseDnsMs,omitempty"`
-	HTTPPhaseConnectMs    float64   `json:"httpPhaseConnectMs,omitempty"`
-	HTTPPhaseTLSMs        float64   `json:"httpPhaseTlsMs,omitempty"`
-	HTTPPhaseProcessingMs float64   `json:"httpPhaseProcessingMs,omitempty"`
-	HTTPPhaseTransferMs   float64   `json:"httpPhaseTransferMs,omitempty"`
+	HTTPStatusCode        int               `json:"httpStatusCode,omitempty"`
+	HTTPVersion           float64           `json:"httpVersion,omitempty"`
+	URL                   string            `json:"url,omitempty"`
+	Method                string            `json:"method,omitempty"`
+	TLSCertExpiryUnix     int64             `json:"tlsCertExpiryUnix,omitempty"`
+	HTTPPhaseDNSMs        float64           `json:"httpPhaseDnsMs,omitempty"`
+	HTTPPhaseConnectMs    float64           `json:"httpPhaseConnectMs,omitempty"`
+	HTTPPhaseTLSMs        float64           `json:"httpPhaseTlsMs,omitempty"`
+	HTTPPhaseProcessingMs float64           `json:"httpPhaseProcessingMs,omitempty"`
+	HTTPPhaseTransferMs   float64           `json:"httpPhaseTransferMs,omitempty"`
 	AssertionResults      []AssertionResult `json:"assertionResults,omitempty"`
 
 	// DNS telemetry
