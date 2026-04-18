@@ -181,4 +181,3 @@ func fetchDepends(ctx context.Context, reader client.Reader, namespace string, d
 	}
 	return nil, fmt.Errorf("unknown dependency kind %q", dep.Kind)
 }
-
