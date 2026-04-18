@@ -246,9 +246,7 @@ spec:
 
 ### 2.6 depends field
 
-All CRDs support a `depends` field listing other probes that must be healthy before a failure is considered actionable. If any dependency is unhealthy, the probe still runs but its failure is suppressed in metrics — a separate metric is emitted instead, preserving visibility without triggering alerts.
-
-Deliberately limited to one level of depth — no chaining, no orchestration. Purely a noise reduction tool.
+All CRDs support a `depends` field listing other probes or tests in the same namespace whose failure should suppress alerts on this one. Dependencies can cross families: a `PlaywrightTest` can depend on an `HTTPProbe`, a `K6Test` can depend on a `DNSProbe`, and so on.
 
 ```yaml
 depends:
@@ -257,6 +255,17 @@ depends:
   - kind: DNSProbe
     name: api-dns
 ```
+
+**How suppression works.** The probe or test still runs and reports its real outcome on `synthetics_probe` / `synthetics_test`. Separately, when the owning CR is failing *and* any transitive dep in its graph is currently failing, the operator emits `synthetics_probe_suppressed` / `synthetics_test_suppressed` with labels naming the deepest unhealthy dep. Alert rules use Prometheus `unless` to filter cascaded failures:
+
+```promql
+# Alert only on root-cause failures
+synthetics_probe == 0 unless on(name, namespace, kind) synthetics_probe_suppressed == 1
+```
+
+**Traversal.** The evaluation walks the full transitive dep graph (depth capped at 16; visited set prevents cycles from looping). The label points at the *deepest* failing dep — users land on the root cause, not the immediate neighbour.
+
+**Validation.** At admission time the webhook verifies each dep's `kind` is valid, the name is DNS-1123, it isn't a self-reference, isn't duplicated, the referenced CR exists in the same namespace, and the transitive graph has no cycle leading back to the owner.
 
 ### 2.7 CRD version graduation strategy
 
@@ -312,6 +321,7 @@ When `result="assertion_failed"`, the additional `failed_assertion` label carrie
 | Metric | Type | Description |
 |--------|------|-------------|
 | `synthetics_probe` | gauge 0\|1 | 1 when `result="ok"`, 0 otherwise. Carries `result` and (for `assertion_failed`) `failed_assertion` labels. |
+| `synthetics_probe_suppressed` | gauge 1 | Emitted only when a failing probe's transitive dep graph has at least one failing node. Labels `unhealthy_dependency`, `unhealthy_dependency_kind` name the deepest failing dep. See §2.6 for alert-rule usage. |
 | `synthetics_probe_duration_ms` | gauge | Total probe duration in milliseconds |
 | `synthetics_probe_last_run_timestamp` | gauge | Unix timestamp of last probe execution |
 | `synthetics_probe_assertion_result` | gauge 0\|1 | Per-assertion pass/fail with `assertion` (name) and `expr` (expression) labels. Emitted for every assertion on every run. |
@@ -351,6 +361,7 @@ Pod-level failures (OOMKilled, ImagePullBackOff, runner crashed before writing o
 | Metric | Type | Description |
 |--------|------|-------------|
 | `synthetics_test` | gauge 0\|1 | 1 when `result="ok"`, 0 otherwise. Carries the `result` label. |
+| `synthetics_test_suppressed` | gauge 1 | Emitted only when a failing test's transitive dep graph has at least one failing node. Labels `unhealthy_dependency`, `unhealthy_dependency_kind` name the deepest failing dep. See §2.6. |
 | `synthetics_test_duration_ms` | gauge | Total test duration in milliseconds |
 | `synthetics_test_last_run_timestamp` | gauge | Unix timestamp of last test execution |
 | `synthetics_test_results_received_total` | counter | Total TestResults received via NATS |

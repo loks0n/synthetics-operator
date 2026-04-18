@@ -6,7 +6,18 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+// testDNSValidator returns a validator wired to an empty fake client. Fine
+// for tests that don't populate Spec.Depends — ValidateDepends early-returns.
+func testDNSValidator() *DNSProbeValidator {
+	scheme, err := SchemeBuilder.Build()
+	if err != nil {
+		panic("build scheme: " + err.Error())
+	}
+	return &DNSProbeValidator{reader: fake.NewClientBuilder().WithScheme(scheme).Build()}
+}
 
 func TestDNSWebhookHandlerObjectSplit(t *testing.T) {
 	handler := &DNSProbe{}
@@ -27,10 +38,10 @@ func TestDNSWebhookHandlerObjectSplit(t *testing.T) {
 		t.Errorf("handler should be unchanged, got interval=%v", handler.Spec.Interval.Duration)
 	}
 
-	if _, err := handler.ValidateCreate(context.Background(), probe); err != nil {
+	if _, err := testDNSValidator().ValidateCreate(context.Background(), probe); err != nil {
 		t.Fatalf("ValidateCreate failed on valid probe: %v", err)
 	}
-	if _, err := handler.ValidateUpdate(context.Background(), nil, probe); err != nil {
+	if _, err := testDNSValidator().ValidateUpdate(context.Background(), nil, probe); err != nil {
 		t.Fatalf("ValidateUpdate failed on valid probe: %v", err)
 	}
 }
@@ -188,7 +199,7 @@ func TestDNSProbeValidateRules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := validBase()
 			tc.mutate(p)
-			_, err := p.ValidateCreate(context.Background(), p)
+			_, err := testDNSValidator().ValidateCreate(context.Background(), p)
 			if tc.wantErr && err == nil {
 				t.Fatal("expected validation error, got nil")
 			}
@@ -280,7 +291,7 @@ func TestDNSProbeAssertionValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := validBase()
 			tc.mutate(p)
-			_, err := p.ValidateCreate(context.Background(), p)
+			_, err := testDNSValidator().ValidateCreate(context.Background(), p)
 			if tc.wantErr && err == nil {
 				t.Fatal("expected validation error, got nil")
 			}
@@ -299,7 +310,7 @@ func TestDNSProbeValidateUpdate(t *testing.T) {
 	}
 	_ = valid.Default(context.Background(), valid)
 
-	if _, err := valid.ValidateUpdate(context.Background(), nil, valid); err != nil {
+	if _, err := testDNSValidator().ValidateUpdate(context.Background(), nil, valid); err != nil {
 		t.Fatalf("expected valid update, got %v", err)
 	}
 
@@ -309,14 +320,14 @@ func TestDNSProbeValidateUpdate(t *testing.T) {
 		},
 	}
 	_ = invalid.Default(context.Background(), invalid)
-	if _, err := invalid.ValidateUpdate(context.Background(), nil, invalid); err == nil {
+	if _, err := testDNSValidator().ValidateUpdate(context.Background(), nil, invalid); err == nil {
 		t.Fatal("expected ValidateUpdate to reject empty name")
 	}
 }
 
 func TestDNSProbeValidateDelete(t *testing.T) {
 	probe := &DNSProbe{}
-	_, err := probe.ValidateDelete(context.Background(), probe)
+	_, err := testDNSValidator().ValidateDelete(context.Background(), probe)
 	if err != nil {
 		t.Fatalf("ValidateDelete should always succeed, got %v", err)
 	}

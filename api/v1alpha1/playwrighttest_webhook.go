@@ -10,19 +10,28 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 var _ webhook.CustomDefaulter = &PlaywrightTest{}
-var _ webhook.CustomValidator = &PlaywrightTest{}
+
+// PlaywrightTestValidator holds the client.Reader needed for dep validation.
+//
+// +kubebuilder:object:generate=false
+type PlaywrightTestValidator struct {
+	reader client.Reader
+}
+
+var _ webhook.CustomValidator = &PlaywrightTestValidator{}
 
 func SetupPlaywrightTestWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&PlaywrightTest{}).
 		WithDefaulter(&PlaywrightTest{}).
-		WithValidator(&PlaywrightTest{}).
+		WithValidator(&PlaywrightTestValidator{reader: mgr.GetAPIReader()}).
 		Complete()
 }
 
@@ -38,19 +47,19 @@ func (p *PlaywrightTest) Default(ctx context.Context, obj runtime.Object) error 
 	return nil
 }
 
-func (p *PlaywrightTest) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	return nil, obj.(*PlaywrightTest).validate()
+func (v *PlaywrightTestValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, obj.(*PlaywrightTest).validate(ctx, v.reader)
 }
 
-func (p *PlaywrightTest) ValidateUpdate(_ context.Context, _, obj runtime.Object) (admission.Warnings, error) {
-	return nil, obj.(*PlaywrightTest).validate()
+func (v *PlaywrightTestValidator) ValidateUpdate(ctx context.Context, _, obj runtime.Object) (admission.Warnings, error) {
+	return nil, obj.(*PlaywrightTest).validate(ctx, v.reader)
 }
 
-func (p *PlaywrightTest) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
+func (v *PlaywrightTestValidator) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
-func (p *PlaywrightTest) validate() error {
+func (p *PlaywrightTest) validate(ctx context.Context, reader client.Reader) error {
 	var allErrs field.ErrorList
 
 	if err := validateCronInterval(p.Spec.Interval.Duration); err != nil {
@@ -63,6 +72,8 @@ func (p *PlaywrightTest) validate() error {
 	if p.Spec.Script.ConfigMap.Key == "" {
 		allErrs = append(allErrs, field.Required(field.NewPath("spec", "script", "configMap", "key"), "configMap key is required"))
 	}
+
+	allErrs = append(allErrs, ValidateDepends(ctx, reader, DependencyKindPlaywrightTest, p.Namespace, p.Name, p.Spec.Depends, field.NewPath("spec", "depends"))...)
 
 	if len(allErrs) == 0 {
 		return nil

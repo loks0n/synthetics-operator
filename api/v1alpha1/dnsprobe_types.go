@@ -16,6 +16,9 @@ type DNSProbeSpec struct {
 	Suspend    bool            `json:"suspend,omitempty"`
 	Query      DNSQuery        `json:"query"`
 	Assertions []Assertion     `json:"assertions,omitempty"`
+	// Depends lists other probes or tests in the same namespace whose failure
+	// should suppress alerts on this probe. See DependencyRef.
+	Depends []DependencyRef `json:"depends,omitempty"`
 }
 
 type DNSProbeStatus struct {

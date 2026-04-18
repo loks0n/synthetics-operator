@@ -39,6 +39,9 @@ type HTTPProbeSpec struct {
 	Request    HTTPRequestSpec `json:"request"`
 	TLS        *TLSConfig      `json:"tls,omitempty"`
 	Assertions []Assertion     `json:"assertions,omitempty"`
+	// Depends lists other probes or tests in the same namespace whose failure
+	// should suppress alerts on this probe. See DependencyRef.
+	Depends []DependencyRef `json:"depends,omitempty"`
 }
 
 type HTTPProbeStatus struct {

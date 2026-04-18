@@ -14,7 +14,18 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+// testHTTPValidator returns a validator wired to an empty fake client. Fine
+// for tests that don't populate Spec.Depends — ValidateDepends early-returns.
+func testHTTPValidator() *HTTPProbeValidator {
+	scheme, err := SchemeBuilder.Build()
+	if err != nil {
+		panic("build scheme: " + err.Error())
+	}
+	return &HTTPProbeValidator{reader: fake.NewClientBuilder().WithScheme(scheme).Build()}
+}
 
 // validTestCACert is a real self-signed CA certificate generated at test init time.
 var validTestCACert = func() string {
@@ -56,10 +67,10 @@ func TestWebhookHandlerObjectSplit(t *testing.T) {
 	}
 
 	probe.Spec.Request.URL = "http://example.com"
-	if _, err := handler.ValidateCreate(context.Background(), probe); err != nil {
+	if _, err := testHTTPValidator().ValidateCreate(context.Background(), probe); err != nil {
 		t.Fatalf("ValidateCreate failed on valid probe: %v", err)
 	}
-	if _, err := handler.ValidateUpdate(context.Background(), nil, probe); err != nil {
+	if _, err := testHTTPValidator().ValidateUpdate(context.Background(), nil, probe); err != nil {
 		t.Fatalf("ValidateUpdate failed on valid probe: %v", err)
 	}
 }
@@ -108,12 +119,12 @@ func TestHTTPProbeValidate(t *testing.T) {
 	_ = probe.Default(context.Background(), probe)
 	probe.Spec.Request.URL = "http://127.0.0.1/health"
 
-	if _, err := probe.ValidateCreate(context.Background(), probe); err != nil {
+	if _, err := testHTTPValidator().ValidateCreate(context.Background(), probe); err != nil {
 		t.Fatalf("expected valid probe, got %v", err)
 	}
 
 	probe.Spec.Request.Method = ""
-	if _, err := probe.ValidateCreate(context.Background(), probe); err == nil {
+	if _, err := testHTTPValidator().ValidateCreate(context.Background(), probe); err == nil {
 		t.Fatal("expected empty method validation to fail")
 	}
 }
@@ -175,7 +186,7 @@ func TestHTTPProbeValidateRules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := validBase()
 			tc.mutate(p)
-			_, err := p.ValidateCreate(context.Background(), p)
+			_, err := testHTTPValidator().ValidateCreate(context.Background(), p)
 			if tc.wantErr && err == nil {
 				t.Fatal("expected validation error, got nil")
 			}
@@ -292,7 +303,7 @@ func TestHTTPProbeValidatePhase2Rules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := validBase()
 			tc.mutate(p)
-			_, err := p.ValidateCreate(context.Background(), p)
+			_, err := testHTTPValidator().ValidateCreate(context.Background(), p)
 			if tc.wantErr && err == nil {
 				t.Fatal("expected validation error, got nil")
 			}
@@ -384,7 +395,7 @@ func TestHTTPProbeAssertionValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := validBase()
 			tc.mutate(p)
-			_, err := p.ValidateCreate(context.Background(), p)
+			_, err := testHTTPValidator().ValidateCreate(context.Background(), p)
 			if tc.wantErr && err == nil {
 				t.Fatal("expected validation error, got nil")
 			}
@@ -400,14 +411,14 @@ func TestHTTPProbeValidateUpdate(t *testing.T) {
 	_ = valid.Default(context.Background(), valid)
 	valid.Spec.Request.URL = "http://127.0.0.1/health"
 
-	if _, err := valid.ValidateUpdate(context.Background(), nil, valid); err != nil {
+	if _, err := testHTTPValidator().ValidateUpdate(context.Background(), nil, valid); err != nil {
 		t.Fatalf("expected valid update, got %v", err)
 	}
 
 	invalid := &HTTPProbe{}
 	_ = invalid.Default(context.Background(), invalid)
 	invalid.Spec.Request.URL = "not-a-url"
-	if _, err := invalid.ValidateUpdate(context.Background(), nil, invalid); err == nil {
+	if _, err := testHTTPValidator().ValidateUpdate(context.Background(), nil, invalid); err == nil {
 		t.Fatal("expected ValidateUpdate to reject invalid URL")
 	}
 }

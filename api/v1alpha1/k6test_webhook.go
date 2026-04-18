@@ -11,19 +11,28 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 var _ webhook.CustomDefaulter = &K6Test{}
-var _ webhook.CustomValidator = &K6Test{}
+
+// K6TestValidator holds the client.Reader needed for dep validation.
+//
+// +kubebuilder:object:generate=false
+type K6TestValidator struct {
+	reader client.Reader
+}
+
+var _ webhook.CustomValidator = &K6TestValidator{}
 
 func SetupK6TestWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&K6Test{}).
 		WithDefaulter(&K6Test{}).
-		WithValidator(&K6Test{}).
+		WithValidator(&K6TestValidator{reader: mgr.GetAPIReader()}).
 		Complete()
 }
 
@@ -42,19 +51,19 @@ func (k *K6Test) Default(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-func (k *K6Test) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	return nil, obj.(*K6Test).validate()
+func (v *K6TestValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, obj.(*K6Test).validate(ctx, v.reader)
 }
 
-func (k *K6Test) ValidateUpdate(_ context.Context, _, obj runtime.Object) (admission.Warnings, error) {
-	return nil, obj.(*K6Test).validate()
+func (v *K6TestValidator) ValidateUpdate(ctx context.Context, _, obj runtime.Object) (admission.Warnings, error) {
+	return nil, obj.(*K6Test).validate(ctx, v.reader)
 }
 
-func (k *K6Test) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
+func (v *K6TestValidator) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
-func (k *K6Test) validate() error {
+func (k *K6Test) validate(ctx context.Context, reader client.Reader) error {
 	var allErrs field.ErrorList
 
 	if err := validateCronInterval(k.Spec.Interval.Duration); err != nil {
@@ -71,6 +80,8 @@ func (k *K6Test) validate() error {
 	if k.Spec.Script.ConfigMap.Key == "" {
 		allErrs = append(allErrs, field.Required(field.NewPath("spec", "script", "configMap", "key"), "configMap key is required"))
 	}
+
+	allErrs = append(allErrs, ValidateDepends(ctx, reader, DependencyKindK6Test, k.Namespace, k.Name, k.Spec.Depends, field.NewPath("spec", "depends"))...)
 
 	if len(allErrs) == 0 {
 		return nil

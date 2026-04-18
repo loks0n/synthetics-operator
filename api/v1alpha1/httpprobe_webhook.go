@@ -11,19 +11,30 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 var _ webhook.CustomDefaulter = &HTTPProbe{}
-var _ webhook.CustomValidator = &HTTPProbe{}
+
+// HTTPProbeValidator holds the dependencies needed to validate an HTTPProbe
+// spec, including the client.Reader used for admission-time dependency
+// existence + cycle checks. Constructed by SetupWebhookWithManager.
+//
+// +kubebuilder:object:generate=false
+type HTTPProbeValidator struct {
+	reader client.Reader
+}
+
+var _ webhook.CustomValidator = &HTTPProbeValidator{}
 
 func SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&HTTPProbe{}).
 		WithDefaulter(&HTTPProbe{}).
-		WithValidator(&HTTPProbe{}).
+		WithValidator(&HTTPProbeValidator{reader: mgr.GetAPIReader()}).
 		Complete()
 }
 
@@ -37,19 +48,19 @@ func (h *HTTPProbe) Default(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-func (h *HTTPProbe) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	return nil, obj.(*HTTPProbe).validate()
+func (v *HTTPProbeValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, obj.(*HTTPProbe).validate(ctx, v.reader)
 }
 
-func (h *HTTPProbe) ValidateUpdate(_ context.Context, _, obj runtime.Object) (admission.Warnings, error) {
-	return nil, obj.(*HTTPProbe).validate()
+func (v *HTTPProbeValidator) ValidateUpdate(ctx context.Context, _, obj runtime.Object) (admission.Warnings, error) {
+	return nil, obj.(*HTTPProbe).validate(ctx, v.reader)
 }
 
-func (h *HTTPProbe) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
+func (v *HTTPProbeValidator) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
-func (h *HTTPProbe) validate() error {
+func (h *HTTPProbe) validate(ctx context.Context, reader client.Reader) error {
 	var allErrs field.ErrorList
 
 	if err := validateProbeInterval(h.Spec.Interval.Duration); err != nil {
@@ -89,6 +100,8 @@ func (h *HTTPProbe) validate() error {
 			allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "tls", "caCert"), "<pem>", "must be a valid PEM-encoded certificate"))
 		}
 	}
+
+	allErrs = append(allErrs, ValidateDepends(ctx, reader, DependencyKindHTTPProbe, h.Namespace, h.Name, h.Spec.Depends, field.NewPath("spec", "depends"))...)
 
 	if len(allErrs) == 0 {
 		return nil

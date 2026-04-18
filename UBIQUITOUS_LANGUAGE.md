@@ -14,6 +14,8 @@
 | **Assertion** | A single named condition evaluated against a **Probe** response (e.g. status == 200) | Check, rule, expectation |
 | **Interval** | The target period between consecutive executions of a **Probe** or **Test** | Frequency, period, schedule |
 | **Suspend** | A flag on a **Probe** or **Test** that pauses execution without deleting the resource | Pause, disable |
+| **Dependency** | A reference from one **Probe** or **Test** to another in the same namespace, declared via `spec.depends`. When the owner is failing and a transitive dep in the graph is also failing, the operator emits a **suppressed** metric so alert rules can filter cascaded failures | Upstream, parent, precondition |
+| **Suppression** | The state where a failing **Probe** or **Test** has at least one failing transitive dependency. Suppression is emitted as a sibling metric alongside the normal pass/fail signal, not as a replacement — the probe still reports the truth | Silenced, muted |
 
 ## Results and observability
 

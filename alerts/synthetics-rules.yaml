@@ -12,8 +12,12 @@ spec:
       interval: 60s
       rules:
         # ── Probe down ──────────────────────────────────────────────────────────
+        # The `unless` clause suppresses alerts when a transitive dependency is
+        # also failing — no point paging when the root cause is upstream.
         - alert: SyntheticProbeDown
-          expr: synthetics_probe == 0
+          expr: |
+            synthetics_probe == 0
+            unless on(name, namespace, kind) synthetics_probe_suppressed == 1
           for: 2m
           labels:
             severity: warning
@@ -26,7 +30,9 @@ spec:
         # ── Sustained failures ──────────────────────────────────────────────────
         # Fires when a probe has been failing for every scrape in the past 5 minutes.
         - alert: SyntheticProbeSustainedFailure
-          expr: min_over_time(synthetics_probe[5m]) == 0
+          expr: |
+            min_over_time(synthetics_probe[5m]) == 0
+            unless on(name, namespace, kind) synthetics_probe_suppressed == 1
           for: 0m
           labels:
             severity: critical
@@ -121,7 +127,9 @@ spec:
       rules:
         # ── Test failing ─────────────────────────────────────────────────────────
         - alert: SyntheticTestDown
-          expr: synthetics_test == 0
+          expr: |
+            synthetics_test == 0
+            unless on(name, namespace, kind) synthetics_test_suppressed == 1
           for: 2m
           labels:
             severity: warning

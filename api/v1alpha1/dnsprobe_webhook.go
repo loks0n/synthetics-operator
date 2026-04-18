@@ -12,19 +12,28 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 var _ webhook.CustomDefaulter = &DNSProbe{}
-var _ webhook.CustomValidator = &DNSProbe{}
+
+// DNSProbeValidator holds the client.Reader needed for dep validation.
+//
+// +kubebuilder:object:generate=false
+type DNSProbeValidator struct {
+	reader client.Reader
+}
+
+var _ webhook.CustomValidator = &DNSProbeValidator{}
 
 func SetupDNSWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&DNSProbe{}).
 		WithDefaulter(&DNSProbe{}).
-		WithValidator(&DNSProbe{}).
+		WithValidator(&DNSProbeValidator{reader: mgr.GetAPIReader()}).
 		Complete()
 }
 
@@ -38,19 +47,19 @@ func (d *DNSProbe) Default(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-func (d *DNSProbe) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	return nil, obj.(*DNSProbe).validate()
+func (v *DNSProbeValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, obj.(*DNSProbe).validate(ctx, v.reader)
 }
 
-func (d *DNSProbe) ValidateUpdate(_ context.Context, _, obj runtime.Object) (admission.Warnings, error) {
-	return nil, obj.(*DNSProbe).validate()
+func (v *DNSProbeValidator) ValidateUpdate(ctx context.Context, _, obj runtime.Object) (admission.Warnings, error) {
+	return nil, obj.(*DNSProbe).validate(ctx, v.reader)
 }
 
-func (d *DNSProbe) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
+func (v *DNSProbeValidator) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
-func (d *DNSProbe) validate() error {
+func (d *DNSProbe) validate(ctx context.Context, reader client.Reader) error {
 	var allErrs field.ErrorList
 
 	if err := validateProbeInterval(d.Spec.Interval.Duration); err != nil {
@@ -89,6 +98,8 @@ func (d *DNSProbe) validate() error {
 			allErrs = append(allErrs, field.Invalid(fp.Child("expr"), a.Expr, err.Error()))
 		}
 	}
+
+	allErrs = append(allErrs, ValidateDepends(ctx, reader, DependencyKindDNSProbe, d.Namespace, d.Name, d.Spec.Depends, field.NewPath("spec", "depends"))...)
 
 	if len(allErrs) == 0 {
 		return nil

@@ -31,9 +31,11 @@ type K6TestReconciler struct {
 
 func (r *K6TestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var test syntheticsv1alpha1.K6Test
+	kind := string(syntheticsv1alpha1.DependencyKindK6Test)
 	if err := r.Get(ctx, req.NamespacedName, &test); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.Metrics.Delete(req.NamespacedName)
+			r.Metrics.ClearDepends(kind, req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -41,8 +43,11 @@ func (r *K6TestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	if !test.DeletionTimestamp.IsZero() {
 		r.Metrics.Delete(req.NamespacedName)
+		r.Metrics.ClearDepends(kind, req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
+
+	r.Metrics.SetDepends(kind, req.NamespacedName, test.Spec.Depends)
 
 	original := test.DeepCopy()
 	now := metav1.NewTime(r.Clock())

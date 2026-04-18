@@ -48,7 +48,7 @@ Current HTTPProbe grammar: `variable op number`. No strings, regex, JSON, or boo
 
 ### C2 — Metrics surface: what do we promise?
 
-- **Delete promises the product doesn't keep.** README §3 previously listed `synthetics_consecutive_failures` and `synthetics_probe_suppressed` — neither is emitted. The first has been cut from the README. `synthetics_probe_suppressed` lands with Bucket B's `depends` field (Phase 11).
+- ~~**Delete promises the product doesn't keep.**~~ `synthetics_consecutive_failures` cut from README. `synthetics_probe_suppressed` shipped with Phase 11.
 - **Cardinality budget.** ~15–20 lines per probe × 1000 probes = 20k+ lines per scrape, before `metricLabels` (Phase 12) lands. Profile now and write a "recommended max probes per operator" figure into the docs rather than discovering it at a user site.
 
 ### C3 — Opinionated image lock-in (note, not question)

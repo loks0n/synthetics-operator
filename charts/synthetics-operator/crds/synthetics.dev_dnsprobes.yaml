@@ -77,6 +77,33 @@ spec:
                   - name
                   type: object
                 type: array
+              depends:
+                description: |-
+                  Depends lists other probes or tests in the same namespace whose failure
+                  should suppress alerts on this probe. See DependencyRef.
+                items:
+                  description: |-
+                    DependencyRef points to another synthetics.dev CR in the same namespace.
+                    Failures on the owning probe or test are suppressed from alerting metrics
+                    when any transitive dep in this list is currently unhealthy — see the
+                    `synthetics_probe_suppressed` / `synthetics_test_suppressed` gauges.
+                  properties:
+                    kind:
+                      description: DependencyKind is the CRD kind for a DependencyRef
+                        target.
+                      enum:
+                      - HTTPProbe
+                      - DNSProbe
+                      - K6Test
+                      - PlaywrightTest
+                      type: string
+                    name:
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
               interval:
                 type: string
               query:

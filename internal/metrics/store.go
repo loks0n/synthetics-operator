@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 	"k8s.io/apimachinery/pkg/types"
 
+	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
 	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
@@ -89,6 +90,7 @@ type TestState struct {
 type instruments struct {
 	// Probe family — HTTPProbe, DNSProbe
 	probeGauge               apimetric.Float64ObservableGauge
+	probeSuppressedGauge     apimetric.Float64ObservableGauge
 	probeDurationGauge       apimetric.Float64ObservableGauge
 	probeLastRunGauge        apimetric.Float64ObservableGauge
 	tlsCertExpiryGauge       apimetric.Float64ObservableGauge
@@ -105,6 +107,7 @@ type instruments struct {
 	dnsAdditionalCountGauge  apimetric.Float64ObservableGauge
 	// Test family — K6Test, PlaywrightTest
 	testGauge                apimetric.Float64ObservableGauge
+	testSuppressedGauge      apimetric.Float64ObservableGauge
 	testDurationGauge        apimetric.Float64ObservableGauge
 	testLastRunGauge         apimetric.Float64ObservableGauge
 	playwrightCasePassed     apimetric.Float64ObservableGauge
@@ -122,13 +125,24 @@ type instruments struct {
 // to an events.Notifier; nil in tests that don't exercise the event path.
 type TransitionFn func(name types.NamespacedName, kind string, prev, next Result)
 
+// dependsKey identifies a CR by kind + namespaced name for the Depends
+// map. Needed because names collide across kinds (HTTPProbe "foo" and
+// DNSProbe "foo" can coexist in the same namespace).
+type dependsKey struct {
+	kind string
+	name types.NamespacedName
+}
+
 // Store is the in-process metrics state. Probes and tests live in separate
 // maps so their metric families stay cleanly separated: probes use
-// synthetics_probe_*, tests use synthetics_test_*.
+// synthetics_probe_*, tests use synthetics_test_*. Depends is a sibling map
+// written by reconcilers on spec change, read by the observe callback to
+// evaluate suppression.
 type Store struct {
 	mu                sync.RWMutex
 	probes            map[types.NamespacedName]ProbeState
 	tests             map[types.NamespacedName]TestState
+	depends           map[dependsKey][]syntheticsv1alpha1.DependencyRef
 	registry          *promclient.Registry
 	exporter          *otelprom.Exporter
 	provider          *metric.MeterProvider
@@ -161,6 +175,7 @@ func NewStore() (*Store, error) {
 	store := &Store{
 		probes:   map[types.NamespacedName]ProbeState{},
 		tests:    map[types.NamespacedName]TestState{},
+		depends:  map[dependsKey][]syntheticsv1alpha1.DependencyRef{},
 		registry: registry,
 		exporter: exporter,
 		provider: provider,
@@ -180,6 +195,10 @@ func newInstruments(meter apimetric.Meter) (instruments, error) {
 	// Probe family
 	if instr.probeGauge, err = meter.Float64ObservableGauge("synthetics_probe",
 		apimetric.WithDescription("Probe pass (1) / fail (0) for the last run. `result` label names the outcome.")); err != nil {
+		return instr, err
+	}
+	if instr.probeSuppressedGauge, err = meter.Float64ObservableGauge("synthetics_probe_suppressed",
+		apimetric.WithDescription("1 when a failing probe is suppressed because a transitive dependency is failing. Labels name the deepest unhealthy dep.")); err != nil {
 		return instr, err
 	}
 	if instr.probeDurationGauge, err = meter.Float64ObservableGauge("synthetics_probe_duration_ms"); err != nil {
@@ -230,6 +249,10 @@ func newInstruments(meter apimetric.Meter) (instruments, error) {
 	// Test family
 	if instr.testGauge, err = meter.Float64ObservableGauge("synthetics_test",
 		apimetric.WithDescription("Test pass (1) / fail (0) for the last run. `result` label names the outcome.")); err != nil {
+		return instr, err
+	}
+	if instr.testSuppressedGauge, err = meter.Float64ObservableGauge("synthetics_test_suppressed",
+		apimetric.WithDescription("1 when a failing test is suppressed because a transitive dependency is failing. Labels name the deepest unhealthy dep.")); err != nil {
 		return instr, err
 	}
 	if instr.testDurationGauge, err = meter.Float64ObservableGauge("synthetics_test_duration_ms"); err != nil {
@@ -285,13 +308,13 @@ func (s *Store) registerCallback(meter apimetric.Meter) error {
 		return nil
 	},
 		// Probe family instruments
-		instr.probeGauge, instr.probeDurationGauge, instr.probeLastRunGauge,
+		instr.probeGauge, instr.probeSuppressedGauge, instr.probeDurationGauge, instr.probeLastRunGauge,
 		instr.tlsCertExpiryGauge, instr.httpStatusCodeGauge, instr.httpVersionGauge,
 		instr.httpPhaseDurationGauge, instr.httpInfoGauge, instr.assertionResultGauge,
 		instr.dnsResponseMsGauge, instr.dnsFirstAnswerValueGauge, instr.dnsFirstAnswerTypeGauge,
 		instr.dnsAnswerCountGauge, instr.dnsAuthorityCountGauge, instr.dnsAdditionalCountGauge,
 		// Test family instruments
-		instr.testGauge, instr.testDurationGauge, instr.testLastRunGauge,
+		instr.testGauge, instr.testSuppressedGauge, instr.testDurationGauge, instr.testLastRunGauge,
 		instr.playwrightCasePassed, instr.playwrightCaseDurationMs,
 		instr.playwrightCasesTotal, instr.playwrightCasesPassed, instr.playwrightCasesFailed,
 	)
@@ -319,6 +342,16 @@ func (s *Store) observeProbe(observer apimetric.Observer, name types.NamespacedN
 	observer.ObserveFloat64(instr.probeGauge, state.Result.successValue(), apimetric.WithAttributes(upAttrs...))
 	observer.ObserveFloat64(instr.probeDurationGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
 	observer.ObserveFloat64(instr.probeLastRunGauge, state.LastRunTimestamp, apimetric.WithAttributes(attrs...))
+
+	if state.Result != ResultOK {
+		if dep, ok := s.findUnhealthyDep(kind, name); ok {
+			observer.ObserveFloat64(instr.probeSuppressedGauge, 1, apimetric.WithAttributes(
+				append(attrs,
+					attribute.String("unhealthy_dependency", dep.Name),
+					attribute.String("unhealthy_dependency_kind", string(dep.Kind)),
+				)...))
+		}
+	}
 
 	for _, ar := range state.AssertionResults {
 		observer.ObserveFloat64(instr.assertionResultGauge, ar.Result, apimetric.WithAttributes(
@@ -382,6 +415,16 @@ func (s *Store) observeTest(observer apimetric.Observer, name types.NamespacedNa
 	observer.ObserveFloat64(instr.testGauge, state.Result.successValue(), apimetric.WithAttributes(upAttrs...))
 	observer.ObserveFloat64(instr.testDurationGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
 	observer.ObserveFloat64(instr.testLastRunGauge, state.LastRunTimestamp, apimetric.WithAttributes(attrs...))
+
+	if state.Result != ResultOK {
+		if dep, ok := s.findUnhealthyDep(state.Kind, name); ok {
+			observer.ObserveFloat64(instr.testSuppressedGauge, 1, apimetric.WithAttributes(
+				append(attrs,
+					attribute.String("unhealthy_dependency", dep.Name),
+					attribute.String("unhealthy_dependency_kind", string(dep.Kind)),
+				)...))
+		}
+	}
 
 	if state.Kind == string(results.KindPlaywrightTest) {
 		s.observePlaywright(observer, attrs, state, instr)
@@ -493,12 +536,87 @@ func (s *Store) UpsertTest(name types.NamespacedName, state TestState) {
 }
 
 // Delete removes a probe or test from the store by name. Safe to call when
-// the name doesn't exist in either map.
+// the name doesn't exist in either map. Does not touch the depends map —
+// call ClearDepends separately; reconcilers typically call both.
 func (s *Store) Delete(name types.NamespacedName) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.probes, name)
 	delete(s.tests, name)
+}
+
+// SetDepends records the dependency list for a probe or test. The reconciler
+// calls this on every reconcile; the observe callback reads it to evaluate
+// suppression. An empty list clears the entry.
+func (s *Store) SetDepends(kind string, name types.NamespacedName, deps []syntheticsv1alpha1.DependencyRef) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := dependsKey{kind: kind, name: name}
+	if len(deps) == 0 {
+		delete(s.depends, key)
+		return
+	}
+	// Copy to protect against later mutation of the caller's slice.
+	out := make([]syntheticsv1alpha1.DependencyRef, len(deps))
+	copy(out, deps)
+	s.depends[key] = out
+}
+
+// ClearDepends removes the dependency entry for a probe or test. Called by
+// reconcilers on deletion.
+func (s *Store) ClearDepends(kind string, name types.NamespacedName) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.depends, dependsKey{kind: kind, name: name})
+}
+
+// findUnhealthyDep walks the transitive dependency graph from origin. Returns
+// the deepest failing dep found (first hit of a failing node in depth-first
+// order), or ok=false if no transitive dep is failing. Handles cycles via the
+// visited set and caps depth at 16 to fail-open on pathological graphs.
+//
+// Caller must hold s.mu.RLock.
+const maxDependsDepth = 16
+
+func (s *Store) findUnhealthyDep(originKind string, origin types.NamespacedName) (failing syntheticsv1alpha1.DependencyRef, ok bool) {
+	visited := map[dependsKey]bool{{kind: originKind, name: origin}: true}
+	deps := s.depends[dependsKey{kind: originKind, name: origin}]
+	return s.walkDepsLocked(origin.Namespace, deps, visited, 0)
+}
+
+func (s *Store) walkDepsLocked(namespace string, deps []syntheticsv1alpha1.DependencyRef, visited map[dependsKey]bool, depth int) (syntheticsv1alpha1.DependencyRef, bool) {
+	if depth >= maxDependsDepth {
+		return syntheticsv1alpha1.DependencyRef{}, false
+	}
+	// Visit deeper first so the deepest failing ancestor wins; record the
+	// direct dep as a fallback once we confirm nothing deeper is failing.
+	for _, dep := range deps {
+		depName := types.NamespacedName{Namespace: namespace, Name: dep.Name}
+		key := dependsKey{kind: string(dep.Kind), name: depName}
+		if visited[key] {
+			continue
+		}
+		visited[key] = true
+		if deeper, ok := s.walkDepsLocked(namespace, s.depends[key], visited, depth+1); ok {
+			return deeper, true
+		}
+		if s.isFailingLocked(string(dep.Kind), depName) {
+			return dep, true
+		}
+	}
+	return syntheticsv1alpha1.DependencyRef{}, false
+}
+
+func (s *Store) isFailingLocked(kind string, name types.NamespacedName) bool {
+	switch kind {
+	case string(syntheticsv1alpha1.DependencyKindHTTPProbe), string(syntheticsv1alpha1.DependencyKindDNSProbe):
+		state, ok := s.probes[name]
+		return ok && state.Result != ResultOK
+	case string(syntheticsv1alpha1.DependencyKindK6Test), string(syntheticsv1alpha1.DependencyKindPlaywrightTest):
+		state, ok := s.tests[name]
+		return ok && state.Result != ResultOK
+	}
+	return false
 }
 
 // Snapshot returns the last-run state for a probe. Returns (zero, false) if

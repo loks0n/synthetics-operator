@@ -50,6 +50,9 @@ type K6TestSpec struct {
 	TTLAfterFinished metav1.Duration `json:"ttlAfterFinished,omitempty"`
 	// Runner configures pod-level concerns for the runner container.
 	Runner *RunnerSpec `json:"runner,omitempty"`
+	// Depends lists other probes or tests in the same namespace whose failure
+	// should suppress alerts on this test. See DependencyRef.
+	Depends []DependencyRef `json:"depends,omitempty"`
 }
 
 // K6TestStatus reflects the reconciler's view of the K6Test. Runtime pass/fail

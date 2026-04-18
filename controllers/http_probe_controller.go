@@ -28,10 +28,12 @@ type HTTPProbeReconciler struct {
 
 func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var probe syntheticsv1alpha1.HTTPProbe
+	kind := string(syntheticsv1alpha1.DependencyKindHTTPProbe)
 	if err := r.Get(ctx, req.NamespacedName, &probe); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.Scheduler.Unregister(req.NamespacedName)
 			r.Metrics.Delete(req.NamespacedName)
+			r.Metrics.ClearDepends(kind, req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -40,8 +42,11 @@ func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if !probe.DeletionTimestamp.IsZero() {
 		r.Scheduler.Unregister(req.NamespacedName)
 		r.Metrics.Delete(req.NamespacedName)
+		r.Metrics.ClearDepends(kind, req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
+
+	r.Metrics.SetDepends(kind, req.NamespacedName, probe.Spec.Depends)
 
 	original := probe.DeepCopy()
 	now := metav1.NewTime(r.Clock())
