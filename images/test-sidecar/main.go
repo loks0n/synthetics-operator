@@ -1,6 +1,6 @@
 // test-sidecar runs alongside a CronJob test runner as a native sidecar.
 // It waits for the runner to write its result JSON to /results/output.json,
-// then publishes the payload to the NATS subject synthetics.tests.
+// then publishes the payload to the NATS subject synthetics.tests.results.
 package main
 
 import (
@@ -19,7 +19,6 @@ import (
 )
 
 const (
-	subject      = "synthetics.tests"
 	outputFile   = "/results/output.json"
 	pollInterval = 500 * time.Millisecond
 	maxWait      = 10 * time.Minute
@@ -59,7 +58,7 @@ func run(ctx context.Context, log *slog.Logger, natsURL string) error {
 		return err
 	}
 
-	if err := nc.Publish(subject, data); err != nil {
+	if err := nc.Publish(results.SubjectTestResults, data); err != nil {
 		return err
 	}
 
