@@ -39,5 +39,5 @@ nats:
   replicas: 1
   resources: {}
 
-resultsWriter:
+testSidecar:
   image: ""

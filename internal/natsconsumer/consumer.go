@@ -13,9 +13,9 @@ import (
 	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
-const subject = "synthetics.results"
+const subject = "synthetics.tests"
 
-// Consumer subscribes to the NATS subject and forwards probe results to the
+// Consumer subscribes to the NATS subject and forwards test results to the
 // metrics store. It implements controller-runtime's Runnable interface.
 type Consumer struct {
 	log     logr.Logger
@@ -60,12 +60,12 @@ func (c *Consumer) Start(ctx context.Context) error {
 }
 
 func (c *Consumer) recordResult(ctx context.Context, data []byte) {
-	var r results.ProbeResult
+	var r results.TestResult
 	if err := json.Unmarshal(data, &r); err != nil {
-		c.log.Error(err, "failed to parse probe result")
+		c.log.Error(err, "failed to parse test result")
 		c.store.RecordParseFailure(ctx)
 		return
 	}
 	name := types.NamespacedName{Name: r.Name, Namespace: r.Namespace}
-	c.store.RecordCronJobResult(ctx, name, string(r.Kind), r.Success, r.DurationMs, float64(r.Timestamp.Unix()))
+	c.store.RecordTestResult(ctx, name, string(r.Kind), r.Success, r.DurationMs, float64(r.Timestamp.Unix()))
 }

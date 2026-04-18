@@ -1,6 +1,6 @@
-// results-writer is a sidecar that runs alongside a CronJob probe runner.
+// test-sidecar runs alongside a CronJob test runner as a native sidecar.
 // It waits for the runner to write its result JSON to /results/output.json,
-// then publishes the payload to the NATS subject synthetics.results.
+// then publishes the payload to the NATS subject synthetics.tests.
 package main
 
 import (
@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	subject    = "synthetics.results"
-	outputFile = "/results/output.json"
+	subject      = "synthetics.tests"
+	outputFile   = "/results/output.json"
 	pollInterval = 500 * time.Millisecond
-	maxWait    = 10 * time.Minute
+	maxWait      = 10 * time.Minute
 )
 
 func main() {
@@ -36,7 +36,7 @@ func main() {
 	defer stop()
 
 	if err := run(ctx, log, natsURL); err != nil {
-		log.Error("results-writer failed", "err", err)
+		log.Error("test-sidecar failed", "err", err)
 		os.Exit(1)
 	}
 }
@@ -54,7 +54,7 @@ func run(ctx context.Context, log *slog.Logger, natsURL string) error {
 		return err
 	}
 
-	var r results.ProbeResult
+	var r results.TestResult
 	if err := json.Unmarshal(data, &r); err != nil {
 		return err
 	}
@@ -63,7 +63,7 @@ func run(ctx context.Context, log *slog.Logger, natsURL string) error {
 		return err
 	}
 
-	log.Info("published result", "kind", r.Kind, "name", r.Name, "namespace", r.Namespace, "success", r.Success)
+	log.Info("published test result", "kind", r.Kind, "name", r.Name, "namespace", r.Namespace, "success", r.Success)
 	return nc.Flush()
 }
 

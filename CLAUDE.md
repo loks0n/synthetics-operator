@@ -10,7 +10,8 @@ make test            # go test ./... (unit tests only, no envtest)
 make test-envtest    # go test ./... with real API server via setup-envtest
 make helm-lint       # helm lint the chart
 make dev             # create kind cluster + tilt up (full local dev loop)
-make ko-build-local  # build operator image into local Docker daemon via ko
+make ko-build-local             # build operator image into local Docker daemon via ko
+make ko-build-test-sidecar-local # build test-sidecar image into local Docker daemon via ko
 ```
 
 ## Naming

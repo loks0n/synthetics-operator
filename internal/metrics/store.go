@@ -166,12 +166,12 @@ func newInstruments(meter apimetric.Meter) (instruments, error) {
 	if instr.dnsAdditionalCountGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_additional_count"); err != nil {
 		return instr, err
 	}
-	if instr.resultsReceivedTotal, err = meter.Int64Counter("synthetics_cronjob_results_received_total",
-		apimetric.WithDescription("Total CronJob probe results received via NATS")); err != nil {
+	if instr.resultsReceivedTotal, err = meter.Int64Counter("synthetics_test_results_received_total",
+		apimetric.WithDescription("Total test results received via NATS")); err != nil {
 		return instr, err
 	}
-	if instr.resultsParseFailTotal, err = meter.Int64Counter("synthetics_cronjob_results_parse_failed_total",
-		apimetric.WithDescription("Total CronJob probe result messages that failed to parse")); err != nil {
+	if instr.resultsParseFailTotal, err = meter.Int64Counter("synthetics_test_results_parse_failed_total",
+		apimetric.WithDescription("Total test result messages that failed to parse")); err != nil {
 		return instr, err
 	}
 	return instr, nil
@@ -267,9 +267,9 @@ func (s *Store) observeDNS(observer apimetric.Observer, attrs []attribute.KeyVal
 	}
 }
 
-// RecordCronJobResult ingests a parsed result from the NATS consumer and
-// updates the probe's state in the store so it appears in metrics.
-func (s *Store) RecordCronJobResult(ctx context.Context, name types.NamespacedName, kind string, success bool, durationMs int64, ts float64) {
+// RecordTestResult ingests a parsed result from the NATS consumer and
+// updates the test's state in the store so it appears in metrics.
+func (s *Store) RecordTestResult(ctx context.Context, name types.NamespacedName, kind string, success bool, durationMs int64, ts float64) {
 	s.instr.resultsReceivedTotal.Add(ctx, 1, apimetric.WithAttributes(
 		attribute.String("kind", kind),
 		attribute.String("name", name.Name),

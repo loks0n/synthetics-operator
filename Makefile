@@ -16,7 +16,7 @@ KUBEBUILDER_ASSETS ?= $(shell [ -x "$(TOOLS_BIN)/setup-envtest" ] && $(TOOLS_BIN
 KIND_CLUSTER ?= synthetics-dev
 
 .PHONY: tools generate lint test test-envtest helm-lint helm-template ko-build-local \
-        ko-build-results-writer-local kind-create kind-delete dev
+        ko-build-test-sidecar-local kind-create kind-delete dev
 
 tools:
 	TOOLS_BIN=$(TOOLS_BIN) GOLANGCI_LINT_VERSION=$(GOLANGCI_LINT_VERSION) KO_VERSION=$(KO_VERSION) SETUP_ENVTEST_VERSION=$(SETUP_ENVTEST_VERSION) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) ./hack/install-tools.sh
@@ -55,9 +55,9 @@ ko-build-local:
 	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
 	@KO_DOCKER_REPO=ko.local/synthetics-operator $(TOOLS_BIN)/ko build --bare .
 
-ko-build-results-writer-local:
+ko-build-test-sidecar-local:
 	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
-	@KO_DOCKER_REPO=ko.local/synthetics-results-writer $(TOOLS_BIN)/ko build --bare ./images/results-writer
+	@KO_DOCKER_REPO=ko.local/synthetics-test-sidecar $(TOOLS_BIN)/ko build --bare ./images/test-sidecar
 
 dashboard-configmaps: ## Regenerate hack/dashboard-configmaps.yaml from dashboards/*.json
 	@for entry in "synthetics-overview-dashboard:synthetics-overview.json" "synthetics-http-probe-dashboard:http-probe.json" "synthetics-dns-probe-dashboard:dns-probe.json"; do \
