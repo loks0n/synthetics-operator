@@ -4,7 +4,20 @@ image:
   tag: latest
   pullPolicy: IfNotPresent
 
+# Controller Deployment replica count.
+#
+# HA posture today is active-passive: only the leader runs the scheduler,
+# worker pool, NATS consumer, and reconcilers. Followers sit idle serving
+# /metrics (empty until they become leader). Horizontal scaling of probe
+# execution is Phase 14.
+#
+# If you set replicaCount > 1, also set leaderElection: true. Without leader
+# election multiple replicas would double-reconcile and double-execute probes.
 replicaCount: 1
+
+# Turn on the `--leader-elect` flag. Required when replicaCount > 1.
+# Adds a lease resource in the release namespace for leader election.
+leaderElection: false
 
 serviceAccount:
   create: true
@@ -33,11 +46,29 @@ webhook:
   validatingWebhookConfigurationName: synthetics-operator-validating-webhook-configuration
   mutatingWebhookConfigurationName: synthetics-operator-mutating-webhook-configuration
 
+# NATS is the result-transport bus for CronJob-backed tests (K6Test,
+# PlaywrightTest). Probes don't use it.
+#
+# Two supported postures:
+#
+#   1. Chart-bundled NATS (nats.enabled: true, externalUrl empty) — single
+#      replica, no JetStream, fine for dev and small production setups.
+#      Messages in flight during a NATS restart are lost.
+#
+#   2. External NATS (nats.enabled: false, externalUrl set) — point at a
+#      NATS cluster you manage separately. The official nats-io/k8s Helm
+#      chart supports proper HA with clustering and JetStream. Recommended
+#      for production.
 nats:
   enabled: false
   image: nats:2.10-alpine
   replicas: 1
   resources: {}
+  # URL the operator and test-sidecar should use. If set, the in-chart NATS
+  # Deployment is skipped regardless of `enabled`. Must be reachable from
+  # probe/test namespaces.
+  # Example: nats://nats.nats-system.svc.cluster.local:4222
+  externalUrl: ""
 
 testSidecar:
   image: ""

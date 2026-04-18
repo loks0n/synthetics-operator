@@ -790,36 +790,25 @@ Webhook replicas watch the Secret via informer and reload certs on change via at
 
 ### 4.8 Availability
 
-Phase 1 availability is intentionally simple:
+**`synthetics-operator-webhook` deployment** — HA out of the box.
+- 2 replicas, stateless; any replica handles any webhook call.
+- `PodDisruptionBudget` with `minAvailable: 1` keeps at least one pod up during rollouts or evictions.
+- `priorityClassName: system-cluster-critical` protects against eviction under node pressure.
+- This is the only guarantee on `kubectl apply` remaining available during a controller restart, which is why Phase 7 split the deployment.
 
-- One operator replica
-- Brief probe scheduling gap during restart
-- Webhooks unavailable during that restart window
+**`synthetics-operator` controller deployment** — active-passive with optional leader election.
+- Default: `replicaCount: 1, leaderElection: false`. Simple and supported.
+- Multi-replica posture: set `replicaCount: 2-3` + `leaderElection: true`. The leader runs the scheduler, worker pool, NATS consumer, and reconcilers. Followers idle, ready to take over within the lease-renewal window (~15s typical) if the leader dies.
+- `/metrics` is served from **every replica** regardless of leader status. Followers' in-memory state is empty until they become leader, so a Prometheus scrape hitting a follower returns an empty (but well-formed) response. The `synthetics-operator-metrics` Service fronts all replicas.
+- On leader restart, any in-flight probe executions complete (graceful `SIGTERM`) and the new leader re-registers probes from the watch cache within a reconcile cycle.
 
-This is acceptable for the MVP and is the explicit reason Phase 7 exists.
+**Probe execution throughput.** One leader's worker pool today. `--probe-concurrency` caps parallel HTTP/DNS executions. Horizontal scaling of probe workload is **Phase 14** (independent `synthetics-operator-probes` deployment pulling from a NATS work queue).
 
-**`synthetics-operator-webhook` (2+ replicas)**
-- Stateless — any replica handles any webhook call
-- PodDisruptionBudget ensures at least one replica is always up
+**NATS.** Two supported postures, selected by Helm values:
+- **Bundled** (`nats.enabled: true`): single-replica `Deployment`, no JetStream. Fine for dev and small production setups; messages in flight during a NATS restart are lost.
+- **External** (`nats.externalUrl: nats://…`, `nats.enabled: false`): point at a NATS cluster you manage separately — the official [nats-io/k8s](https://github.com/nats-io/k8s) Helm chart supports proper HA, JetStream, and clustering. Recommended for production where test-result loss is unacceptable.
 
-**`synthetics-operator-controller` (1 replica)**
-- Single replica; no leader election needed
-- On restart (~5–10s): no jobs published to work queue; probe workers drain existing jobs and idle until controller recovers; CronJobs continue running unaffected
-- Reconcile is idempotent — always diffs current vs desired state
-- Graceful shutdown on SIGTERM — in-flight reconciles complete before exit
-
-**`synthetics-operator-probes` (1+ replicas)**
-- Stateless — any worker consumes any job from the NATS work queue
-- Scale up to increase probe throughput; scale down without resharding
-
-**`synthetics-operator-metrics` (1+ replicas)**
-- Each replica consumes the full NATS result stream — all replicas hold identical OTel instrument state
-- Scale up for `/metrics` scrape availability; all replicas serve identical data
-
-**NATS**
-- Default: 1 replica, no JetStream — results are best-effort, gaps acceptable
-- With JetStream + PVC: results buffered across restarts — no gaps during controller or metrics-consumer downtime
-- With 3 replicas: NATS cluster, survives single-node failure
+**CronJobs (K6Test, PlaywrightTest).** Runtime of each test is driven by the Kubernetes `CronJob` controller, not this operator. If the operator is down when a scheduled fire happens, the CronJob still runs; its TestResult just won't be ingested until the operator comes back online (or is lost if NATS was unbundled and persistent and the window was short). Results are ingested on a best-effort stream — gaps on `/metrics` during operator downtime are visible in Prometheus, not silent failures.
 
 ### 4.9 Resource footprint
 

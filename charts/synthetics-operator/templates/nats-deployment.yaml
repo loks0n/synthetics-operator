@@ -1,4 +1,4 @@
-{{- if .Values.nats.enabled }}
+{{- if and .Values.nats.enabled (not .Values.nats.externalUrl) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -32,10 +32,14 @@ spec:
             - --webhook-secret-name={{ .Values.webhook.secretName }}
             - --validating-webhook-configuration={{ .Values.webhook.validatingWebhookConfigurationName }}
             - --mutating-webhook-configuration={{ .Values.webhook.mutatingWebhookConfigurationName }}
-            {{- if .Values.nats.enabled }}
-            # FQDN so the same URL works when the operator forwards it to
-            # test-sidecar containers running in the user's namespace.
-            - --nats-url=nats://{{ include "synthetics-operator.fullname" . }}-nats.{{ .Release.Namespace }}.svc:4222
+            {{- if .Values.leaderElection }}
+            - --leader-elect=true
+            {{- end }}
+            {{- with (include "synthetics-operator.natsURL" .) }}
+            # The test-sidecar container receives this URL via reconciler
+            # plumbing, so it must be reachable from the user's namespace —
+            # hence the FQDN in the internal default.
+            - --nats-url={{ . }}
             {{- end }}
             {{- if .Values.testSidecar.image }}
             - --test-sidecar-image={{ .Values.testSidecar.image }}

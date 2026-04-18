@@ -705,6 +705,16 @@ type Server struct {
 	handler http.Handler
 }
 
+// NeedLeaderElection returns false so controller-runtime's manager runs the
+// metrics server on every replica, not just the leader. Prometheus scrapes
+// the Service which fronts all replicas; non-leader followers need to serve
+// /metrics too or 2-of-3 scrapes would fail in a multi-replica deployment.
+//
+// Followers' stores will be empty (workers + NATS consumer are leader-only
+// by design — we don't want duplicate probe execution or double-ingest),
+// but a valid empty response is still better than a connection refused.
+func (s *Server) NeedLeaderElection() bool { return false }
+
 func (s *Server) Start(ctx context.Context) error {
 	server := &http.Server{
 		Addr:              s.addr,

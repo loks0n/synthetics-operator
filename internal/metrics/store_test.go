@@ -117,6 +117,18 @@ func TestStoreMetricsScrape(t *testing.T) {
 	}
 }
 
+func TestServerDoesNotRequireLeaderElection(t *testing.T) {
+	// The metrics server must run on every replica so Prometheus scrapes
+	// succeed against any pod fronted by the Service. See NeedLeaderElection.
+	store, err := NewStore()
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if store.Server("").NeedLeaderElection() {
+		t.Fatal("Server.NeedLeaderElection must return false")
+	}
+}
+
 func TestStoreTLSCertExpiryMetric(t *testing.T) {
 	store, err := NewStore()
 	if err != nil {
