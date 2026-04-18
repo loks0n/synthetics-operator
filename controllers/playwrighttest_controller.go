@@ -19,18 +19,18 @@ import (
 	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
 )
 
-type K6TestReconciler struct {
+type PlaywrightTestReconciler struct {
 	client.Client
-	Scheme           *runtime.Scheme
-	Metrics          *internalmetrics.Store
-	Clock            func() time.Time
-	NATSUrl          string
-	TestSidecarImage string
-	K6RunnerImage    string
+	Scheme                *runtime.Scheme
+	Metrics               *internalmetrics.Store
+	Clock                 func() time.Time
+	NATSUrl               string
+	TestSidecarImage      string
+	PlaywrightRunnerImage string
 }
 
-func (r *K6TestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var test syntheticsv1alpha1.K6Test
+func (r *PlaywrightTestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var test syntheticsv1alpha1.PlaywrightTest
 	if err := r.Get(ctx, req.NamespacedName, &test); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.Metrics.Delete(req.NamespacedName)
@@ -63,11 +63,7 @@ func (r *K6TestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	return ctrl.Result{}, nil
 }
 
-func (r *K6TestReconciler) reconcileCronJob(ctx context.Context, test *syntheticsv1alpha1.K6Test) error {
-	// Invalid interval means the spec is unfixable until it changes — the webhook
-	// rejects bad intervals at admission time, so this path is only reached for
-	// objects that predate the webhook. Skip CronJob creation and wait for the
-	// next generation reconcile.
+func (r *PlaywrightTestReconciler) reconcileCronJob(ctx context.Context, test *syntheticsv1alpha1.PlaywrightTest) error {
 	schedule, ok := validSchedule(test.Namespace, test.Name, test.Spec.Interval.Duration)
 	if !ok {
 		return nil
@@ -84,7 +80,7 @@ func (r *K6TestReconciler) reconcileCronJob(ctx context.Context, test *synthetic
 	return err
 }
 
-func (r *K6TestReconciler) mutateCronJob(cj *batchv1.CronJob, test *syntheticsv1alpha1.K6Test, schedule string) {
+func (r *PlaywrightTestReconciler) mutateCronJob(cj *batchv1.CronJob, test *syntheticsv1alpha1.PlaywrightTest, schedule string) {
 	suspend := test.Spec.Suspend
 	ttl := int32(test.Spec.TTLAfterFinished.Seconds())
 	// A failed run is signal — don't retry. Retries double-publish to NATS
@@ -106,37 +102,28 @@ func (r *K6TestReconciler) mutateCronJob(cj *batchv1.CronJob, test *syntheticsv1
 	}
 }
 
-func (r *K6TestReconciler) buildVolumes(test *syntheticsv1alpha1.K6Test) []corev1.Volume {
+func (r *PlaywrightTestReconciler) buildVolumes(test *syntheticsv1alpha1.PlaywrightTest) []corev1.Volume {
 	return []corev1.Volume{
-		{Name: "runner-bin", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "results", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{
 			Name: "script",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{Name: test.Spec.Script.ConfigMap.Name},
-					Items:                []corev1.KeyToPath{{Key: test.Spec.Script.ConfigMap.Key, Path: "test.js"}},
+					Items:                []corev1.KeyToPath{{Key: test.Spec.Script.ConfigMap.Key, Path: "test.spec.js"}},
 				},
 			},
 		},
 	}
 }
 
-func (r *K6TestReconciler) buildInitContainers() []corev1.Container {
+func (r *PlaywrightTestReconciler) buildInitContainers() []corev1.Container {
 	sidecarRestartPolicy := corev1.ContainerRestartPolicyAlways
 	sidecarArgs := []string{}
 	if r.NATSUrl != "" {
 		sidecarArgs = []string{"--nats-url=" + r.NATSUrl}
 	}
 	return []corev1.Container{
-		{
-			Name:    "runner-installer",
-			Image:   r.K6RunnerImage,
-			Command: []string{"/ko-app/k6-runner", "--install"},
-			VolumeMounts: []corev1.VolumeMount{
-				{Name: "runner-bin", MountPath: "/runner-bin"},
-			},
-		},
 		{
 			Name:          "test-sidecar",
 			Image:         r.TestSidecarImage,
@@ -149,10 +136,10 @@ func (r *K6TestReconciler) buildInitContainers() []corev1.Container {
 	}
 }
 
-func (r *K6TestReconciler) buildRunnerContainers(test *syntheticsv1alpha1.K6Test) []corev1.Container {
+func (r *PlaywrightTestReconciler) buildRunnerContainers(test *syntheticsv1alpha1.PlaywrightTest) []corev1.Container {
 	env := []corev1.EnvVar{
-		{Name: "K6TEST_NAME", Value: test.Name},
-		{Name: "K6TEST_NAMESPACE", Value: test.Namespace},
+		{Name: "PLAYWRIGHT_TEST_NAME", Value: test.Name},
+		{Name: "PLAYWRIGHT_TEST_NAMESPACE", Value: test.Namespace},
 	}
 	var envFrom []corev1.EnvFromSource
 	var resources corev1.ResourceRequirements
@@ -164,14 +151,11 @@ func (r *K6TestReconciler) buildRunnerContainers(test *syntheticsv1alpha1.K6Test
 	return []corev1.Container{
 		{
 			Name:      "runner",
-			Image:     "grafana/k6:" + test.Spec.K6Version,
-			Command:   []string{"/runner-bin/k6-runner"},
-			Args:      []string{"--name=" + test.Name, "--namespace=" + test.Namespace},
+			Image:     r.PlaywrightRunnerImage,
 			Env:       env,
 			EnvFrom:   envFrom,
 			Resources: resources,
 			VolumeMounts: []corev1.VolumeMount{
-				{Name: "runner-bin", MountPath: "/runner-bin"},
 				{Name: "results", MountPath: "/results"},
 				{Name: "script", MountPath: "/scripts"},
 			},
@@ -179,9 +163,9 @@ func (r *K6TestReconciler) buildRunnerContainers(test *syntheticsv1alpha1.K6Test
 	}
 }
 
-func (r *K6TestReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *PlaywrightTestReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&syntheticsv1alpha1.K6Test{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&syntheticsv1alpha1.PlaywrightTest{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&batchv1.CronJob{}).
 		Complete(r)
 }

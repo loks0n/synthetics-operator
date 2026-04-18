@@ -9,7 +9,8 @@
 | **HTTPProbe** | A **Probe** that makes an HTTP request and asserts on the response | HTTP check, HTTP monitor |
 | **DNSProbe** | A **Probe** that resolves a DNS name and asserts on the answer | DNS check, DNS monitor |
 | **K6Test** | A **Test** that executes a k6 JavaScript script as a CronJob | k6 probe, k6 job |
-| **Script** | The k6 JavaScript file, stored in a ConfigMap, that a **K6Test** executes | Test file, source |
+| **PlaywrightTest** | A **Test** that executes a Playwright browser test spec as a CronJob | Playwright probe, browser test |
+| **Script** | The JavaScript file, stored in a ConfigMap, that a **K6Test** or **PlaywrightTest** executes | Test file, source |
 | **Assertion** | A single named condition evaluated against a **Probe** response (e.g. status == 200) | Check, rule, expectation |
 | **Interval** | The target period between consecutive executions of a **Probe** or **Test** | Frequency, period, schedule |
 | **Suspend** | A flag on a **Probe** or **Test** that pauses execution without deleting the resource | Pause, disable |
@@ -29,8 +30,8 @@
 | **Scheduler** | The in-memory component that maintains the set of active **Probes** and dispatches them to **Workers** on their **Interval** | Cron, timer, dispatcher |
 | **Worker** | A goroutine in the **Worker Pool** that executes a single **Probe** | Thread, runner |
 | **Worker Pool** | A bounded set of **Workers** that limits concurrency of in-process **Probe** execution | Thread pool |
-| **Runner** | The k6-runner binary that wraps the k6 process, captures its exit code, and writes a **TestResult** to a shared volume | Wrapper, executor |
-| **CronJob** | The Kubernetes batch resource created and owned by the operator for each **K6Test** | Job, periodic job |
+| **Runner** | The per-kind binary that wraps a test process (k6-runner wraps k6; playwright-runner wraps the Playwright test runner), captures its outcome, and writes a **TestResult** to a shared volume | Wrapper, executor |
+| **CronJob** | The Kubernetes batch resource created and owned by the operator for each **Test** (K6Test or PlaywrightTest) | Job, periodic job |
 
 ## Infrastructure
 
@@ -38,18 +39,19 @@
 | --- | --- | --- |
 | **Reconciler** | The controller-runtime component that watches a CRD and drives its actual state toward desired state | Controller, handler, sync loop |
 | **Webhook** | The Kubernetes admission webhook that defaults and validates CRD specs before they are persisted | Validator, admission controller |
-| **test-sidecar** | The native sidecar container that runs alongside the **Runner**, reads the **TestResult** JSON, and publishes it over NATS | results-writer, sidecar |
-| **k6-runner** | The init-container image that stages the **Runner** binary into a shared volume, then runs k6 in the main container | runner-installer (only the install mode), results-writer |
-| **RunnerSpec** | The optional pod-level configuration on a **K6Test** (env, resources, affinity) for the **Runner** container | Runner config, pod spec |
+| **test-sidecar** | The native sidecar container that runs alongside the **Runner**, reads the **TestResult** JSON, and publishes it over NATS. Kind-agnostic — the JSON payload carries whatever detail the **Runner** emits | results-writer, sidecar |
+| **k6-runner** | The init-container image that stages the k6 **Runner** binary into a shared volume, then runs k6 in the stock `grafana/k6` main container | runner-installer (only the install mode), results-writer |
+| **playwright-runner** | A single main-container image (`node:22-slim` + pinned `@playwright/test` + Chromium) whose ENTRYPOINT runs the Playwright test runner, parses the JSON reporter, and writes the **TestResult** | playwright sidecar, browser runner |
+| **RunnerSpec** | The optional pod-level configuration on a **K6Test** or **PlaywrightTest** (env, resources, affinity) for the **Runner** container | Runner config, pod spec |
 
 ## Relationships
 
 - A **Probe** (HTTPProbe, DNSProbe) is managed by the in-memory **Scheduler**; no CronJob is created.
-- A **Test** (K6Test) owns exactly one **CronJob**; the **Scheduler** is not involved.
-- Each **K6Test** CronJob pod runs one **Runner** container and one **test-sidecar** container.
-- The **Runner** writes a **TestResult** JSON to a shared volume; the **test-sidecar** reads it and publishes it over **NATS**.
+- A **Test** (K6Test, PlaywrightTest) owns exactly one **CronJob**; the **Scheduler** is not involved.
+- Each **Test** CronJob pod runs one **Runner** container and one **test-sidecar** container. K6Test additionally uses an init container to stage the k6-runner binary into the stock `grafana/k6` image; PlaywrightTest uses the playwright-runner image as the main container directly.
+- The **Runner** writes a **TestResult** JSON to a shared volume; the **test-sidecar** reads it and publishes it over **NATS**. PlaywrightTest **TestResults** carry a per-test breakdown; K6Test **TestResults** carry only the aggregate pass/fail.
 - The **Metrics Store** consumes **TestResults** from NATS and **Probe** outcomes directly from **Workers**.
-- A **K6Test** may have a **RunnerSpec** that controls pod-level resources; an **HTTPProbe** or **DNSProbe** does not.
+- A **Test** may have a **RunnerSpec** that controls pod-level resources; an **HTTPProbe** or **DNSProbe** does not.
 
 ## Example dialogue
 

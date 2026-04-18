@@ -13,7 +13,7 @@ spec:
       rules:
         # ── Probe down ──────────────────────────────────────────────────────────
         - alert: SyntheticProbeDown
-          expr: synthetics_probe_up == 0
+          expr: synthetics_probe == 0
           for: 2m
           labels:
             severity: warning
@@ -26,7 +26,7 @@ spec:
         # ── Sustained failures ──────────────────────────────────────────────────
         # Fires when a probe has been failing for every scrape in the past 5 minutes.
         - alert: SyntheticProbeSustainedFailure
-          expr: min_over_time(synthetics_probe_up[5m]) == 0
+          expr: min_over_time(synthetics_probe[5m]) == 0
           for: 0m
           labels:
             severity: critical
@@ -40,7 +40,7 @@ spec:
         # Fires when a probe has not been executed for more than 5 minutes.
         # This can happen if the scheduler is stuck or the pod has restarted.
         - alert: SyntheticProbeNotRunning
-          expr: (time() - synthetics_last_run_timestamp) > 300
+          expr: (time() - synthetics_probe_last_run_timestamp) > 300
           for: 0m
           labels:
             severity: warning
@@ -52,7 +52,7 @@ spec:
 
         # ── Config error ─────────────────────────────────────────────────────────
         - alert: SyntheticProbeConfigError
-          expr: synthetics_probe_config_error == 1
+          expr: synthetics_probe{result="config_error"} == 0
           for: 0m
           labels:
             severity: warning
@@ -106,7 +106,7 @@ spec:
 
         # ── DNS probe slow ───────────────────────────────────────────────────────
         - alert: SyntheticDNSProbeSlow
-          expr: synthetics_dns_response_ms > 500
+          expr: synthetics_probe_dns_response_ms > 500
           for: 5m
           labels:
             severity: warning
@@ -115,3 +115,30 @@ spec:
             description: >
               Probe {{ $labels.namespace }}/{{ $labels.name }} DNS response time has
               exceeded 500ms for the past 5 minutes.
+
+    - name: synthetics.tests
+      interval: 60s
+      rules:
+        # ── Test failing ─────────────────────────────────────────────────────────
+        - alert: SyntheticTestDown
+          expr: synthetics_test == 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Synthetic test {{ $labels.name }} is failing"
+            description: >
+              Test {{ $labels.namespace }}/{{ $labels.name }} ({{ $labels.kind }})
+              has been failing for at least 2 minutes.
+
+        # ── Test not running ─────────────────────────────────────────────────────
+        - alert: SyntheticTestNotRunning
+          expr: (time() - synthetics_test_last_run_timestamp) > 900
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Synthetic test {{ $labels.name }} has not run in > 15 minutes"
+            description: >
+              Test {{ $labels.namespace }}/{{ $labels.name }} ({{ $labels.kind }})
+              last ran {{ $value | humanizeDuration }} ago.

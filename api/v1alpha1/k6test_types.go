@@ -11,28 +11,50 @@ type ConfigMapKeyRef struct {
 	Key  string `json:"key"`
 }
 
-// K6ScriptRef points to the k6 script stored in a ConfigMap.
-type K6ScriptRef struct {
+// ScriptRef points to a test script stored in a ConfigMap. Shared by all
+// CronJob-backed test kinds.
+type ScriptRef struct {
 	ConfigMap ConfigMapKeyRef `json:"configMap"`
 }
 
-// RunnerSpec configures pod-level concerns for CronJob test runners.
+// RunnerSpec configures pod-level concerns for CronJob-backed test runners.
+// Use it to inject environment variables, mount secrets, pin resource requests,
+// or control pod placement. It does not configure the test script itself — for
+// that, use Script.
 type RunnerSpec struct {
-	Env       []corev1.EnvVar             `json:"env,omitempty"`
-	EnvFrom   []corev1.EnvFromSource      `json:"envFrom,omitempty"`
+	// Env is additional environment variables to set on the runner container,
+	// merged with the operator-set defaults.
+	Env []corev1.EnvVar `json:"env,omitempty"`
+	// EnvFrom bulk-loads environment variables from Secrets or ConfigMaps.
+	EnvFrom []corev1.EnvFromSource `json:"envFrom,omitempty"`
+	// Resources sets CPU/memory requests and limits on the runner container.
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
-	Affinity  *corev1.Affinity            `json:"affinity,omitempty"`
+	// Affinity controls pod placement, e.g. spreading runs across nodes.
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 }
 
+// K6TestSpec defines a k6 load test that runs on a schedule as a CronJob.
 type K6TestSpec struct {
-	Interval         metav1.Duration `json:"interval,omitempty"`
-	Suspend          bool            `json:"suspend,omitempty"`
-	K6Version        string          `json:"k6Version"`
-	Script           K6ScriptRef     `json:"script"`
+	// Interval between runs (Go duration). Minimum 1m; must evenly divide 60
+	// minutes (sub-hour) or evenly divide 24 hours. Default 1h.
+	Interval metav1.Duration `json:"interval,omitempty"`
+	// Suspend pauses the CronJob without deleting it. Already-running pods are
+	// not terminated.
+	Suspend bool `json:"suspend,omitempty"`
+	// K6Version pins the grafana/k6 image tag used for the runner container.
+	K6Version string `json:"k6Version"`
+	// Script points to the k6 JavaScript script stored in a ConfigMap.
+	Script ScriptRef `json:"script"`
+	// TTLAfterFinished is how long to keep Job pods after they complete, for
+	// log inspection. Default 1h.
 	TTLAfterFinished metav1.Duration `json:"ttlAfterFinished,omitempty"`
-	Runner           *RunnerSpec     `json:"runner,omitempty"`
+	// Runner configures pod-level concerns for the runner container.
+	Runner *RunnerSpec `json:"runner,omitempty"`
 }
 
+// K6TestStatus reflects the reconciler's view of the K6Test. Runtime pass/fail
+// lives in metrics (synthetics_test and synthetics_test_playwright_*), not
+// here — the CR is config-only.
 type K6TestStatus struct {
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
@@ -41,6 +63,10 @@ type K6TestStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=k6tests,scope=Namespaced,shortName=k6
+// +kubebuilder:printcolumn:name="Interval",type=string,JSONPath=`.spec.interval`
+// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.spec.k6Version`
+// +kubebuilder:printcolumn:name="Suspend",type=boolean,JSONPath=`.spec.suspend`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type K6Test struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

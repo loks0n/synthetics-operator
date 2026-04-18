@@ -33,13 +33,18 @@ spec:
             - --validating-webhook-configuration={{ .Values.webhook.validatingWebhookConfigurationName }}
             - --mutating-webhook-configuration={{ .Values.webhook.mutatingWebhookConfigurationName }}
             {{- if .Values.nats.enabled }}
-            - --nats-url=nats://{{ include "synthetics-operator.fullname" . }}-nats:4222
+            # FQDN so the same URL works when the operator forwards it to
+            # test-sidecar containers running in the user's namespace.
+            - --nats-url=nats://{{ include "synthetics-operator.fullname" . }}-nats.{{ .Release.Namespace }}.svc:4222
             {{- end }}
             {{- if .Values.testSidecar.image }}
             - --test-sidecar-image={{ .Values.testSidecar.image }}
             {{- end }}
             {{- if .Values.k6Runner.image }}
             - --k6-runner-image={{ .Values.k6Runner.image }}
+            {{- end }}
+            {{- if .Values.playwrightRunner.image }}
+            - --playwright-runner-image={{ .Values.playwrightRunner.image }}
             {{- end }}
           ports:
             - name: metrics

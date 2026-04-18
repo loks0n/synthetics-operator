@@ -16,8 +16,8 @@ import (
 
 // DNSResult holds the outcome of a single DNS probe execution.
 type DNSResult struct {
-	Success          bool
 	ConfigError      bool
+	ResolverErr      error // non-nil when the DNS client returned an error
 	Duration         time.Duration
 	Completed        time.Time
 	Message          string
@@ -27,6 +27,10 @@ type DNSResult struct {
 	AuthorityCount   int
 	AdditionalCount  int
 }
+
+// Success reports whether the resolver returned a response. Assertions are
+// evaluated separately.
+func (r DNSResult) Success() bool { return !r.ConfigError && r.ResolverErr == nil }
 
 // DNSExecutor runs DNS probes using github.com/miekg/dns.
 type DNSExecutor struct{}
@@ -97,9 +101,10 @@ func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSP
 	resp, rtt, err := client.ExchangeContext(ctx, msg, resolver)
 	if err != nil {
 		return DNSResult{
-			Completed: time.Now(),
-			Duration:  time.Since(start),
-			Message:   err.Error(),
+			ResolverErr: err,
+			Completed:   time.Now(),
+			Duration:    time.Since(start),
+			Message:     err.Error(),
 		}
 	}
 
@@ -116,7 +121,6 @@ func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSP
 		result.FirstAnswerType = dns.TypeToString[resp.Answer[0].Header().Rrtype]
 	}
 
-	result.Success = true
 	result.Message = fmt.Sprintf("received %d answer(s)", len(resp.Answer))
 
 	return result
@@ -155,14 +159,13 @@ func systemResolver() string {
 	return "8.8.8.8:53"
 }
 
-// dnsToprobeState converts a DNSResult into a ProbeState for the metrics store.
-func dnsToprobeState(r DNSResult) internalmetrics.ProbeState {
+// dnsToProbeState converts a DNSResult into a ProbeState for the metrics store.
+// Callers set Result after this via assertions or classifyDNS.
+func dnsToProbeState(r DNSResult) internalmetrics.ProbeState {
 	return internalmetrics.ProbeState{
 		Kind:                 "DNSProbe",
-		Success:              boolToFloat(r.Success && !r.ConfigError),
 		DurationMilliseconds: float64(r.Duration.Milliseconds()),
 		LastRunTimestamp:     float64(r.Completed.Unix()),
-		ConfigError:          boolToFloat(r.ConfigError),
 		DNSFirstAnswerValue:  r.FirstAnswerValue,
 		DNSFirstAnswerType:   r.FirstAnswerType,
 		DNSAnswerCount:       float64(r.AnswerCount),
@@ -172,19 +175,19 @@ func dnsToprobeState(r DNSResult) internalmetrics.ProbeState {
 }
 
 func applyDNSAssertions(state *internalmetrics.ProbeState, r DNSResult, assertions []syntheticsv1alpha1.Assertion) {
-	if r.ConfigError {
-		state.FailureReason = ReasonConfigError
-		state.Success = 0
-		return
-	}
 	ac := assertionContext{
 		"answer_count": float64(r.AnswerCount),
 		"duration_ms":  float64(r.Duration.Milliseconds()),
 	}
-	ok, failReason, results := evalAssertions(assertions, ac)
-	state.FailureReason = failReason
+	ok, failedName, results := evalAssertions(assertions, ac)
 	state.AssertionResults = results
-	state.Success = boolToFloat(ok)
+	if ok {
+		state.Result = internalmetrics.ResultOK
+		state.FailedAssertion = ""
+		return
+	}
+	state.Result = internalmetrics.ResultAssertionFailed
+	state.FailedAssertion = failedName
 }
 
 // NewDNSJob constructs a Job for a DNSProbe. This is the only place in the
@@ -198,13 +201,16 @@ func NewDNSJob(probe *syntheticsv1alpha1.DNSProbe, exec DNSExecutor, store *inte
 		Timeout:  snapshot.Spec.Timeout.Duration,
 		Run: func(ctx context.Context) {
 			r := exec.Execute(ctx, snapshot)
-			state := dnsToprobeState(r)
-			if len(snapshot.Spec.Assertions) > 0 {
+			state := dnsToProbeState(r)
+			switch {
+			case r.ConfigError:
+				state.Result = internalmetrics.ResultConfigError
+			case r.ResolverErr != nil:
+				state.Result = internalmetrics.ResultDNSFailed
+			case len(snapshot.Spec.Assertions) > 0:
 				applyDNSAssertions(&state, r, snapshot.Spec.Assertions)
-			} else if r.ConfigError {
-				state.FailureReason = ReasonConfigError
-			} else if !r.Success {
-				state.FailureReason = ReasonConnectionError
+			default:
+				state.Result = internalmetrics.ResultOK
 			}
 			store.Upsert(key, state)
 		},

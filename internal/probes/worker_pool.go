@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
@@ -21,13 +22,6 @@ import (
 	internalmetrics "github.com/loks0n/synthetics-operator/internal/metrics"
 )
 
-// Failure reason constants for built-in (non-assertion) failures.
-// When an assertion fails, its Name field is used as the reason instead.
-const (
-	ReasonConfigError     = "configError"
-	ReasonConnectionError = "connectionError"
-)
-
 // Executor runs a single HTTP probe and returns the result.
 type Executor interface {
 	Execute(context.Context, *syntheticsv1alpha1.HTTPProbe) Result
@@ -39,8 +33,8 @@ type HTTPExecutor struct {
 }
 
 type Result struct {
-	Success           bool
 	ConfigError       bool
+	TransportErr      error // non-nil when the HTTP client returned an error before a response
 	StatusCode        int
 	HTTPVersion       float64
 	Duration          time.Duration
@@ -53,6 +47,10 @@ type Result struct {
 	PhaseProcessingMs float64
 	PhaseTransferMs   float64
 }
+
+// Success reports whether the HTTP request completed end-to-end. Assertion
+// outcomes are evaluated separately and don't enter here.
+func (r Result) Success() bool { return !r.ConfigError && r.TransportErr == nil }
 
 func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTTPProbe) Result {
 	start := time.Now()
@@ -123,9 +121,10 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return Result{
-			Completed: time.Now(),
-			Duration:  time.Since(start),
-			Message:   err.Error(),
+			TransportErr: err,
+			Completed:    time.Now(),
+			Duration:     time.Since(start),
+			Message:      err.Error(),
 		}
 	}
 	defer func() {
@@ -151,7 +150,6 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 	}
 
 	return Result{
-		Success:           true,
 		StatusCode:        resp.StatusCode,
 		HTTPVersion:       parseHTTPVersion(resp.Proto),
 		Completed:         time.Now(),
@@ -206,14 +204,13 @@ type Job struct {
 }
 
 // resultToProbeState converts an HTTP probe Result into a ProbeState suitable
-// for the metrics store.
+// for the metrics store. Callers then set Result/FailedAssertion via the
+// assertion helpers or classifyHTTP.
 func resultToProbeState(r Result) internalmetrics.ProbeState {
 	state := internalmetrics.ProbeState{
 		Kind:                  "HTTPProbe",
-		Success:               boolToFloat(!r.ConfigError && r.StatusCode > 0),
 		DurationMilliseconds:  float64(r.Duration.Milliseconds()),
 		LastRunTimestamp:      float64(r.Completed.Unix()),
-		ConfigError:           boolToFloat(r.ConfigError),
 		HTTPStatusCode:        float64(r.StatusCode),
 		HTTPVersion:           r.HTTPVersion,
 		HTTPPhaseDNSMs:        r.PhaseDNSMs,
@@ -228,12 +225,59 @@ func resultToProbeState(r Result) internalmetrics.ProbeState {
 	return state
 }
 
-func applyHTTPAssertions(state *internalmetrics.ProbeState, r Result, assertions []syntheticsv1alpha1.Assertion) {
-	if r.ConfigError {
-		state.FailureReason = ReasonConfigError
-		state.Success = 0
-		return
+// classifyHTTPTransport maps a *http.Client.Do error to a Result enum value.
+// Called only when there's no response body at all — assertion_failed lives in
+// applyHTTPAssertions.
+func classifyHTTPTransport(err error) internalmetrics.Result {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return internalmetrics.ResultDNSFailed
 	}
+	if isTLSError(err) {
+		return internalmetrics.ResultTLSFailed
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		switch opErr.Op {
+		case "dial":
+			if opErr.Timeout() {
+				return internalmetrics.ResultConnectTimeout
+			}
+			return internalmetrics.ResultConnectRefused
+		case "read":
+			return internalmetrics.ResultRecvTimeout
+		}
+	}
+	// Bare context.DeadlineExceeded (e.g. body read hit the probe timeout) and
+	// any other generic transport error fall through to recv_timeout. Connect-
+	// time timeouts are caught by the Op=="dial" branch above.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return internalmetrics.ResultRecvTimeout
+	}
+	return internalmetrics.ResultConnectRefused
+}
+
+// isTLSError returns true for certificate verification and TLS handshake
+// failures. Covers both the typed tls.CertificateVerificationError and x509
+// verification errors that wrap with it.
+func isTLSError(err error) bool {
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return true
+	}
+	var unknownAuthErr x509.UnknownAuthorityError
+	if errors.As(err, &unknownAuthErr) {
+		return true
+	}
+	var invalidErr x509.CertificateInvalidError
+	if errors.As(err, &invalidErr) {
+		return true
+	}
+	var hostnameErr x509.HostnameError
+	return errors.As(err, &hostnameErr)
+}
+
+func applyHTTPAssertions(state *internalmetrics.ProbeState, r Result, assertions []syntheticsv1alpha1.Assertion) {
 	sslExpiryDays := float64(-1)
 	if r.CertExpiryTime != nil {
 		sslExpiryDays = time.Until(*r.CertExpiryTime).Hours() / 24
@@ -243,10 +287,15 @@ func applyHTTPAssertions(state *internalmetrics.ProbeState, r Result, assertions
 		"duration_ms":     float64(r.Duration.Milliseconds()),
 		"ssl_expiry_days": sslExpiryDays,
 	}
-	ok, failReason, results := evalAssertions(assertions, ac)
-	state.FailureReason = failReason
+	ok, failedName, results := evalAssertions(assertions, ac)
 	state.AssertionResults = results
-	state.Success = boolToFloat(ok)
+	if ok {
+		state.Result = internalmetrics.ResultOK
+		state.FailedAssertion = ""
+		return
+	}
+	state.Result = internalmetrics.ResultAssertionFailed
+	state.FailedAssertion = failedName
 }
 
 // NewHTTPJob constructs a Job for an HTTPProbe. This is the only place in the
@@ -263,12 +312,15 @@ func NewHTTPJob(probe *syntheticsv1alpha1.HTTPProbe, exec Executor, store *inter
 			state := resultToProbeState(r)
 			state.URL = snapshot.Spec.Request.URL
 			state.Method = strings.ToUpper(snapshot.Spec.Request.Method)
-			if len(snapshot.Spec.Assertions) > 0 {
+			switch {
+			case r.ConfigError:
+				state.Result = internalmetrics.ResultConfigError
+			case r.TransportErr != nil:
+				state.Result = classifyHTTPTransport(r.TransportErr)
+			case len(snapshot.Spec.Assertions) > 0:
 				applyHTTPAssertions(&state, r, snapshot.Spec.Assertions)
-			} else if r.ConfigError {
-				state.FailureReason = ReasonConfigError
-			} else if r.StatusCode == 0 {
-				state.FailureReason = ReasonConnectionError
+			default:
+				state.Result = internalmetrics.ResultOK
 			}
 			store.Upsert(key, state)
 		},
@@ -345,13 +397,6 @@ func parseHTTPVersion(proto string) float64 {
 		return 2.0
 	case "3", "3.0":
 		return 3.0
-	}
-	return 0
-}
-
-func boolToFloat(v bool) float64 {
-	if v {
-		return 1
 	}
 	return 0
 }

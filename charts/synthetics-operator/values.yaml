@@ -44,3 +44,6 @@ testSidecar:
 
 k6Runner:
   image: ""
+
+playwrightRunner:
+  image: ""

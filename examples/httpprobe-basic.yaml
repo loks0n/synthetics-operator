@@ -1,7 +1,7 @@
 apiVersion: synthetics.dev/v1alpha1
 kind: HTTPProbe
 metadata:
-  name: phase1-echo
+  name: echo-healthcheck
 spec:
   interval: 30s
   timeout: 10s

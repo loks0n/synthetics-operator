@@ -53,8 +53,8 @@ func (d *DNSProbe) ValidateDelete(context.Context, runtime.Object) (admission.Wa
 func (d *DNSProbe) validate() error {
 	var allErrs field.ErrorList
 
-	if d.Spec.Interval.Duration <= 0 {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "interval"), d.Spec.Interval.Duration.String(), "must be greater than zero"))
+	if err := validateProbeInterval(d.Spec.Interval.Duration); err != nil {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "interval"), d.Spec.Interval.Duration.String(), err.Error()))
 	}
 	if d.Spec.Timeout.Duration <= 0 {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "timeout"), d.Spec.Timeout.Duration.String(), "must be greater than zero"))

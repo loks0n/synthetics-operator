@@ -33,7 +33,7 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: 'synthetics_probe_up{kind="HTTPProbe"} == 0'
+                  expr: 'synthetics_probe{kind="HTTPProbe"} == 0'
                   instant: true
                   refId: A
               - refId: C
@@ -79,7 +79,7 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: 'synthetics_probe_up{kind="DNSProbe"} == 0'
+                  expr: 'synthetics_probe{kind="DNSProbe"} == 0'
                   instant: true
                   refId: A
               - refId: C

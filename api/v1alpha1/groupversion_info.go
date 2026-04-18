@@ -1,4 +1,5 @@
 // +groupName=synthetics.dev
+// +kubebuilder:object:generate=true
 
 package v1alpha1
 

@@ -10,7 +10,7 @@ rules:
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: ["synthetics.dev"]
-    resources: ["httpprobes", "httpprobes/status", "dnsprobes", "dnsprobes/status", "k6tests", "k6tests/status"]
+    resources: ["httpprobes", "httpprobes/status", "dnsprobes", "dnsprobes/status", "k6tests", "k6tests/status", "playwrighttests", "playwrighttests/status"]
     verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["batch"]
     resources: ["cronjobs"]

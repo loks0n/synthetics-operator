@@ -16,7 +16,20 @@ spec:
     singular: k6test
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.interval
+      name: Interval
+      type: string
+    - jsonPath: .spec.k6Version
+      name: Version
+      type: string
+    - jsonPath: .spec.suspend
+      name: Suspend
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         properties:
@@ -38,17 +51,24 @@ spec:
           metadata:
             type: object
           spec:
+            description: K6TestSpec defines a k6 load test that runs on a schedule
+              as a CronJob.
             properties:
               interval:
+                description: |-
+                  Interval between runs (Go duration). Minimum 1m; must evenly divide 60
+                  minutes (sub-hour) or evenly divide 24 hours. Default 1h.
                 type: string
               k6Version:
+                description: K6Version pins the grafana/k6 image tag used for the
+                  runner container.
                 type: string
               runner:
-                description: RunnerSpec configures pod-level concerns for CronJob
-                  test runners.
+                description: Runner configures pod-level concerns for the runner container.
                 properties:
                   affinity:
-                    description: Affinity is a group of affinity scheduling rules.
+                    description: Affinity controls pod placement, e.g. spreading runs
+                      across nodes.
                     properties:
                       nodeAffinity:
                         description: Describes node affinity scheduling rules for
@@ -967,6 +987,9 @@ spec:
                         type: object
                     type: object
                   env:
+                    description: |-
+                      Env is additional environment variables to set on the runner container,
+                      merged with the operator-set defaults.
                     items:
                       description: EnvVar represents an environment variable present
                         in a Container.
@@ -1124,6 +1147,8 @@ spec:
                       type: object
                     type: array
                   envFrom:
+                    description: EnvFrom bulk-loads environment variables from Secrets
+                      or ConfigMaps.
                     items:
                       description: EnvFromSource represents the source of a set of
                         ConfigMaps or Secrets
@@ -1170,8 +1195,8 @@ spec:
                       type: object
                     type: array
                   resources:
-                    description: ResourceRequirements describes the compute resource
-                      requirements.
+                    description: Resources sets CPU/memory requests and limits on
+                      the runner container.
                     properties:
                       claims:
                         description: |-
@@ -1231,7 +1256,8 @@ spec:
                     type: object
                 type: object
               script:
-                description: K6ScriptRef points to the k6 script stored in a ConfigMap.
+                description: Script points to the k6 JavaScript script stored in a
+                  ConfigMap.
                 properties:
                   configMap:
                     description: ConfigMapKeyRef identifies a key within a ConfigMap.
@@ -1248,14 +1274,24 @@ spec:
                 - configMap
                 type: object
               suspend:
+                description: |-
+                  Suspend pauses the CronJob without deleting it. Already-running pods are
+                  not terminated.
                 type: boolean
               ttlAfterFinished:
+                description: |-
+                  TTLAfterFinished is how long to keep Job pods after they complete, for
+                  log inspection. Default 1h.
                 type: string
             required:
             - k6Version
             - script
             type: object
           status:
+            description: |-
+              K6TestStatus reflects the reconciler's view of the K6Test. Runtime pass/fail
+              lives in metrics (synthetics_test and synthetics_test_playwright_*), not
+              here — the CR is config-only.
             properties:
               conditions:
                 items:

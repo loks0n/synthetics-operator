@@ -52,8 +52,8 @@ func (h *HTTPProbe) ValidateDelete(context.Context, runtime.Object) (admission.W
 func (h *HTTPProbe) validate() error {
 	var allErrs field.ErrorList
 
-	if h.Spec.Interval.Duration <= 0 {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "interval"), h.Spec.Interval.Duration.String(), "must be greater than zero"))
+	if err := validateProbeInterval(h.Spec.Interval.Duration); err != nil {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "interval"), h.Spec.Interval.Duration.String(), err.Error()))
 	}
 	if h.Spec.Timeout.Duration <= 0 {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "timeout"), h.Spec.Timeout.Duration.String(), "must be greater than zero"))

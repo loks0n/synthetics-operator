@@ -158,24 +158,46 @@ jobs:
 
       - uses: azure/setup-helm@v5.0.0
 
+      - uses: ko-build/setup-ko@v0.7
+        with:
+          version: v0.18.1
+
       - name: Download image artifact
         uses: actions/download-artifact@v7
         with:
           name: operator-image
           path: /tmp
 
-      - name: Load image into Docker
+      - name: Load operator image into Docker
         run: |
           IMAGE=$(docker load -i /tmp/operator-image.tar | awk '{print $NF}')
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Build test-sidecar image
+        run: |
+          SIDECAR_IMAGE=$(KO_DOCKER_REPO=ko.local ko build --local --bare ./images/test-sidecar)
+          echo "SIDECAR_IMAGE=$SIDECAR_IMAGE" >> "$GITHUB_ENV"
+
+      - name: Build playwright-runner image
+        run: |
+          # Tag by a short image-id digest so the CronJob's pod spec references
+          # an immutable tag. Kubelet's default pullPolicy for `:latest` is
+          # Always, which would try to pull from the fake ko.local registry.
+          docker build -t ko.local/synthetics-playwright-runner:latest ./images/playwright-runner
+          PW_TAG=$(docker image inspect ko.local/synthetics-playwright-runner:latest --format '{{.Id}}' | sed 's/sha256://' | cut -c1-12)
+          docker tag ko.local/synthetics-playwright-runner:latest ko.local/synthetics-playwright-runner:$PW_TAG
+          echo "PLAYWRIGHT_IMAGE=ko.local/synthetics-playwright-runner:$PW_TAG" >> "$GITHUB_ENV"
 
       - uses: helm/kind-action@v1.13.0
         with:
           cluster_name: synthetics
           node_image: kindest/node:v1.33.0
 
-      - name: Load image into kind
-        run: kind load docker-image "$IMAGE" --name synthetics
+      - name: Load images into kind
+        run: |
+          kind load docker-image "$IMAGE" --name synthetics
+          kind load docker-image "$SIDECAR_IMAGE" --name synthetics
+          kind load docker-image "$PLAYWRIGHT_IMAGE" --name synthetics
 
       - name: Install chart
         run: |
@@ -183,12 +205,16 @@ jobs:
           helm upgrade --install synthetics-operator charts/synthetics-operator \
             --namespace synthetics-system \
             --set-string image.ref="$IMAGE" \
-            --set image.pullPolicy=IfNotPresent
+            --set image.pullPolicy=IfNotPresent \
+            --set nats.enabled=true \
+            --set-string testSidecar.image="$SIDECAR_IMAGE" \
+            --set-string playwrightRunner.image="$PLAYWRIGHT_IMAGE"
 
       - name: Wait for operator rollout
         run: |
           kubectl -n synthetics-system rollout status deployment/synthetics-operator --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-webhook --timeout=180s
+          kubectl -n synthetics-system rollout status deployment/synthetics-operator-nats --timeout=120s
 
       - name: Deploy echo service
         run: |
@@ -229,22 +255,80 @@ jobs:
           EOF
           kubectl rollout status deployment/echo --timeout=120s
 
-      - name: Apply probe
-        run: kubectl apply -f examples/phase1-httpprobe.yaml
+      - name: Apply HTTPProbe
+        run: kubectl apply -f examples/httpprobe-basic.yaml
 
-      - name: Verify metrics
+      - name: Apply PlaywrightTest
+        run: |
+          # Smoke-specific PlaywrightTest script pointed at the in-cluster echo
+          # service so CI doesn't depend on public internet reachability.
+          kubectl apply -f - <<'EOF'
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: smoke-playwright-script
+          data:
+            test.spec.js: |
+              const { test, expect } = require('@playwright/test');
+              test('echo returns ok', async ({ page }) => {
+                const response = await page.goto('http://echo');
+                expect(response.status()).toBe(200);
+                await expect(page.locator('body')).toContainText('ok');
+              });
+          ---
+          apiVersion: synthetics.dev/v1alpha1
+          kind: PlaywrightTest
+          metadata:
+            name: smoke-echo
+          spec:
+            interval: 1m
+            script:
+              configMap:
+                name: smoke-playwright-script
+                key: test.spec.js
+            ttlAfterFinished: 5m
+          EOF
+
+      - name: Verify HTTPProbe metrics
         run: |
           kubectl -n synthetics-system port-forward svc/synthetics-operator-metrics 8080:8080 >/tmp/port-forward.log 2>&1 &
           PF_PID=$!
           trap "kill $PF_PID" EXIT
           # Poll for up to 120s to allow at least one probe interval (30s) plus startup.
           for i in $(seq 1 40); do
-            if curl -fsS http://127.0.0.1:8080/metrics 2>/dev/null | grep -qE 'synthetics_probe_up\{[^}]*name="phase1-echo"[^}]*\} 1'; then
+            if curl -fsS http://127.0.0.1:8080/metrics 2>/dev/null | grep -qE 'synthetics_probe\{[^}]*name="echo-healthcheck"[^}]*\} 1'; then
               exit 0
             fi
             sleep 3
           done
           cat /tmp/port-forward.log || true
+          curl -fsS http://127.0.0.1:8080/metrics || true
+          exit 1
+
+      - name: Verify PlaywrightTest metrics
+        run: |
+          kubectl -n synthetics-system port-forward svc/synthetics-operator-metrics 8080:8080 >/tmp/pf-pw.log 2>&1 &
+          PF_PID=$!
+          trap "kill $PF_PID" EXIT
+          # CronJob resolution is 1m; add Playwright startup + Chromium launch
+          # (~15-30s) + NATS publish. Budget ~4 minutes before declaring failure.
+          for i in $(seq 1 80); do
+            if curl -fsS http://127.0.0.1:8080/metrics 2>/dev/null | grep -qE 'synthetics_playwright_tests_passed\{[^}]*name="smoke-echo"[^}]*\} 1'; then
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "--- port-forward log ---"
+          cat /tmp/pf-pw.log || true
+          echo "--- operator logs ---"
+          kubectl -n synthetics-system logs deployment/synthetics-operator --tail=100 || true
+          echo "--- playwright cronjob status ---"
+          kubectl describe cronjob smoke-echo || true
+          echo "--- most recent playwright pod ---"
+          POD=$(kubectl get pods -l job-name --field-selector=status.phase!=Pending -o name | head -1)
+          [ -n "$POD" ] && kubectl describe "$POD" || true
+          [ -n "$POD" ] && kubectl logs "$POD" --all-containers --prefix || true
+          echo "--- /metrics snapshot ---"
           curl -fsS http://127.0.0.1:8080/metrics || true
           exit 1
 

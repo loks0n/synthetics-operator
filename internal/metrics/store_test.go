@@ -25,10 +25,9 @@ func TestStoreUpsertAndSnapshot(t *testing.T) {
 
 	key := types.NamespacedName{Namespace: "default", Name: "my-probe"}
 	state := ProbeState{
-		Success:              1,
+		Result:               ResultOK,
 		DurationMilliseconds: 42,
 		LastRunTimestamp:     1000,
-		ConfigError:          0,
 	}
 	store.Upsert(key, state)
 
@@ -60,7 +59,7 @@ func TestStoreDelete(t *testing.T) {
 	}
 
 	key := types.NamespacedName{Namespace: "default", Name: "probe"}
-	store.Upsert(key, ProbeState{Success: 1})
+	store.Upsert(key, ProbeState{Result: ResultOK})
 	store.Delete(key)
 
 	_, ok := store.Snapshot(key)
@@ -77,10 +76,10 @@ func TestStoreMetricsScrape(t *testing.T) {
 
 	key := types.NamespacedName{Namespace: "default", Name: "probe"}
 	store.Upsert(key, ProbeState{
-		Success:              1,
+		Kind:                 "HTTPProbe",
+		Result:               ResultOK,
 		DurationMilliseconds: 55,
 		LastRunTimestamp:     9999,
-		ConfigError:          0,
 	})
 
 	srv := httptest.NewServer(store.Server("").handler)
@@ -104,9 +103,9 @@ func TestStoreMetricsScrape(t *testing.T) {
 	text := string(body)
 
 	for _, want := range []string{
-		"synthetics_probe_up",
+		"synthetics_probe{",
 		"synthetics_probe_duration_ms",
-		"synthetics_last_run_timestamp",
+		"synthetics_probe_last_run_timestamp",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("metrics output missing %q", want)
@@ -126,7 +125,8 @@ func TestStoreTLSCertExpiryMetric(t *testing.T) {
 
 	key := types.NamespacedName{Namespace: "default", Name: "tls-probe"}
 	store.Upsert(key, ProbeState{
-		Success:       1,
+		Kind:          "HTTPProbe",
+		Result:        ResultOK,
 		TLSCertExpiry: 1800000000,
 	})
 

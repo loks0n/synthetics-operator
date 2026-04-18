@@ -26,6 +26,11 @@ type DNSProbeStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=dnsprobes,scope=Namespaced,shortName=dp
+// +kubebuilder:printcolumn:name="Name",type=string,JSONPath=`.spec.query.name`,priority=0
+// +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.query.type`
+// +kubebuilder:printcolumn:name="Interval",type=string,JSONPath=`.spec.interval`
+// +kubebuilder:printcolumn:name="Suspend",type=boolean,JSONPath=`.spec.suspend`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type DNSProbe struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

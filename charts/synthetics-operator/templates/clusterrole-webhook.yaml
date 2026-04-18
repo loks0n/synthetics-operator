@@ -7,5 +7,5 @@ rules:
     resources: ["secrets"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["synthetics.dev"]
-    resources: ["httpprobes", "dnsprobes"]
+    resources: ["httpprobes", "dnsprobes", "k6tests", "playwrighttests"]
     verbs: ["get", "list", "watch"]

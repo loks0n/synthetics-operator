@@ -39,7 +39,7 @@
         "name": "namespace",
         "options": [],
         "query": {
-          "query": "label_values(synthetics_probe_up{kind=\"HTTPProbe\"}, namespace)",
+          "query": "label_values(synthetics_probe{kind=\"HTTPProbe\"}, namespace)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
@@ -208,7 +208,7 @@
       },
       "targets": [
         {
-          "expr": "synthetics_probe_up{kind=\"HTTPProbe\", namespace=\"$namespace\", url=\"$url\"}",
+          "expr": "synthetics_probe{kind=\"HTTPProbe\", namespace=\"$namespace\", url=\"$url\"}",
           "legendFormat": "{{reason}}",
           "instant": true,
           "refId": "A",
@@ -276,7 +276,7 @@
       },
       "targets": [
         {
-          "expr": "avg_over_time(max by(name, namespace, kind, url)(synthetics_probe_up{url=\"$url\", namespace=\"$namespace\"})[1d:30s]) * 100",
+          "expr": "avg_over_time(max by(name, namespace, kind, url)(synthetics_probe{url=\"$url\", namespace=\"$namespace\"})[1d:30s]) * 100",
           "instant": true,
           "refId": "A",
           "interval": "30s"
@@ -343,7 +343,7 @@
       },
       "targets": [
         {
-          "expr": "avg_over_time(max by(name, namespace, kind, url)(synthetics_probe_up{url=\"$url\", namespace=\"$namespace\"})[7d:30s]) * 100",
+          "expr": "avg_over_time(max by(name, namespace, kind, url)(synthetics_probe{url=\"$url\", namespace=\"$namespace\"})[7d:30s]) * 100",
           "instant": true,
           "refId": "A",
           "interval": "30s"
@@ -410,7 +410,7 @@
       },
       "targets": [
         {
-          "expr": "avg_over_time(max by(name, namespace, kind, url)(synthetics_probe_up{url=\"$url\", namespace=\"$namespace\"})[14d:30s]) * 100",
+          "expr": "avg_over_time(max by(name, namespace, kind, url)(synthetics_probe{url=\"$url\", namespace=\"$namespace\"})[14d:30s]) * 100",
           "instant": true,
           "refId": "A",
           "interval": "30s"
@@ -580,7 +580,7 @@
       },
       "targets": [
         {
-          "expr": "synthetics_last_run_timestamp{kind=\"HTTPProbe\", namespace=\"$namespace\", url=\"$url\"} * 1000",
+          "expr": "synthetics_probe_last_run_timestamp{kind=\"HTTPProbe\", namespace=\"$namespace\", url=\"$url\"} * 1000",
           "legendFormat": "",
           "instant": true,
           "refId": "A",

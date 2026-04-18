@@ -120,48 +120,6 @@ func TestHTTPProbeReconcileRegistersProbe(t *testing.T) {
 	}
 }
 
-func TestHTTPProbeReconcileInitializingCondition(t *testing.T) {
-	k8sClient, stop := setupEnvtest(t)
-	defer stop()
-	reconciler := newReconciler(t, k8sClient)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	probe := &syntheticsv1alpha1.HTTPProbe{
-		ObjectMeta: metav1.ObjectMeta{Name: "init-probe", Namespace: "default"},
-		Spec: syntheticsv1alpha1.HTTPProbeSpec{
-			Interval: metav1.Duration{Duration: 30 * time.Second},
-			Timeout:  metav1.Duration{Duration: 10 * time.Second},
-			Request:  syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: "GET"},
-		},
-	}
-	if err := k8sClient.Create(context.Background(), probe); err != nil {
-		t.Fatalf("create probe: %v", err)
-	}
-	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(probe)}); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
-
-	var updated syntheticsv1alpha1.HTTPProbe
-	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(probe), &updated); err != nil {
-		t.Fatalf("get probe: %v", err)
-	}
-
-	ready := apimeta.FindStatusCondition(updated.Status.Conditions, syntheticsv1alpha1.ConditionReady)
-	if ready == nil {
-		t.Fatal("expected Ready condition")
-	}
-	if ready.Status != metav1.ConditionUnknown {
-		t.Fatalf("expected Ready=Unknown, got %s", ready.Status)
-	}
-	if ready.Reason != syntheticsv1alpha1.ReasonInitializing {
-		t.Fatalf("expected reason Initializing, got %s", ready.Reason)
-	}
-}
-
 func TestHTTPProbeReconcileSuspend(t *testing.T) {
 	k8sClient, stop := setupEnvtest(t)
 	defer stop()

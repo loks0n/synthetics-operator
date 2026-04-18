@@ -1,0 +1,12 @@
+{
+  "name": "playwright-runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runs a PlaywrightTest script and writes a TestResult JSON for the test-sidecar to publish.",
+  "dependencies": {
+    "@playwright/test": "1.48.2"
+  },
+  "scripts": {
+    "test": "node --test runner.test.js"
+  }
+}

@@ -19,6 +19,54 @@ webhooks:
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
         resources: ["httpprobes"]
+  - name: mdnsprobe.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "synthetics-operator.webhookServiceName" . }}
+        path: /mutate-synthetics-dev-v1alpha1-dnsprobe
+      caBundle: ""
+    rules:
+      - apiGroups: ["synthetics.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["dnsprobes"]
+  - name: mk6test.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "synthetics-operator.webhookServiceName" . }}
+        path: /mutate-synthetics-dev-v1alpha1-k6test
+      caBundle: ""
+    rules:
+      - apiGroups: ["synthetics.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["k6tests"]
+  - name: mplaywrighttest.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "synthetics-operator.webhookServiceName" . }}
+        path: /mutate-synthetics-dev-v1alpha1-playwrighttest
+      caBundle: ""
+    rules:
+      - apiGroups: ["synthetics.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["playwrighttests"]
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -41,3 +89,51 @@ webhooks:
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
         resources: ["httpprobes"]
+  - name: vdnsprobe.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "synthetics-operator.webhookServiceName" . }}
+        path: /validate-synthetics-dev-v1alpha1-dnsprobe
+      caBundle: ""
+    rules:
+      - apiGroups: ["synthetics.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["dnsprobes"]
+  - name: vk6test.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "synthetics-operator.webhookServiceName" . }}
+        path: /validate-synthetics-dev-v1alpha1-k6test
+      caBundle: ""
+    rules:
+      - apiGroups: ["synthetics.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["k6tests"]
+  - name: vplaywrighttest.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "synthetics-operator.webhookServiceName" . }}
+        path: /validate-synthetics-dev-v1alpha1-playwrighttest
+      caBundle: ""
+    rules:
+      - apiGroups: ["synthetics.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["playwrighttests"]

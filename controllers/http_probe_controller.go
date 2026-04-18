@@ -5,7 +5,6 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -49,16 +48,6 @@ func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	probe.Status.ObservedGeneration = probe.Generation
 	setSuspendedCondition(&probe.Status.Conditions, probe.Generation, probe.Spec.Suspend, now)
-	if apimeta.FindStatusCondition(probe.Status.Conditions, syntheticsv1alpha1.ConditionReady) == nil {
-		apimeta.SetStatusCondition(&probe.Status.Conditions, metav1.Condition{
-			Type:               syntheticsv1alpha1.ConditionReady,
-			Status:             metav1.ConditionUnknown,
-			Reason:             syntheticsv1alpha1.ReasonInitializing,
-			Message:            "probe registered and waiting for first execution",
-			LastTransitionTime: now,
-			ObservedGeneration: probe.Generation,
-		})
-	}
 
 	if probe.Spec.Suspend {
 		r.Scheduler.Unregister(req.NamespacedName)

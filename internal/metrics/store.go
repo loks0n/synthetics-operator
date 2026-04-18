@@ -13,7 +13,34 @@ import (
 	apimetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
+
+// Result is the closed enum emitted on the `result` label of the
+// synthetics_probe and synthetics_test gauges. It names what happened on the
+// last run: ok on success, a failure category otherwise.
+type Result string
+
+const (
+	ResultOK              Result = "ok"
+	ResultConfigError     Result = "config_error"
+	ResultDNSFailed       Result = "dns_failed"
+	ResultConnectRefused  Result = "connect_refused"
+	ResultConnectTimeout  Result = "connect_timeout"
+	ResultTLSFailed       Result = "tls_failed"
+	ResultRecvTimeout     Result = "recv_timeout"
+	ResultAssertionFailed Result = "assertion_failed"
+	ResultTestFailed      Result = "test_failed"
+)
+
+// successValue is the 0|1 value emitted on synthetics_probe and synthetics_test.
+func (r Result) successValue() float64 {
+	if r == ResultOK {
+		return 1
+	}
+	return 0
+}
 
 // AssertionResult holds the outcome of a single named assertion.
 type AssertionResult struct {
@@ -22,26 +49,25 @@ type AssertionResult struct {
 	Result float64 // 1 = pass, 0 = fail
 }
 
+// ProbeState holds the last-run state of an HTTPProbe or DNSProbe.
 type ProbeState struct {
-	Kind                 string // "HTTPProbe" or "DNSProbe"; empty treated as "HTTPProbe"
-	Success              float64
-	FailureReason        string // reason for failure; empty when successful
+	Kind                 string // "HTTPProbe" | "DNSProbe"
+	Result               Result
+	FailedAssertion      string // populated only when Result == ResultAssertionFailed
 	DurationMilliseconds float64
 	LastRunTimestamp     float64
-	ConfigError          float64
-	TLSCertExpiry        float64 // Unix timestamp of leaf cert NotAfter; 0 if no TLS
-	HTTPStatusCode       float64 // HTTP response status code; 0 if no response (error/timeout)
-	HTTPVersion          float64 // HTTP version: 1.0, 1.1, 2.0, 3.0; 0 if no response
-	URL                  string  // HTTP request URL; empty for DNS probes
-	Method               string  // HTTP request method; empty for DNS probes
-	// HTTP phase timings
+	// HTTP-specific fields
+	HTTPStatusCode        float64
+	HTTPVersion           float64
+	URL                   string
+	Method                string
+	TLSCertExpiry         float64 // Unix timestamp of leaf cert NotAfter; 0 if no TLS
 	HTTPPhaseDNSMs        float64
 	HTTPPhaseConnectMs    float64
 	HTTPPhaseTLSMs        float64
 	HTTPPhaseProcessingMs float64
 	HTTPPhaseTransferMs   float64
-	// Per-assertion results, populated when the probe has assertions configured.
-	AssertionResults []AssertionResult
+	AssertionResults      []AssertionResult
 	// DNS-specific fields
 	DNSFirstAnswerValue string
 	DNSFirstAnswerType  string
@@ -50,40 +76,77 @@ type ProbeState struct {
 	DNSAdditionalCount  float64
 }
 
+// TestState holds the last-run state of a K6Test or PlaywrightTest.
+type TestState struct {
+	Kind                 string // "K6Test" | "PlaywrightTest"
+	Result               Result
+	DurationMilliseconds float64
+	LastRunTimestamp     float64
+	// PlaywrightTest-specific per-test breakdown
+	PlaywrightTests []results.TestCase
+}
+
 type instruments struct {
-	successGauge             apimetric.Float64ObservableGauge
-	durationGauge            apimetric.Float64ObservableGauge
-	lastRunGauge             apimetric.Float64ObservableGauge
-	configErrorGauge         apimetric.Float64ObservableGauge
+	// Probe family — HTTPProbe, DNSProbe
+	probeGauge               apimetric.Float64ObservableGauge
+	probeDurationGauge       apimetric.Float64ObservableGauge
+	probeLastRunGauge        apimetric.Float64ObservableGauge
 	tlsCertExpiryGauge       apimetric.Float64ObservableGauge
 	httpStatusCodeGauge      apimetric.Float64ObservableGauge
 	httpVersionGauge         apimetric.Float64ObservableGauge
 	httpPhaseDurationGauge   apimetric.Float64ObservableGauge
 	httpInfoGauge            apimetric.Float64ObservableGauge
 	assertionResultGauge     apimetric.Float64ObservableGauge
-	dnsSuccessGauge          apimetric.Float64ObservableGauge
 	dnsResponseMsGauge       apimetric.Float64ObservableGauge
 	dnsFirstAnswerValueGauge apimetric.Float64ObservableGauge
 	dnsFirstAnswerTypeGauge  apimetric.Float64ObservableGauge
 	dnsAnswerCountGauge      apimetric.Float64ObservableGauge
 	dnsAuthorityCountGauge   apimetric.Float64ObservableGauge
 	dnsAdditionalCountGauge  apimetric.Float64ObservableGauge
-	resultsReceivedTotal     apimetric.Int64Counter
-	resultsParseFailTotal    apimetric.Int64Counter
+	// Test family — K6Test, PlaywrightTest
+	testGauge                apimetric.Float64ObservableGauge
+	testDurationGauge        apimetric.Float64ObservableGauge
+	testLastRunGauge         apimetric.Float64ObservableGauge
+	playwrightCasePassed     apimetric.Float64ObservableGauge
+	playwrightCaseDurationMs apimetric.Float64ObservableGauge
+	playwrightCasesTotal     apimetric.Float64ObservableGauge
+	playwrightCasesPassed    apimetric.Float64ObservableGauge
+	playwrightCasesFailed    apimetric.Float64ObservableGauge
+	// Counters
+	resultsReceivedTotal  apimetric.Int64Counter
+	resultsParseFailTotal apimetric.Int64Counter
 }
 
+// TransitionFn is invoked when a probe or test's Result changes from one run
+// to the next (including from "never run" to any outcome). Wired by main.go
+// to an events.Notifier; nil in tests that don't exercise the event path.
+type TransitionFn func(name types.NamespacedName, kind string, prev, next Result)
+
+// Store is the in-process metrics state. Probes and tests live in separate
+// maps so their metric families stay cleanly separated: probes use
+// synthetics_probe_*, tests use synthetics_test_*.
 type Store struct {
-	mu       sync.RWMutex
-	probes   map[types.NamespacedName]ProbeState
-	registry *promclient.Registry
-	exporter *otelprom.Exporter
-	provider *metric.MeterProvider
-	instr    instruments
+	mu                sync.RWMutex
+	probes            map[types.NamespacedName]ProbeState
+	tests             map[types.NamespacedName]TestState
+	registry          *promclient.Registry
+	exporter          *otelprom.Exporter
+	provider          *metric.MeterProvider
+	instr             instruments
+	OnProbeTransition TransitionFn
+	OnTestTransition  TransitionFn
 }
 
 func NewStore() (*Store, error) {
 	registry := promclient.NewRegistry()
-	exporter, err := otelprom.New(otelprom.WithRegisterer(registry))
+	// WithoutScopeInfo drops the otel_scope_name / otel_scope_version /
+	// otel_scope_schema_url labels that clutter every metric series.
+	// WithoutTargetInfo drops the target_info gauge for the same reason.
+	exporter, err := otelprom.New(
+		otelprom.WithRegisterer(registry),
+		otelprom.WithoutScopeInfo(),
+		otelprom.WithoutTargetInfo(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +160,7 @@ func NewStore() (*Store, error) {
 
 	store := &Store{
 		probes:   map[types.NamespacedName]ProbeState{},
+		tests:    map[types.NamespacedName]TestState{},
 		registry: registry,
 		exporter: exporter,
 		provider: provider,
@@ -113,16 +177,15 @@ func newInstruments(meter apimetric.Meter) (instruments, error) {
 	var instr instruments
 	var err error
 
-	if instr.successGauge, err = meter.Float64ObservableGauge("synthetics_probe_up"); err != nil {
+	// Probe family
+	if instr.probeGauge, err = meter.Float64ObservableGauge("synthetics_probe",
+		apimetric.WithDescription("Probe pass (1) / fail (0) for the last run. `result` label names the outcome.")); err != nil {
 		return instr, err
 	}
-	if instr.durationGauge, err = meter.Float64ObservableGauge("synthetics_probe_duration_ms"); err != nil {
+	if instr.probeDurationGauge, err = meter.Float64ObservableGauge("synthetics_probe_duration_ms"); err != nil {
 		return instr, err
 	}
-	if instr.lastRunGauge, err = meter.Float64ObservableGauge("synthetics_last_run_timestamp"); err != nil {
-		return instr, err
-	}
-	if instr.configErrorGauge, err = meter.Float64ObservableGauge("synthetics_probe_config_error"); err != nil {
+	if instr.probeLastRunGauge, err = meter.Float64ObservableGauge("synthetics_probe_last_run_timestamp"); err != nil {
 		return instr, err
 	}
 	if instr.tlsCertExpiryGauge, err = meter.Float64ObservableGauge("synthetics_probe_tls_cert_expiry_timestamp_seconds"); err != nil {
@@ -138,34 +201,65 @@ func newInstruments(meter apimetric.Meter) (instruments, error) {
 		return instr, err
 	}
 	if instr.assertionResultGauge, err = meter.Float64ObservableGauge("synthetics_probe_assertion_result",
-		apimetric.WithDescription("Per-assertion pass (1) / fail (0) result for the last probe run")); err != nil {
+		apimetric.WithDescription("Per-assertion pass (1) / fail (0) for the last probe run")); err != nil {
 		return instr, err
 	}
 	if instr.httpInfoGauge, err = meter.Float64ObservableGauge("synthetics_probe_http_info",
-		apimetric.WithDescription("Static information about an HTTP probe (value is always 1)")); err != nil {
+		apimetric.WithDescription("Static HTTPProbe configuration; value is always 1")); err != nil {
 		return instr, err
 	}
-	if instr.dnsSuccessGauge, err = meter.Float64ObservableGauge("synthetics_dns_success"); err != nil {
+	if instr.dnsResponseMsGauge, err = meter.Float64ObservableGauge("synthetics_probe_dns_response_ms"); err != nil {
 		return instr, err
 	}
-	if instr.dnsResponseMsGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_ms"); err != nil {
+	if instr.dnsFirstAnswerValueGauge, err = meter.Float64ObservableGauge("synthetics_probe_dns_response_first_answer_value"); err != nil {
 		return instr, err
 	}
-	if instr.dnsFirstAnswerValueGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_first_answer_value"); err != nil {
+	if instr.dnsFirstAnswerTypeGauge, err = meter.Float64ObservableGauge("synthetics_probe_dns_response_first_answer_type"); err != nil {
 		return instr, err
 	}
-	if instr.dnsFirstAnswerTypeGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_first_answer_type"); err != nil {
+	if instr.dnsAnswerCountGauge, err = meter.Float64ObservableGauge("synthetics_probe_dns_response_answer_count"); err != nil {
 		return instr, err
 	}
-	if instr.dnsAnswerCountGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_answer_count"); err != nil {
+	if instr.dnsAuthorityCountGauge, err = meter.Float64ObservableGauge("synthetics_probe_dns_response_authority_count"); err != nil {
 		return instr, err
 	}
-	if instr.dnsAuthorityCountGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_authority_count"); err != nil {
+	if instr.dnsAdditionalCountGauge, err = meter.Float64ObservableGauge("synthetics_probe_dns_response_additional_count"); err != nil {
 		return instr, err
 	}
-	if instr.dnsAdditionalCountGauge, err = meter.Float64ObservableGauge("synthetics_dns_response_additional_count"); err != nil {
+
+	// Test family
+	if instr.testGauge, err = meter.Float64ObservableGauge("synthetics_test",
+		apimetric.WithDescription("Test pass (1) / fail (0) for the last run. `result` label names the outcome.")); err != nil {
 		return instr, err
 	}
+	if instr.testDurationGauge, err = meter.Float64ObservableGauge("synthetics_test_duration_ms"); err != nil {
+		return instr, err
+	}
+	if instr.testLastRunGauge, err = meter.Float64ObservableGauge("synthetics_test_last_run_timestamp"); err != nil {
+		return instr, err
+	}
+	if instr.playwrightCasePassed, err = meter.Float64ObservableGauge("synthetics_test_playwright_case_passed",
+		apimetric.WithDescription("Per-case pass (1) / fail (0) for the last PlaywrightTest run")); err != nil {
+		return instr, err
+	}
+	if instr.playwrightCaseDurationMs, err = meter.Float64ObservableGauge("synthetics_test_playwright_case_duration_ms",
+		apimetric.WithDescription("Per-case duration in milliseconds for the last PlaywrightTest run")); err != nil {
+		return instr, err
+	}
+	if instr.playwrightCasesTotal, err = meter.Float64ObservableGauge("synthetics_test_playwright_cases_total",
+		apimetric.WithDescription("Total number of cases in the last PlaywrightTest run")); err != nil {
+		return instr, err
+	}
+	if instr.playwrightCasesPassed, err = meter.Float64ObservableGauge("synthetics_test_playwright_cases_passed",
+		apimetric.WithDescription("Number of passing cases in the last PlaywrightTest run")); err != nil {
+		return instr, err
+	}
+	if instr.playwrightCasesFailed, err = meter.Float64ObservableGauge("synthetics_test_playwright_cases_failed",
+		apimetric.WithDescription("Number of failing cases in the last PlaywrightTest run")); err != nil {
+		return instr, err
+	}
+
+	// Counters
 	if instr.resultsReceivedTotal, err = meter.Int64Counter("synthetics_test_results_received_total",
 		apimetric.WithDescription("Total test results received via NATS")); err != nil {
 		return instr, err
@@ -185,13 +279,22 @@ func (s *Store) registerCallback(meter apimetric.Meter) error {
 		for name, state := range s.probes {
 			s.observeProbe(observer, name, state, instr)
 		}
+		for name, state := range s.tests {
+			s.observeTest(observer, name, state, instr)
+		}
 		return nil
-	}, instr.successGauge, instr.durationGauge, instr.lastRunGauge, instr.configErrorGauge,
+	},
+		// Probe family instruments
+		instr.probeGauge, instr.probeDurationGauge, instr.probeLastRunGauge,
 		instr.tlsCertExpiryGauge, instr.httpStatusCodeGauge, instr.httpVersionGauge,
 		instr.httpPhaseDurationGauge, instr.httpInfoGauge, instr.assertionResultGauge,
-		instr.dnsSuccessGauge, instr.dnsResponseMsGauge, instr.dnsFirstAnswerValueGauge,
-		instr.dnsFirstAnswerTypeGauge, instr.dnsAnswerCountGauge, instr.dnsAuthorityCountGauge,
-		instr.dnsAdditionalCountGauge)
+		instr.dnsResponseMsGauge, instr.dnsFirstAnswerValueGauge, instr.dnsFirstAnswerTypeGauge,
+		instr.dnsAnswerCountGauge, instr.dnsAuthorityCountGauge, instr.dnsAdditionalCountGauge,
+		// Test family instruments
+		instr.testGauge, instr.testDurationGauge, instr.testLastRunGauge,
+		instr.playwrightCasePassed, instr.playwrightCaseDurationMs,
+		instr.playwrightCasesTotal, instr.playwrightCasesPassed, instr.playwrightCasesFailed,
+	)
 	return err
 }
 
@@ -209,11 +312,13 @@ func (s *Store) observeProbe(observer apimetric.Observer, name types.NamespacedN
 		attrs = append(attrs, attribute.String("url", state.URL))
 	}
 
-	observer.ObserveFloat64(instr.successGauge, state.Success, apimetric.WithAttributes(
-		append(attrs, attribute.String("reason", state.FailureReason))...))
-	observer.ObserveFloat64(instr.durationGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
-	observer.ObserveFloat64(instr.lastRunGauge, state.LastRunTimestamp, apimetric.WithAttributes(attrs...))
-	observer.ObserveFloat64(instr.configErrorGauge, state.ConfigError, apimetric.WithAttributes(attrs...))
+	upAttrs := append(attrs,
+		attribute.String("result", string(state.Result)),
+		attribute.String("failed_assertion", state.FailedAssertion),
+	)
+	observer.ObserveFloat64(instr.probeGauge, state.Result.successValue(), apimetric.WithAttributes(upAttrs...))
+	observer.ObserveFloat64(instr.probeDurationGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.probeLastRunGauge, state.LastRunTimestamp, apimetric.WithAttributes(attrs...))
 
 	for _, ar := range state.AssertionResults {
 		observer.ObserveFloat64(instr.assertionResultGauge, ar.Result, apimetric.WithAttributes(
@@ -252,7 +357,6 @@ func (s *Store) observeHTTP(observer apimetric.Observer, attrs []attribute.KeyVa
 }
 
 func (s *Store) observeDNS(observer apimetric.Observer, attrs []attribute.KeyValue, state ProbeState, instr instruments) {
-	observer.ObserveFloat64(instr.dnsSuccessGauge, state.Success, apimetric.WithAttributes(attrs...))
 	observer.ObserveFloat64(instr.dnsResponseMsGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
 	observer.ObserveFloat64(instr.dnsAnswerCountGauge, state.DNSAnswerCount, apimetric.WithAttributes(attrs...))
 	observer.ObserveFloat64(instr.dnsAuthorityCountGauge, state.DNSAuthorityCount, apimetric.WithAttributes(attrs...))
@@ -267,24 +371,84 @@ func (s *Store) observeDNS(observer apimetric.Observer, attrs []attribute.KeyVal
 	}
 }
 
-// RecordTestResult ingests a parsed result from the NATS consumer and
-// updates the test's state in the store so it appears in metrics.
+func (s *Store) observeTest(observer apimetric.Observer, name types.NamespacedName, state TestState, instr instruments) {
+	attrs := []attribute.KeyValue{
+		attribute.String("name", name.Name),
+		attribute.String("namespace", name.Namespace),
+		attribute.String("kind", state.Kind),
+	}
+
+	upAttrs := append(attrs, attribute.String("result", string(state.Result)))
+	observer.ObserveFloat64(instr.testGauge, state.Result.successValue(), apimetric.WithAttributes(upAttrs...))
+	observer.ObserveFloat64(instr.testDurationGauge, state.DurationMilliseconds, apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.testLastRunGauge, state.LastRunTimestamp, apimetric.WithAttributes(attrs...))
+
+	if state.Kind == string(results.KindPlaywrightTest) {
+		s.observePlaywright(observer, attrs, state, instr)
+	}
+}
+
+func (s *Store) observePlaywright(observer apimetric.Observer, attrs []attribute.KeyValue, state TestState, instr instruments) {
+	var passed, failed float64
+	for _, tc := range state.PlaywrightTests {
+		passVal := float64(0)
+		if tc.Passed {
+			passVal = 1
+			passed++
+		} else {
+			failed++
+		}
+		caseAttrs := append(attrs,
+			attribute.String("suite", tc.Suite),
+			attribute.String("test", tc.Test),
+		)
+		observer.ObserveFloat64(instr.playwrightCasePassed, passVal, apimetric.WithAttributes(caseAttrs...))
+		observer.ObserveFloat64(instr.playwrightCaseDurationMs, float64(tc.DurationMs), apimetric.WithAttributes(caseAttrs...))
+	}
+	observer.ObserveFloat64(instr.playwrightCasesTotal, float64(len(state.PlaywrightTests)), apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.playwrightCasesPassed, passed, apimetric.WithAttributes(attrs...))
+	observer.ObserveFloat64(instr.playwrightCasesFailed, failed, apimetric.WithAttributes(attrs...))
+}
+
+// RecordTestResult ingests a K6Test result from the NATS consumer. For
+// PlaywrightTest see RecordPlaywrightResult.
 func (s *Store) RecordTestResult(ctx context.Context, name types.NamespacedName, kind string, success bool, durationMs int64, ts float64) {
 	s.instr.resultsReceivedTotal.Add(ctx, 1, apimetric.WithAttributes(
 		attribute.String("kind", kind),
 		attribute.String("name", name.Name),
 		attribute.String("namespace", name.Namespace),
 	))
-	successVal := float64(0)
-	if success {
-		successVal = 1
-	}
-	s.Upsert(name, ProbeState{
+	s.UpsertTest(name, TestState{
 		Kind:                 kind,
-		Success:              successVal,
+		Result:               resultFromSuccess(success),
 		DurationMilliseconds: float64(durationMs),
 		LastRunTimestamp:     ts,
 	})
+}
+
+// RecordPlaywrightResult is the PlaywrightTest-flavoured RecordTestResult: it
+// stores the per-test breakdown so synthetics_playwright_test_* gauges can be
+// observed alongside synthetics_test_up.
+func (s *Store) RecordPlaywrightResult(ctx context.Context, name types.NamespacedName, success bool, durationMs int64, ts float64, tests []results.TestCase) {
+	s.instr.resultsReceivedTotal.Add(ctx, 1, apimetric.WithAttributes(
+		attribute.String("kind", string(results.KindPlaywrightTest)),
+		attribute.String("name", name.Name),
+		attribute.String("namespace", name.Namespace),
+	))
+	s.UpsertTest(name, TestState{
+		Kind:                 string(results.KindPlaywrightTest),
+		Result:               resultFromSuccess(success),
+		DurationMilliseconds: float64(durationMs),
+		LastRunTimestamp:     ts,
+		PlaywrightTests:      tests,
+	})
+}
+
+func resultFromSuccess(success bool) Result {
+	if success {
+		return ResultOK
+	}
+	return ResultTestFailed
 }
 
 // RecordParseFailure increments the parse-failure counter for NATS messages.
@@ -292,22 +456,66 @@ func (s *Store) RecordParseFailure(ctx context.Context) {
 	s.instr.resultsParseFailTotal.Add(ctx, 1)
 }
 
+// Upsert writes a probe's last-run state. Called by the in-process probe
+// workers after each execution. Fires OnProbeTransition when the Result
+// changes from the previous stored state.
 func (s *Store) Upsert(name types.NamespacedName, state ProbeState) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	prev, had := s.probes[name]
 	s.probes[name] = state
+	cb := s.OnProbeTransition
+	s.mu.Unlock()
+	var prevResult Result
+	if had {
+		prevResult = prev.Result
+	}
+	if cb != nil && prevResult != state.Result {
+		cb(name, state.Kind, prevResult, state.Result)
+	}
 }
 
+// UpsertTest writes a test's last-run state. Called by the NATS consumer when
+// a TestResult arrives. Fires OnTestTransition when the Result changes from
+// the previous stored state.
+func (s *Store) UpsertTest(name types.NamespacedName, state TestState) {
+	s.mu.Lock()
+	prev, had := s.tests[name]
+	s.tests[name] = state
+	cb := s.OnTestTransition
+	s.mu.Unlock()
+	var prevResult Result
+	if had {
+		prevResult = prev.Result
+	}
+	if cb != nil && prevResult != state.Result {
+		cb(name, state.Kind, prevResult, state.Result)
+	}
+}
+
+// Delete removes a probe or test from the store by name. Safe to call when
+// the name doesn't exist in either map.
 func (s *Store) Delete(name types.NamespacedName) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.probes, name)
+	delete(s.tests, name)
 }
 
+// Snapshot returns the last-run state for a probe. Returns (zero, false) if
+// the name isn't a probe — including if it's a test, which Snapshot does not
+// surface.
 func (s *Store) Snapshot(name types.NamespacedName) (ProbeState, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	state, ok := s.probes[name]
+	return state, ok
+}
+
+// SnapshotTest returns the last-run state for a test.
+func (s *Store) SnapshotTest(name types.NamespacedName) (TestState, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	state, ok := s.tests[name]
 	return state, ok
 }
 

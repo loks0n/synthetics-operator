@@ -84,12 +84,31 @@ func (k *K6Test) validate() error {
 
 // validateCronInterval checks that a duration can be expressed as a standard
 // cron schedule. Valid values: 1m–30m evenly dividing 60; 1h–12h evenly
-// dividing 24; 24h.
+// dividing 24; 24h. Used by CronJob-backed kinds (K6Test, PlaywrightTest)
+// where cron is the underlying transport.
 func validateCronInterval(d time.Duration) error {
 	totalMinutes := int(d.Minutes())
 	if totalMinutes < 1 {
 		return errors.New("must be at least 1m (cron resolution)")
 	}
+	return validateMinuteInterval(totalMinutes)
+}
+
+// validateProbeInterval permits any positive sub-minute duration (in-process
+// scheduler supports arbitrary ticks) and otherwise falls back to the cron
+// divisibility rule so HTTPProbe/DNSProbe stay consistent with the CronJob-
+// backed kinds for intervals >= 1m.
+func validateProbeInterval(d time.Duration) error {
+	if d <= 0 {
+		return errors.New("must be greater than zero")
+	}
+	if d < time.Minute {
+		return nil
+	}
+	return validateMinuteInterval(int(d.Minutes()))
+}
+
+func validateMinuteInterval(totalMinutes int) error {
 	if totalMinutes < 60 {
 		if 60%totalMinutes != 0 {
 			return errors.New("sub-hour intervals must evenly divide 60 (valid: 2m, 3m, 4m, 5m, 6m, 10m, 12m, 15m, 20m, 30m)")

@@ -64,7 +64,7 @@ All CRDs support the following fields:
 |-------|-------------|
 | `spec.suspend` | Boolean, default false. Pauses the probe without deleting it. In-operator probes are unscheduled; CronJobs set `suspend: true`. Use for maintenance windows. |
 | `spec.depends` | List of probe dependencies. See section 2.6. |
-| `spec.metricLabels` | Custom Prometheus metric labels. Distinct from Kubernetes `metadata.labels`. See section 3.8. |
+| `spec.metricLabels` | Custom Prometheus metric labels. Distinct from Kubernetes `metadata.labels`. See section 3.5. |
 
 ### 2.2 HttpProbe
 
@@ -103,7 +103,7 @@ spec:
 
 **Assertion expression language**
 
-Each assertion has a `name` (used as the `reason` label on `synthetics_probe_up` and the `assertion` label on `synthetics_probe_assertion_result`) and an `expr` of the form `variable op value`.
+Each assertion has a `name` (used as the `failed_assertion` label on `synthetics_probe` when that assertion fails, and the `assertion` label on `synthetics_probe_assertion_result` on every run) and an `expr` of the form `variable op value`.
 
 Supported operators: `=`, `!=`, `<`, `<=`, `>`, `>=`
 
@@ -115,7 +115,7 @@ Available variables for HTTPProbe:
 | `duration_ms` | Total request duration in milliseconds |
 | `ssl_expiry_days` | Days until the TLS certificate expires (`-1` if no TLS) |
 
-All assertions are evaluated on every run. `synthetics_probe_up` is 0 if any assertion fails; the `reason` label names the first failure. `synthetics_probe_assertion_result` exposes a per-assertion 0/1 gauge for every assertion regardless of whether others passed or failed.
+All assertions are evaluated on every run. `synthetics_probe` is 0 if any assertion fails; the `result` label is then `assertion_failed` and the `failed_assertion` label names the first failure. `synthetics_probe_assertion_result` exposes a per-assertion 0/1 gauge for every assertion regardless of whether others passed or failed.
 
 ### 2.3 DnsProbe
 
@@ -272,77 +272,113 @@ No timeline commitment — driven by schema stability, not calendar.
 
 ## 3. Metrics Schema
 
-All metrics use a consistent label set across CRD types, enabling unified Grafana dashboards. The operator exposes a `/metrics` endpoint on port 8080 for Prometheus scraping.
+Metrics split into two families, mirroring the CRD split:
+
+- **Probe metrics** (`synthetics_probe_*`) — emitted by HTTPProbe and DNSProbe. Assertions are declarative and evaluated by the operator, so we know *why* a probe failed and surface it on the `result` label.
+- **Test metrics** (`synthetics_test_*`) — emitted by K6Test and PlaywrightTest. Pass/fail is determined by the test's own runtime (k6 thresholds, Playwright `expect()`); the operator only sees success/failure, not the per-assertion detail.
+
+The operator exposes a `/metrics` endpoint on port 8080 for Prometheus scraping.
 
 ### 3.1 Shared labels
 
+Every metric in either family carries:
+
 ```
-name, namespace, kind   # kind = HttpProbe | DnsProbe | PlaywrightTest | K6Test
+name, namespace, kind
 ```
 
-Plus any custom labels defined in `spec.metricLabels` — see section 3.8.
+- `kind` on probes: `HTTPProbe | DNSProbe`.
+- `kind` on tests: `K6Test | PlaywrightTest`.
 
-### 3.2 Shared metrics — all types
+Plus any custom labels defined in `spec.metricLabels` (Phase 12 — see section 3.5).
+
+### 3.2 Probe family — HTTPProbe and DNSProbe
+
+The `result` label on `synthetics_probe` is a closed enum describing what happened on the last run:
+
+| `result` value | Meaning |
+|---|---|
+| `ok` | All assertions passed (or there were none) |
+| `config_error` | Spec is invalid — bad URL, unreachable resolver, invalid CA PEM |
+| `dns_failed` | DNS resolution failed (probe target for HTTP; resolver answer for DNSProbe) |
+| `connect_refused` | TCP connect was refused (HTTPProbe only) |
+| `connect_timeout` | TCP connect exceeded the probe timeout (HTTPProbe only) |
+| `tls_failed` | TLS handshake or certificate verification failed (HTTPProbe only) |
+| `recv_timeout` | Response body didn't complete within the probe timeout (HTTPProbe only) |
+| `assertion_failed` | Got a response, at least one named assertion didn't pass |
+
+When `result="assertion_failed"`, the additional `failed_assertion` label carries the name of the first failing assertion.
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_probe_up` | gauge 0\|1 | Whether the last probe run succeeded |
-| `synthetics_consecutive_failures` | gauge | Number of consecutive failures since last success |
-| `synthetics_last_run_timestamp` | gauge | Unix timestamp of last probe execution |
-| `synthetics_probe_suppressed` | gauge 0\|1 | Probe failed but suppressed due to unhealthy dependency |
-| `synthetics_probe_config_error` | gauge 0\|1 | Probe is misconfigured (bad URL, unreachable resolver, invalid script). Distinct from execution failure. |
+| `synthetics_probe` | gauge 0\|1 | 1 when `result="ok"`, 0 otherwise. Carries `result` and (for `assertion_failed`) `failed_assertion` labels. |
+| `synthetics_probe_duration_ms` | gauge | Total probe duration in milliseconds |
+| `synthetics_probe_last_run_timestamp` | gauge | Unix timestamp of last probe execution |
+| `synthetics_probe_assertion_result` | gauge 0\|1 | Per-assertion pass/fail with `assertion` (name) and `expr` (expression) labels. Emitted for every assertion on every run. |
 
-### 3.3 HttpProbe metrics
+**HTTPProbe-only**
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_probe_duration_ms` | gauge | Total request duration in milliseconds |
 | `synthetics_probe_http_status_code` | gauge | HTTP response status code |
 | `synthetics_probe_http_version` | gauge | HTTP version (1.0, 1.1, 2.0, 3.0) |
 | `synthetics_probe_http_phase_duration_ms` | gauge | Per-phase timing with `phase` label: `dns`, `connect`, `tls`, `processing`, `transfer` |
-| `synthetics_probe_tls_cert_expiry_timestamp_seconds` | gauge | Unix timestamp of TLS leaf certificate expiry; absent if no TLS |
-| `synthetics_probe_assertion_result` | gauge 0\|1 | Per-assertion pass/fail with `assertion` (name) and `expr` (expression) labels. Emitted for every assertion on every run regardless of other assertion outcomes. |
 | `synthetics_probe_http_info` | gauge (always 1) | Static probe configuration: `method` label carries the HTTP method |
+| `synthetics_probe_tls_cert_expiry_timestamp_seconds` | gauge | Unix timestamp of TLS leaf certificate expiry; absent if no TLS |
 
-### 3.4 DnsProbe metrics
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `synthetics_dns_success` | gauge 0\|1 | Whether DNS resolution succeeded |
-| `synthetics_dns_response_ms` | gauge | DNS response time in milliseconds |
-| `synthetics_dns_response_first_answer_value` | gauge | Value of the first record in the DNS Answer section (value always 1), with a `value` label carrying the resolved string. Works across all record types: IP for A/AAAA, hostname for CNAME/MX/NS/PTR, text for TXT. One series per probe — no cardinality risk. |
-| `synthetics_dns_response_first_answer_type` | gauge | Record type of the first Answer section record (value always 1), with a `type` label (e.g. `A`, `CNAME`, `MX`). Lets you detect type mismatches — e.g. queried A but received a CNAME. |
-| `synthetics_dns_response_answer_count` | gauge | Number of records in the Answer section |
-| `synthetics_dns_response_authority_count` | gauge | Number of records in the Authority section |
-| `synthetics_dns_response_additional_count` | gauge | Number of records in the Additional section |
-
-### 3.5 PlaywrightTest metrics
-
-Playwright's JSON reporter provides per-test results. The operator parses this output from the CRD status and emits individual test metrics alongside suite-level rollups, giving per-test visibility in Grafana rather than a single pass/fail gauge.
+**DNSProbe-only**
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_playwright_test_passed` | gauge 0\|1 | Per-test pass/fail with `suite` and `test` labels |
-| `synthetics_playwright_test_duration_ms` | gauge | Per-test duration with `suite` and `test` labels |
-| `synthetics_playwright_tests_total` | gauge | Total number of tests in the suite |
-| `synthetics_playwright_tests_passed` | gauge | Number of passing tests |
-| `synthetics_playwright_tests_failed` | gauge | Number of failing tests |
-| `synthetics_playwright_runner_start_time` | gauge | Pod start timestamp — useful for spotting slow cold starts |
+| `synthetics_probe_dns_response_ms` | gauge | DNS response time in milliseconds |
+| `synthetics_probe_dns_response_first_answer_value` | gauge | Value of the first record in the DNS Answer section (value always 1), with a `value` label carrying the resolved string. Works across all record types: IP for A/AAAA, hostname for CNAME/MX/NS/PTR, text for TXT. One series per probe — no cardinality risk. |
+| `synthetics_probe_dns_response_first_answer_type` | gauge | Record type of the first Answer section record (value always 1), with a `type` label (e.g. `A`, `CNAME`, `MX`). Lets you detect type mismatches. |
+| `synthetics_probe_dns_response_answer_count` | gauge | Number of records in the Answer section |
+| `synthetics_probe_dns_response_authority_count` | gauge | Number of records in the Authority section |
+| `synthetics_probe_dns_response_additional_count` | gauge | Number of records in the Additional section |
 
-### 3.6 K6Test metrics
+### 3.3 Test family — K6Test and PlaywrightTest
 
-k6 summary JSON is parsed from the CRD status on completion and re-exported as curated metrics. The full k6 Prometheus output plugin is not used, keeping the schema clean.
+The `result` label on `synthetics_test` is a closed enum. Because the operator only sees a pass/fail signal from the test runner over NATS, the set of values is deliberately small:
+
+| `result` value | Meaning |
+|---|---|
+| `ok` | Test runner reported success |
+| `test_failed` | Test runner reported failure (at least one `expect()` or k6 threshold failed) |
+
+Pod-level failures (OOMKilled, ImagePullBackOff, runner crashed before writing output) are *not* reflected in `synthetics_test`: no TestResult reaches the operator in that case. Watch Kubernetes Pod events for those.
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_loadtest_passed` | gauge 0\|1 | Whether all k6 thresholds passed |
+| `synthetics_test` | gauge 0\|1 | 1 when `result="ok"`, 0 otherwise. Carries the `result` label. |
+| `synthetics_test_duration_ms` | gauge | Total test duration in milliseconds |
+| `synthetics_test_last_run_timestamp` | gauge | Unix timestamp of last test execution |
+| `synthetics_test_results_received_total` | counter | Total TestResults received via NATS |
+| `synthetics_test_results_parse_failed_total` | counter | Total TestResult messages that failed to parse |
+
+**PlaywrightTest-only**
+
+Playwright's JSON reporter provides per-test results. The operator parses this output in the runner and emits individual test metrics alongside run-level rollups:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `synthetics_test_playwright_case_passed` | gauge 0\|1 | Per-case pass/fail with `suite` and `test` labels |
+| `synthetics_test_playwright_case_duration_ms` | gauge | Per-case duration with `suite` and `test` labels |
+| `synthetics_test_playwright_cases_total` | gauge | Total number of cases in the last run |
+| `synthetics_test_playwright_cases_passed` | gauge | Number of passing cases |
+| `synthetics_test_playwright_cases_failed` | gauge | Number of failing cases |
+
+**K6Test-only** *(planned — not yet wired. See the roadmap in §9 Phase 9.)*
+
+| Metric | Type | Description |
+|--------|------|-------------|
 | `synthetics_loadtest_http_req_duration_ms` | gauge | Request duration percentiles with quantile label |
 | `synthetics_loadtest_http_req_failed_rate` | gauge | Proportion of failed requests |
 | `synthetics_loadtest_vus` | gauge | Virtual user count at test completion |
 | `synthetics_loadtest_iterations` | gauge | Total iterations completed |
 | `synthetics_loadtest_duration_seconds` | gauge | Total test run duration |
 
-### 3.7 Operator health metrics
+### 3.4 Operator health metrics
 
 The operator exposes its own health metrics alongside probe metrics, giving visibility into scheduling saturation, controller errors, and cert lifecycle.
 
@@ -387,7 +423,7 @@ The operator exposes its own health metrics alongside probe metrics, giving visi
 
 > `synthetics_operator_worker_pool_queue_depth` is the most operationally useful — a growing queue means the pool is saturated and needs more workers or fewer probes.
 
-### 3.8 Custom metric labels
+### 3.5 Custom metric labels
 
 All CRDs support a `spec.metricLabels` field that propagates to every Prometheus metric emitted for that probe. This enables per-team alerting, per-environment dashboard filtering, and criticality tiering without requiring separate namespaces.
 
@@ -407,14 +443,14 @@ spec:
 All metrics for this probe include those labels:
 
 ```
-synthetics_probe_up{name="checkout-api", namespace="default", kind="HTTPProbe", team="payments", env="production", tier="critical"} 1
+synthetics_probe{name="checkout-api", namespace="default", kind="HTTPProbe", team="payments", env="production", tier="critical"} 1
 ```
 
 This unlocks per-team Alertmanager rules:
 
 ```yaml
 alert: TeamProbeFailure
-expr: synthetics_consecutive_failures{team="payments"} >= 3
+expr: min_over_time(synthetics_probe{team="payments"}[5m]) == 0
 ```
 
 And per-team Grafana dashboard variables — filter by `team` without needing separate namespaces.
@@ -510,7 +546,7 @@ The operator reconciles PlaywrightTest and K6Test CRDs into Kubernetes CronJobs.
 - `ttlAfterFinished` defaults to 1h if omitted — enforced by the defaulting webhook to prevent pod accumulation
 - Pod eviction detected via Job failure status — operator records a failure metric directly if a pod disappears without reporting results
 
-**Job rejection handling** — in locked-down clusters, Jobs created by the operator can be rejected by ResourceQuota, LimitRange, or admission webhooks. Without surfacing this, the CronJob silently never runs and `synthetics_probe_up` just stops updating.
+**Job rejection handling** — in locked-down clusters, Jobs created by the operator can be rejected by ResourceQuota, LimitRange, or admission webhooks. Without surfacing this, the CronJob silently never runs and `synthetics_probe` just stops updating.
 
 Two layers ship in Phase 5 (when K6Test lands):
 
@@ -582,29 +618,18 @@ On restart, instrument state is lost until results arrive from each probe's next
 
 The sidecar authenticates to NATS using its pod ServiceAccount token. NATS is configured with a callout to the operator controller for token validation via the Kubernetes TokenReview API. Runner pods require no Kubernetes API write permissions.
 
-**Condition set** — two conditions, stable across all CRD types:
+**Condition set** — one condition, stable across all CRD types:
 
 | Condition | Meaning |
 |-----------|---------|
-| `Ready` | Whether the probe is functioning normally. `False` with a `reason` when something is wrong. |
-| `Suspended` | Whether `spec.suspend` is true. Separate from `Ready` so a suspended probe is clearly distinct from a failing one. |
+| `Suspended` | Whether `spec.suspend` is true. Mirrors spec. |
 
-`Ready` reasons:
-
-| Reason | Set when | Set by |
-|--------|----------|--------|
-| `Initializing` | Probe registered, first run not yet complete | Reconciler (on spec change) |
-| `JobCreationFailed` | CronJob pod rejected by quota/LimitRange/admission webhook | Reconciler (on Job watch) |
-| `ConfigError` | Probe spec is invalid (bad URL, unreachable resolver) | Reconciler (on Job watch) — future |
-| `ProbeSucceeded` | Last run passed all assertions | Future (status writes deferred) |
-| `ProbeFailed` | Last run failed assertions or timed out | Future (status writes deferred) |
-
-For HttpProbe and DnsProbe, `Ready` transitions to `ProbeSucceeded`/`ProbeFailed` are deferred. Runtime pass/fail state is available via `synthetics_probe_up` and `synthetics_consecutive_failures` metrics, which update on every run without touching the Kubernetes API. This keeps API server write load proportional to configuration changes, not probe execution frequency.
+The CR is config-only: runtime pass/fail state lives in metrics (`synthetics_probe`, `synthetics_test`, with the `result` label naming the failure class), not in `status.conditions`. Transitions surface as Kubernetes events on the CR — `kubectl describe` shows `Normal ProbeActive` on the first successful run and `Warning ProbeFailed` / `Warning TestFailed` on every flip from healthy → failing (and `Normal ProbeActive` / `Normal TestActive` on recovery).
 
 **Crash handling:**
 
-- If the main container crashes before producing results, the sidecar has nothing to publish; the controller derives failure from Job/Pod status via the Job watch and sets `Ready=False`.
-- If the sidecar fails to connect to NATS, the result is lost. The next scheduled run restores state. Prometheus shows a gap in the affected metric. With JetStream enabled, NATS buffers messages across restarts — the sidecar retries until NATS is available.
+- If the main container crashes before producing results, the sidecar has nothing to publish. The next scheduled run produces a new result; Prometheus shows a gap on the affected metric series. Pod-level failures (OOM, ImagePullBackOff) are visible via standard `kubectl get pods` and `kubectl describe` on the CronJob.
+- If the sidecar fails to connect to NATS, the result is lost. The next scheduled run restores state. With JetStream enabled, NATS buffers messages across restarts — the sidecar retries until NATS is available.
 
 ### 4.6 CRD webhooks
 
@@ -1013,31 +1038,45 @@ Conservative defaults that users can override. The operator emits metrics — Al
 
 ```yaml
 groups:
-  - name: synthetics
+  - name: synthetics.probes
     rules:
-      - alert: ProbeFailure
-        expr: synthetics_consecutive_failures >= 3
+      - alert: ProbeFailing
+        expr: synthetics_probe == 0
+        for: 2m
         labels:
           severity: warning
+
+      - alert: ProbeSustainedFailure
+        expr: min_over_time(synthetics_probe[5m]) == 0
+        labels:
+          severity: critical
 
       - alert: ProbeNotRunning
-        expr: time() - synthetics_last_run_timestamp > 300
+        expr: time() - synthetics_probe_last_run_timestamp > 300
         labels:
           severity: warning
 
-      - alert: LoadTestFailing
-        expr: synthetics_loadtest_passed == 0
+      - alert: ProbeConfigError
+        expr: synthetics_probe{result="config_error"} == 0
         labels:
           severity: warning
 
       - alert: HighLatency
         expr: synthetics_probe_duration_ms > 1000
+        for: 5m
         labels:
           severity: warning
 
-      - alert: ProbeConfigError           #
-        expr: synthetics_probe_config_error == 1
-        for: 5m
+  - name: synthetics.tests
+    rules:
+      - alert: TestFailing
+        expr: synthetics_test == 0
+        for: 2m
+        labels:
+          severity: warning
+
+      - alert: TestNotRunning
+        expr: time() - synthetics_test_last_run_timestamp > 900
         labels:
           severity: warning
 ```
@@ -1150,7 +1189,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Automatic VU distribution | K6Test operator divides total VUs by parallelism using k6 execution segments automatically. Users set total VUs in the script, not per-pod VUs. |
 | Thresholds in script only | k6 thresholds defined in the script, not duplicated in the CRD. Avoids drift between two sources of truth. Operator parses threshold results from k6 summary output. |
 | No alerting in operator | Operator emits metrics only. Users own Alertmanager rules. Avoids duplicating alerting infrastructure and keeps operator scope focused. |
-| Assertions are stateless | CRD spec assertions evaluate the current run only — no sliding windows, no history, no aggregation. Each assertion is a named expression (`variable op value`) evaluated against the probe result. All assertions run on every probe execution; `synthetics_probe_up` reflects the overall pass/fail, while `synthetics_probe_assertion_result` carries a per-assertion 0/1 gauge with `assertion` and `expr` labels. Anything requiring multiple results over time (p95 latency, consecutive failure rate) belongs in Prometheus/Alertmanager rules against emitted metrics, not in the CRD schema. |
+| Assertions are stateless | CRD spec assertions evaluate the current run only — no sliding windows, no history, no aggregation. Each assertion is a named expression (`variable op value`) evaluated against the probe result. All assertions run on every probe execution; `synthetics_probe` reflects the overall pass/fail, while `synthetics_probe_assertion_result` carries a per-assertion 0/1 gauge with `assertion` and `expr` labels. Anything requiring multiple results over time (p95 latency, consecutive failure rate) belongs in Prometheus/Alertmanager rules against emitted metrics, not in the CRD schema. |
 | In-operator scheduling | HttpProbe and DnsProbe run as goroutines inside the operator. Sub-minute intervals required; pod-per-run would be wasteful. |
 | CronJobs for scripts | PlaywrightTest and K6Test need isolated runtimes and run at minute-or-longer intervals. CronJobs are the natural fit. |
 | Hash-based probe offset | Each probe's schedule offset is `FNV64(namespace/name) % interval`. Deterministic across restarts, independent per probe — adding or removing a probe does not affect any other. No global state. Jitter was rejected: random offsets can still cluster and change on restart. Midpoint insertion was rejected: requires sorted global state, breaks on restart without persistence, and degrades badly when probes are removed. |
@@ -1172,7 +1211,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | CI cadence | `gofmt`, `go vet`, unit tests, envtest, and Helm lint/render run on every PR. A kind smoke install runs on pushes to `main` and on demand. A nightly kind matrix covers currently-supported bootstrap versions and can expand as the project adds more phases. |
 | Multi-version testing | The nightly kind matrix currently covers Kubernetes 1.33 and 1.34 for the Phase 1 HttpProbe path. Expand the matrix as later phases add CronJob-backed tests and more version-sensitive behaviour. |
 | CRD graduation | `v1alpha1` initially. Graduation to `v1beta1` and `v1` driven by schema stability and adoption, with conversion webhooks at each transition. |
-| Status writes scoped to config changes | For HttpProbe/DnsProbe, the reconciler writes status only on spec changes (`GenerationChangedPredicate`): `observedGeneration`, `Suspended` condition, and the initial `Ready=Initializing` condition. The worker pool never patches the CR — runtime state (pass/fail, duration, consecutive failures) lives exclusively in the metrics store. This keeps API server write load proportional to configuration changes, not probe execution frequency. `lastRunTime`/`consecutiveFailures` in the CR schema are reserved for a future decision on when/whether to surface per-run state in kubectl output. |
+| Status writes scoped to config changes | The reconciler writes status only on spec changes (`GenerationChangedPredicate`): `observedGeneration` and the `Suspended` condition. Runtime state (pass/fail, duration, failure class) lives exclusively in metrics and as Kubernetes events on the CR. This keeps API server write load proportional to configuration changes, not probe execution frequency. |
 | NetworkPolicy (opt-in) | Helm chart ships per-deployment opt-in NetworkPolicies. NATS client port `:4222` restricted to operator + test namespaces. Metrics `:8080` restricted to monitoring namespace. Webhook `:9443` open to API server. Disabled by default — not every cluster has an enforcing CNI. |
 | Cert reload via atomic pointer | Webhook `tls.Config` uses `GetCertificate` reading from `atomic.Pointer[tls.Certificate]`. Leader rotates and writes Secret; all replicas reload via Secret informer `OnUpdate`. No fsnotify, no polling, no restart. Startup re-injects `caBundle` if it diverges from Secret CA (self-heals after crashed rotation). |
 
@@ -1189,7 +1228,7 @@ Each phase ships a usable product. No phase is purely foundational.
 - Project scaffold via controller-runtime with Kubebuilder-style APIs, markers, and CRD/webhook layout
 - `HttpProbe` CRD: URL, method, headers, status code assertion, `spec.suspend`
 - In-operator worker pool with even distribution scheduling
-- OTel instrumentation (`synthetics_probe_up`, `synthetics_probe_duration_ms`, `synthetics_consecutive_failures`, `synthetics_last_run_timestamp`, `synthetics_probe_config_error`) exported via Prometheus exporter on `/metrics`
+- OTel instrumentation (`synthetics_probe` with `result` label, `synthetics_probe_duration_ms`, `synthetics_probe_last_run_timestamp`) exported via Prometheus exporter on `/metrics`
 - Validating and defaulting webhooks for HttpProbe (with self-managed certs)
 - Helm chart (operator deployment, RBAC, CRD install, webhook config)
 - Unit tests for worker pool, distribution algorithm, webhook functions
@@ -1209,8 +1248,8 @@ Each phase ships a usable product. No phase is purely foundational.
 
 - Applying a valid `HttpProbe` creates no secondary resources beyond operator-owned webhook/cert objects
 - Applying an invalid `HttpProbe` is rejected at admission time
-- A healthy endpoint sets `synthetics_probe_up=1` and updates duration and timestamp metrics
-- A failing endpoint sets `synthetics_probe_up=0` and increments `synthetics_consecutive_failures`
+- A healthy endpoint sets `synthetics_probe=1` and updates duration and timestamp metrics
+- A failing endpoint sets `synthetics_probe=0` with a `result` label naming the failure class (`connect_timeout`, `assertion_failed`, etc.)
 - `spec.suspend: true` stops future executions without deleting the CRD
 - Operator restart rebuilds schedules from the API server and resumes probing without manual intervention
 
@@ -1227,7 +1266,7 @@ Each phase ships a usable product. No phase is purely foundational.
 - DNSProbe variables: `answer_count`, `duration_ms`
 - All assertions evaluated on every run (no short-circuit on first failure for metrics)
 - `synthetics_probe_assertion_result` gauge with `assertion` (name) and `expr` (expression) labels
-- `synthetics_probe_up` `reason` label carries the name of the first failing assertion
+- `synthetics_probe` `failed_assertion` label carries the name of the first failing assertion (when `result="assertion_failed"`)
 - `synthetics_probe_http_phase_duration_ms` with `phase` label: `dns`, `connect`, `tls`, `processing`, `transfer`
 - `synthetics_probe_tls_cert_expiry_timestamp_seconds`
 - Admission webhook validates assertion expressions and variable names at create/update time
@@ -1258,7 +1297,7 @@ Each phase ships a usable product. No phase is purely foundational.
 **Deliverable:** DNS resolution checks as a first-class CRD.
 
 - `DNSProbe` CRD: hostname, record type, resolver, answer value assertions
-- Full DNSProbe metrics schema (`synthetics_dns_success`, `synthetics_dns_response_ms`, `synthetics_dns_response_first_answer_value`, `synthetics_dns_response_first_answer_type`, `synthetics_dns_response_answer_count`, `synthetics_dns_response_authority_count`, `synthetics_dns_response_additional_count`)
+- Full DNSProbe metrics schema (`synthetics_probe{kind="DNSProbe"}` with the `result` label, `synthetics_probe_dns_response_ms`, `synthetics_probe_dns_response_first_answer_value`, `synthetics_probe_dns_response_first_answer_type`, `synthetics_probe_dns_response_answer_count`, `synthetics_probe_dns_response_authority_count`, `synthetics_probe_dns_response_additional_count`)
 - Validating and defaulting webhooks for DnsProbe
 - envtest for DnsProbe reconcile loop and webhook behaviour
 

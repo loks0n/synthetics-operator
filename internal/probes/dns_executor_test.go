@@ -45,7 +45,7 @@ func TestDNSExecutorRealQuery(t *testing.T) {
 
 	result := exec.Execute(context.Background(), probe)
 
-	if !result.Success {
+	if !result.Success() {
 		t.Fatalf("expected success, got message: %s", result.Message)
 	}
 	if result.ConfigError {
@@ -99,7 +99,7 @@ func TestDNSExecutorUnreachableResolver(t *testing.T) {
 	if result.ConfigError {
 		t.Fatal("unreachable resolver should not be a config error")
 	}
-	if result.Success {
+	if result.Success() {
 		t.Fatal("expected failure for unreachable resolver")
 	}
 }
@@ -110,7 +110,7 @@ func TestDNSExecutorAAAAQuery(t *testing.T) {
 
 	result := exec.Execute(context.Background(), probe)
 
-	if !result.Success {
+	if !result.Success() {
 		t.Fatalf("expected AAAA query to succeed, got: %s", result.Message)
 	}
 	if result.FirstAnswerType != "AAAA" && result.AnswerCount > 0 {
@@ -125,7 +125,7 @@ func TestDNSExecutorTXTQuery(t *testing.T) {
 
 	result := exec.Execute(context.Background(), probe)
 
-	if !result.Success {
+	if !result.Success() {
 		t.Fatalf("expected TXT query to succeed, got: %s", result.Message)
 	}
 }
@@ -137,7 +137,7 @@ func TestDNSExecutorSystemResolver(t *testing.T) {
 
 	result := exec.Execute(context.Background(), probe)
 
-	if !result.Success {
+	if !result.Success() {
 		t.Fatalf("expected success with system resolver fallback, got: %s", result.Message)
 	}
 }
@@ -154,7 +154,7 @@ func TestDNSExecutorContextCancellation(t *testing.T) {
 	if result.ConfigError {
 		t.Fatal("context cancellation should not be a config error")
 	}
-	if result.Success {
+	if result.Success() {
 		t.Fatal("expected failure for cancelled context")
 	}
 }
@@ -204,11 +204,11 @@ func TestDNSProbeJobAssertionAnswerCountPass(t *testing.T) {
 	})
 	state := runDNSJob(t, probe, DNSExecutor{})
 
-	if state.Success != 1 {
-		t.Fatalf("expected success=1, got %f (reason=%q)", state.Success, state.FailureReason)
+	if state.Result != internalmetrics.ResultOK {
+		t.Fatalf("expected Result=ok, got %q (failed_assertion=%q)", state.Result, state.FailedAssertion)
 	}
-	if state.FailureReason != "" {
-		t.Fatalf("expected no failure reason, got %q", state.FailureReason)
+	if state.FailedAssertion != "" {
+		t.Fatalf("expected no failed_assertion, got %q", state.FailedAssertion)
 	}
 }
 
@@ -218,32 +218,30 @@ func TestDNSProbeJobAssertionDurationPass(t *testing.T) {
 	})
 	state := runDNSJob(t, probe, DNSExecutor{})
 
-	if state.Success != 1 {
-		t.Fatalf("expected success=1, got %f (reason=%q)", state.Success, state.FailureReason)
+	if state.Result != internalmetrics.ResultOK {
+		t.Fatalf("expected Result=ok, got %q (failed_assertion=%q)", state.Result, state.FailedAssertion)
 	}
 }
 
 func TestDNSProbeJobAssertionAnswerCountFail(t *testing.T) {
-	// Query a non-existent name — expect 0 answers, so assertion fails.
+	// Query a non-existent name — NXDOMAIN is a valid DNS response with 0
+	// answers, so the assertion fails (not the transport).
 	probe := dnsProbeWithAssertions([]syntheticsv1alpha1.Assertion{
 		{Name: "has_answers", Expr: "answer_count > 0"},
 	})
-	// Use a guaranteed NXDOMAIN name.
 	probe.Spec.Query.Name = "this-domain-does-not-exist.invalid"
 
 	state := runDNSJob(t, probe, DNSExecutor{})
 
-	// The executor itself succeeds (NXDOMAIN is a valid DNS response); the
-	// assertion over answer_count is what should fail.
-	if state.Success != 0 {
-		t.Fatal("expected success=0 when answer_count assertion fails")
+	if state.Result != internalmetrics.ResultAssertionFailed {
+		t.Fatalf("expected Result=assertion_failed, got %q", state.Result)
 	}
-	if state.FailureReason != "has_answers" {
-		t.Fatalf("expected FailureReason=has_answers, got %q", state.FailureReason)
+	if state.FailedAssertion != "has_answers" {
+		t.Fatalf("expected FailedAssertion=has_answers, got %q", state.FailedAssertion)
 	}
 }
 
-func TestDNSProbeJobConfigErrorReasonSet(t *testing.T) {
+func TestDNSProbeJobConfigError(t *testing.T) {
 	probe := dnsProbeWithAssertions([]syntheticsv1alpha1.Assertion{
 		{Name: "has_answers", Expr: "answer_count > 0"},
 	})
@@ -251,15 +249,12 @@ func TestDNSProbeJobConfigErrorReasonSet(t *testing.T) {
 
 	state := runDNSJob(t, probe, DNSExecutor{})
 
-	if state.Success != 0 {
-		t.Fatal("expected success=0 on config error")
-	}
-	if state.FailureReason != ReasonConfigError {
-		t.Fatalf("expected FailureReason=%q, got %q", ReasonConfigError, state.FailureReason)
+	if state.Result != internalmetrics.ResultConfigError {
+		t.Fatalf("expected Result=config_error, got %q", state.Result)
 	}
 }
 
-func TestDNSProbeJobNoAssertionsConnectionError(t *testing.T) {
+func TestDNSProbeJobNoAssertionsResolverError(t *testing.T) {
 	probe := dnsProbe("example.com", "A", "192.0.2.1:53") // unreachable
 	probe.Spec.Assertions = nil
 
@@ -275,10 +270,7 @@ func TestDNSProbeJobNoAssertionsConnectionError(t *testing.T) {
 	job.Run(ctx)
 	state, _ := store.Snapshot(job.Key)
 
-	if state.Success != 0 {
-		t.Fatal("expected success=0 for connection failure")
-	}
-	if state.FailureReason != ReasonConnectionError {
-		t.Fatalf("expected FailureReason=%q, got %q", ReasonConnectionError, state.FailureReason)
+	if state.Result != internalmetrics.ResultDNSFailed {
+		t.Fatalf("expected Result=dns_failed, got %q", state.Result)
 	}
 }

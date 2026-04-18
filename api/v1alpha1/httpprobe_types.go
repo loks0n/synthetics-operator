@@ -7,15 +7,12 @@ import (
 )
 
 const (
-	ConditionReady     = "Ready"
+	// ConditionSuspended mirrors spec.suspend. Runtime pass/fail state lives
+	// in metrics, not here — the CR is config-only.
 	ConditionSuspended = "Suspended"
 
-	ReasonInitializing   = "Initializing"
-	ReasonProbeSucceeded = "ProbeSucceeded"
-	ReasonProbeFailed    = "ProbeFailed"
-	ReasonConfigError    = "ConfigError"
-	ReasonSuspended      = "Suspended"
-	ReasonResumed        = "Resumed"
+	ReasonSuspended = "Suspended"
+	ReasonResumed   = "Resumed"
 )
 
 type HTTPRequestSpec struct {
@@ -63,6 +60,10 @@ type ProbeSummary struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=httpprobes,scope=Namespaced,shortName=hp
+// +kubebuilder:printcolumn:name="URL",type=string,JSONPath=`.spec.request.url`
+// +kubebuilder:printcolumn:name="Interval",type=string,JSONPath=`.spec.interval`
+// +kubebuilder:printcolumn:name="Suspend",type=boolean,JSONPath=`.spec.suspend`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type HTTPProbe struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -87,6 +88,9 @@ func defaultIntervalTimeout(interval, timeout *metav1.Duration) {
 		interval.Duration = 30 * time.Second
 	}
 	if timeout.Duration == 0 {
-		timeout.Duration = 10 * time.Second
+		// Cap default timeout at the interval so a sub-second interval doesn't
+		// fail validation with "timeout > interval" blaming a default the user
+		// didn't set.
+		timeout.Duration = min(10*time.Second, interval.Duration)
 	}
 }

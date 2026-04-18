@@ -16,16 +16,19 @@ KUBEBUILDER_ASSETS ?= $(shell [ -x "$(TOOLS_BIN)/setup-envtest" ] && $(TOOLS_BIN
 KIND_CLUSTER ?= synthetics-dev
 
 .PHONY: tools generate lint test test-envtest helm-lint helm-template ko-build-local \
-        ko-build-test-sidecar-local ko-build-k6-runner-local kind-create kind-delete dev
+        ko-build-test-sidecar-local ko-build-k6-runner-local docker-build-playwright-runner-local \
+        kind-create kind-delete dev
 
 tools:
 	TOOLS_BIN=$(TOOLS_BIN) GOLANGCI_LINT_VERSION=$(GOLANGCI_LINT_VERSION) KO_VERSION=$(KO_VERSION) SETUP_ENVTEST_VERSION=$(SETUP_ENVTEST_VERSION) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) ./hack/install-tools.sh
 
 generate:
-	controller-gen crd paths="./api/..." output:crd:artifacts:config=config/crd/bases
+	$(TOOLS_BIN)/controller-gen object paths="./api/..."
+	$(TOOLS_BIN)/controller-gen crd paths="./api/..." output:crd:artifacts:config=config/crd/bases
 	cp config/crd/bases/synthetics.dev_httpprobes.yaml charts/synthetics-operator/crds/synthetics.dev_httpprobes.yaml
 	cp config/crd/bases/synthetics.dev_dnsprobes.yaml charts/synthetics-operator/crds/synthetics.dev_dnsprobes.yaml
 	cp config/crd/bases/synthetics.dev_k6tests.yaml charts/synthetics-operator/crds/synthetics.dev_k6tests.yaml
+	cp config/crd/bases/synthetics.dev_playwrighttests.yaml charts/synthetics-operator/crds/synthetics.dev_playwrighttests.yaml
 
 lint: tools
 	GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(TOOLS_BIN)/golangci-lint run --timeout=5m
@@ -63,6 +66,9 @@ ko-build-test-sidecar-local:
 ko-build-k6-runner-local:
 	@test -x "$(TOOLS_BIN)/ko" || { echo "missing $(TOOLS_BIN)/ko; run 'make tools' first" >&2; exit 1; }
 	@KO_DOCKER_REPO=ko.local/synthetics-k6-runner $(TOOLS_BIN)/ko build --bare ./images/k6-runner
+
+docker-build-playwright-runner-local:
+	@docker build -t ko.local/synthetics-playwright-runner ./images/playwright-runner
 
 dashboard-configmaps: ## Regenerate hack/dashboard-configmaps.yaml from dashboards/*.json
 	@for entry in "synthetics-overview-dashboard:synthetics-overview.json" "synthetics-http-probe-dashboard:http-probe.json" "synthetics-dns-probe-dashboard:dns-probe.json"; do \

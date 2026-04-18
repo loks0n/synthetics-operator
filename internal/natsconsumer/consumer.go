@@ -28,7 +28,11 @@ func New(log logr.Logger, natsURL string, store *internalmetrics.Store) *Consume
 }
 
 func (c *Consumer) Start(ctx context.Context) error {
+	// RetryOnFailedConnect keeps the client alive through a failed initial
+	// connection and hands it off to the normal reconnect loop. Without this
+	// a NATS pod not-yet-ready at operator startup crashes the whole manager.
 	nc, err := natsgo.Connect(c.natsURL,
+		natsgo.RetryOnFailedConnect(true),
 		natsgo.MaxReconnects(-1),
 		natsgo.ReconnectWait(250*time.Millisecond),
 		natsgo.ReconnectJitter(500*time.Millisecond, 500*time.Millisecond),
@@ -39,6 +43,9 @@ func (c *Consumer) Start(ctx context.Context) error {
 		}),
 		natsgo.ReconnectHandler(func(_ *natsgo.Conn) {
 			c.log.Info("NATS reconnected")
+		}),
+		natsgo.ConnectHandler(func(_ *natsgo.Conn) {
+			c.log.Info("NATS connected", "url", c.natsURL)
 		}),
 	)
 	if err != nil {
@@ -68,5 +75,11 @@ func (c *Consumer) recordResult(ctx context.Context, data []byte) {
 		return
 	}
 	name := types.NamespacedName{Name: r.Name, Namespace: r.Namespace}
-	c.store.RecordTestResult(ctx, name, string(r.Kind), r.Success, r.DurationMs, float64(r.Timestamp.Unix()))
+	ts := float64(r.Timestamp.Unix())
+	switch r.Kind {
+	case results.KindPlaywrightTest:
+		c.store.RecordPlaywrightResult(ctx, name, r.Success, r.DurationMs, ts, r.Tests)
+	default:
+		c.store.RecordTestResult(ctx, name, string(r.Kind), r.Success, r.DurationMs, ts)
+	}
 }

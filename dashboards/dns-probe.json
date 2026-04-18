@@ -31,7 +31,7 @@
         "name": "namespace",
         "options": [],
         "query": {
-          "query": "label_values(synthetics_probe_up{kind=\"DNSProbe\"}, namespace)",
+          "query": "label_values(synthetics_probe{kind=\"DNSProbe\"}, namespace)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
@@ -51,7 +51,7 @@
         "name": "probe",
         "options": [],
         "query": {
-          "query": "label_values(synthetics_probe_up{kind=\"DNSProbe\", namespace=\"$namespace\"}, name)",
+          "query": "label_values(synthetics_probe{kind=\"DNSProbe\", namespace=\"$namespace\"}, name)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
@@ -131,7 +131,7 @@
       },
       "targets": [
         {
-          "expr": "synthetics_probe_up{kind=\"DNSProbe\", namespace=\"$namespace\", name=\"$probe\"}",
+          "expr": "synthetics_probe{kind=\"DNSProbe\", namespace=\"$namespace\", name=\"$probe\"}",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -171,7 +171,7 @@
       },
       "targets": [
         {
-          "expr": "synthetics_dns_response_ms{namespace=\"$namespace\", name=\"$probe\"}",
+          "expr": "synthetics_probe_dns_response_ms{namespace=\"$namespace\", name=\"$probe\"}",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -210,7 +210,7 @@
       },
       "targets": [
         {
-          "expr": "synthetics_last_run_timestamp{kind=\"DNSProbe\", namespace=\"$namespace\", name=\"$probe\"} * 1000",
+          "expr": "synthetics_probe_last_run_timestamp{kind=\"DNSProbe\", namespace=\"$namespace\", name=\"$probe\"} * 1000",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -244,7 +244,7 @@
       },
       "targets": [
         {
-          "expr": "synthetics_dns_response_answer_count{namespace=\"$namespace\", name=\"$probe\"}",
+          "expr": "synthetics_probe_dns_response_answer_count{namespace=\"$namespace\", name=\"$probe\"}",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -284,7 +284,7 @@
       },
       "targets": [
         {
-          "expr": "synthetics_dns_response_first_answer_value{namespace=\"$namespace\", name=\"$probe\"}",
+          "expr": "synthetics_probe_dns_response_first_answer_value{namespace=\"$namespace\", name=\"$probe\"}",
           "legendFormat": "{{value}}",
           "instant": true,
           "refId": "A"
@@ -352,7 +352,7 @@
       },
       "targets": [
         {
-          "expr": "synthetics_probe_up{kind=\"DNSProbe\", namespace=\"$namespace\", name=\"$probe\"}",
+          "expr": "synthetics_probe{kind=\"DNSProbe\", namespace=\"$namespace\", name=\"$probe\"}",
           "legendFormat": "{{name}}",
           "refId": "A",
           "range": true
@@ -417,7 +417,7 @@
       },
       "targets": [
         {
-          "expr": "synthetics_dns_response_ms{namespace=\"$namespace\", name=\"$probe\"}",
+          "expr": "synthetics_probe_dns_response_ms{namespace=\"$namespace\", name=\"$probe\"}",
           "legendFormat": "response time",
           "refId": "A",
           "range": true
@@ -483,19 +483,19 @@
       },
       "targets": [
         {
-          "expr": "synthetics_dns_response_answer_count{namespace=\"$namespace\", name=\"$probe\"}",
+          "expr": "synthetics_probe_dns_response_answer_count{namespace=\"$namespace\", name=\"$probe\"}",
           "legendFormat": "answer",
           "refId": "A",
           "range": true
         },
         {
-          "expr": "synthetics_dns_response_authority_count{namespace=\"$namespace\", name=\"$probe\"}",
+          "expr": "synthetics_probe_dns_response_authority_count{namespace=\"$namespace\", name=\"$probe\"}",
           "legendFormat": "authority",
           "refId": "B",
           "range": true
         },
         {
-          "expr": "synthetics_dns_response_additional_count{namespace=\"$namespace\", name=\"$probe\"}",
+          "expr": "synthetics_probe_dns_response_additional_count{namespace=\"$namespace\", name=\"$probe\"}",
           "legendFormat": "additional",
           "refId": "C",
           "range": true

@@ -22,7 +22,7 @@
         "name": "namespace",
         "options": [],
         "query": {
-          "query": "label_values(synthetics_probe_up, namespace)",
+          "query": "label_values(synthetics_probe, namespace)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
@@ -71,7 +71,7 @@
       },
       "targets": [
         {
-          "expr": "count(synthetics_probe_up{namespace=~\"$namespace\"})",
+          "expr": "count(synthetics_probe{namespace=~\"$namespace\"})",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -105,7 +105,7 @@
       },
       "targets": [
         {
-          "expr": "count(synthetics_probe_up{kind=\"HTTPProbe\", namespace=~\"$namespace\"})",
+          "expr": "count(synthetics_probe{kind=\"HTTPProbe\", namespace=~\"$namespace\"})",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -139,7 +139,7 @@
       },
       "targets": [
         {
-          "expr": "count(synthetics_probe_up{kind=\"DNSProbe\", namespace=~\"$namespace\"})",
+          "expr": "count(synthetics_probe{kind=\"DNSProbe\", namespace=~\"$namespace\"})",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -197,7 +197,7 @@
       },
       "targets": [
         {
-          "expr": "avg(synthetics_probe_up{namespace=~\"$namespace\"})",
+          "expr": "avg(synthetics_probe{namespace=~\"$namespace\"})",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -248,7 +248,7 @@
       },
       "targets": [
         {
-          "expr": "count(synthetics_probe_up{namespace=~\"$namespace\"} == 0) or vector(0)",
+          "expr": "count(synthetics_probe{namespace=~\"$namespace\"} == 0) or vector(0)",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -299,7 +299,7 @@
       },
       "targets": [
         {
-          "expr": "count(synthetics_probe_config_error{namespace=~\"$namespace\"} == 1) or vector(0)",
+          "expr": "count(synthetics_probe{namespace=~\"$namespace\", result=\"config_error\"}) or vector(0)",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -357,7 +357,7 @@
       },
       "targets": [
         {
-          "expr": "avg(synthetics_probe_up{kind=\"HTTPProbe\", namespace=~\"$namespace\"})",
+          "expr": "avg(synthetics_probe{kind=\"HTTPProbe\", namespace=~\"$namespace\"})",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -415,7 +415,7 @@
       },
       "targets": [
         {
-          "expr": "avg(synthetics_probe_up{kind=\"DNSProbe\", namespace=~\"$namespace\"})",
+          "expr": "avg(synthetics_probe{kind=\"DNSProbe\", namespace=~\"$namespace\"})",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -551,14 +551,14 @@
       ],
       "targets": [
         {
-          "expr": "synthetics_probe_up{namespace=~\"$namespace\"}",
+          "expr": "synthetics_probe{namespace=~\"$namespace\"}",
           "legendFormat": "",
           "instant": true,
           "refId": "success",
           "format": "table"
         },
         {
-          "expr": "synthetics_last_run_timestamp{namespace=~\"$namespace\"} * 1000",
+          "expr": "synthetics_probe_last_run_timestamp{namespace=~\"$namespace\"} * 1000",
           "legendFormat": "",
           "instant": true,
           "refId": "last_run",
@@ -633,13 +633,13 @@
       },
       "targets": [
         {
-          "expr": "avg(synthetics_probe_up{kind=\"HTTPProbe\", namespace=~\"$namespace\"})",
+          "expr": "avg(synthetics_probe{kind=\"HTTPProbe\", namespace=~\"$namespace\"})",
           "legendFormat": "HTTP",
           "refId": "A",
           "range": true
         },
         {
-          "expr": "avg(synthetics_probe_up{kind=\"DNSProbe\", namespace=~\"$namespace\"})",
+          "expr": "avg(synthetics_probe{kind=\"DNSProbe\", namespace=~\"$namespace\"})",
           "legendFormat": "DNS",
           "refId": "B",
           "range": true

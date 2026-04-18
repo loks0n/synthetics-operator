@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: phase10-example-script
+data:
+  test.spec.js: |
+    const { test, expect } = require('@playwright/test');
+
+    test.describe('example.com', () => {
+      test('landing page loads', async ({ page }) => {
+        const response = await page.goto('https://example.com');
+        expect(response.status()).toBe(200);
+        await expect(page).toHaveTitle(/Example Domain/);
+      });
+
+      test('has expected heading', async ({ page }) => {
+        await page.goto('https://example.com');
+        await expect(page.locator('h1')).toHaveText('Example Domain');
+      });
+    });
+---
+apiVersion: synthetics.dev/v1alpha1
+kind: PlaywrightTest
+metadata:
+  name: phase10-example
+spec:
+  interval: 5m
+  script:
+    configMap:
+      name: phase10-example-script
+      key: test.spec.js
+  ttlAfterFinished: 1h
