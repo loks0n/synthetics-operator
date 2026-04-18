@@ -313,7 +313,7 @@ jobs:
           # CronJob resolution is 1m; add Playwright startup + Chromium launch
           # (~15-30s) + NATS publish. Budget ~4 minutes before declaring failure.
           for i in $(seq 1 80); do
-            if curl -fsS http://127.0.0.1:8080/metrics 2>/dev/null | grep -qE 'synthetics_playwright_tests_passed\{[^}]*name="smoke-echo"[^}]*\} 1'; then
+            if curl -fsS http://127.0.0.1:8080/metrics 2>/dev/null | grep -qE 'synthetics_test_playwright_cases_passed\{[^}]*name="smoke-echo"[^}]*\} 1'; then
               exit 0
             fi
             sleep 3
