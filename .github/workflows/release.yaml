@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write   # GitHub Release
+  packages: write   # GHCR push
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.1
+        with:
+          fetch-depth: 0   # needed for changelog generation
+
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: azure/setup-helm@v5.0.0
+
+      - uses: ko-build/setup-ko@v0.7
+        with:
+          version: v0.18.1
+
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION"      >> "$GITHUB_OUTPUT"
+          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ───────── Go binaries via ko ─────────
+      - name: Publish operator image
+        env:
+          KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/synthetics-operator
+        run: |
+          ko build --bare --platform=linux/amd64,linux/arm64 \
+            --tags=${{ steps.version.outputs.version }},latest .
+
+      - name: Publish test-sidecar image
+        env:
+          KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/synthetics-test-sidecar
+        run: |
+          ko build --bare --platform=linux/amd64,linux/arm64 \
+            --tags=${{ steps.version.outputs.version }},latest ./images/test-sidecar
+
+      - name: Publish k6-runner image
+        env:
+          KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/synthetics-k6-runner
+        run: |
+          ko build --bare --platform=linux/amd64,linux/arm64 \
+            --tags=${{ steps.version.outputs.version }},latest ./images/k6-runner
+
+      # ───────── Playwright runner via buildx ─────────
+      - name: Publish playwright-runner image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./images/playwright-runner
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/synthetics-playwright-runner:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/synthetics-playwright-runner:latest
+
+      # ───────── Helm chart to OCI ─────────
+      - name: Package + push Helm chart
+        run: |
+          # Stamp chart version + appVersion from the tag.
+          sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}/" \
+            charts/synthetics-operator/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.version }}\"/" \
+            charts/synthetics-operator/Chart.yaml
+
+          helm package charts/synthetics-operator -d dist/
+
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            helm registry login ${{ env.REGISTRY }} \
+              --username ${{ github.actor }} --password-stdin
+
+          helm push dist/synthetics-operator-${{ steps.version.outputs.version }}.tgz \
+            oci://${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/charts
+
+      # ───────── GitHub Release ─────────
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 "${{ steps.version.outputs.tag }}^" 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..${{ steps.version.outputs.tag }}"
+          else
+            RANGE="${{ steps.version.outputs.tag }}"
+          fi
+          {
+            echo "notes<<EOF"
+            echo "## Changes since $PREV_TAG"
+            echo
+            git log --pretty=format:'- %s (%h)' "$RANGE"
+            echo
+            echo
+            echo "## Install"
+            echo
+            echo '```sh'
+            echo "helm install synthetics-operator \\"
+            echo "  oci://${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/charts/synthetics-operator \\"
+            echo "  --version ${{ steps.version.outputs.version }} \\"
+            echo "  --namespace synthetics-system --create-namespace"
+            echo '```'
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.version.outputs.tag }}
+          body: ${{ steps.notes.outputs.notes }}
+          files: |
+            dist/synthetics-operator-${{ steps.version.outputs.version }}.tgz

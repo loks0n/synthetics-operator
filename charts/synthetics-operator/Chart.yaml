@@ -1,6 +1,24 @@
 apiVersion: v2
 name: synthetics-operator
-description: Phase 1 Helm chart for synthetics-operator HttpProbe MVP
+description: Kubernetes operator for unified synthetic monitoring — HTTPProbe, DNSProbe, K6Test, PlaywrightTest. Results exported to Prometheus; no proprietary store.
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
+home: https://github.com/loks0n/synthetics-operator
+sources:
+  - https://github.com/loks0n/synthetics-operator
+keywords:
+  - synthetic-monitoring
+  - prometheus
+  - observability
+  - playwright
+  - k6
+maintainers:
+  - name: loks0n
+    url: https://github.com/loks0n
+annotations:
+  artifacthub.io/category: monitoring-logging
+  artifacthub.io/prerelease: "true"
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial public release

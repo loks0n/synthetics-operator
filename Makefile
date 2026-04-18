@@ -71,7 +71,7 @@ docker-build-playwright-runner-local:
 	@docker build -t ko.local/synthetics-playwright-runner ./images/playwright-runner
 
 dashboard-configmaps: ## Regenerate hack/dashboard-configmaps.yaml from dashboards/*.json
-	@for entry in "synthetics-overview-dashboard:synthetics-overview.json" "synthetics-http-probe-dashboard:http-probe.json" "synthetics-dns-probe-dashboard:dns-probe.json"; do \
+	@for entry in "synthetics-overview-dashboard:synthetics-overview.json" "synthetics-http-probe-dashboard:http-probe.json" "synthetics-dns-probe-dashboard:dns-probe.json" "synthetics-playwright-tests-dashboard:playwright-tests.json"; do \
 		name=$$(echo $$entry | cut -d: -f1); \
 		file=$$(echo $$entry | cut -d: -f2); \
 		echo "---"; \

@@ -1,0 +1,9 @@
+# Artifact Hub repository metadata. Place this file at the root of the OCI
+# repository (ghcr.io/loks0n/charts) so Artifact Hub can verify ownership and
+# auto-crawl new chart versions.
+#
+# See: https://artifacthub.io/docs/topics/repositories/#oci-based
+repositoryID: TBD-after-first-artifacthub-claim
+owners:
+  - name: loks0n
+    email: noreply@github.com

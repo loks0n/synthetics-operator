@@ -1,0 +1,18 @@
+# Minimal DNSProbe: A-record lookup against Cloudflare's resolver with a
+# single answer-count assertion.
+apiVersion: synthetics.dev/v1alpha1
+kind: DNSProbe
+metadata:
+  name: cloudflare-a-record
+spec:
+  interval: 30s
+  timeout: 5s
+  query:
+    name: example.com
+    type: A
+    resolver: "1.1.1.1:53"
+  assertions:
+    - name: has_answers
+      expr: "answer_count > 0"
+    - name: fast_response
+      expr: "duration_ms < 200"

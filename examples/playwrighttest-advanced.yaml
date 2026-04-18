@@ -1,0 +1,73 @@
+# Multi-step Playwright browser flow: login, add item, checkout. Demonstrates
+# runner env (credentials from a Secret), per-test assertions inside the
+# script, and metricLabels for routing.
+#
+# Pre-requisite: a Secret `test-credentials` with keys LOGIN_USER and
+# LOGIN_PASSWORD in the same namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: checkout-flow-script
+data:
+  test.spec.js: |
+    const { test, expect } = require('@playwright/test');
+
+    const USER = process.env.LOGIN_USER;
+    const PASS = process.env.LOGIN_PASSWORD;
+
+    test.describe('checkout flow', () => {
+      test('can sign in', async ({ page }) => {
+        await page.goto('https://shop.example.com/login');
+        await page.fill('input[name="email"]', USER);
+        await page.fill('input[name="password"]', PASS);
+        await page.click('button[type="submit"]');
+        await expect(page).toHaveURL(/\/dashboard/);
+      });
+
+      test('can add item to cart', async ({ page }) => {
+        await page.goto('https://shop.example.com/products/widget');
+        await page.click('button:has-text("Add to cart")');
+        await expect(page.locator('[data-testid="cart-count"]')).toHaveText('1');
+      });
+
+      test('can reach checkout page', async ({ page }) => {
+        await page.goto('https://shop.example.com/cart');
+        await page.click('a:has-text("Checkout")');
+        await expect(page.locator('h1')).toHaveText('Checkout');
+      });
+    });
+---
+apiVersion: synthetics.dev/v1alpha1
+kind: PlaywrightTest
+metadata:
+  name: checkout-flow
+spec:
+  interval: 5m
+  ttlAfterFinished: 1h
+  script:
+    configMap:
+      name: checkout-flow-script
+      key: test.spec.js
+  runner:
+    env:
+      - name: LOGIN_USER
+        valueFrom:
+          secretKeyRef:
+            name: test-credentials
+            key: LOGIN_USER
+      - name: LOGIN_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: test-credentials
+            key: LOGIN_PASSWORD
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 250m
+      limits:
+        memory: 1Gi
+        cpu: 500m
+  metricLabels:
+    team: storefront
+    env: production
+    journey: checkout

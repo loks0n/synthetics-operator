@@ -1,0 +1,14 @@
+# MX-record probe: catches DNS regressions that break outbound email routing.
+apiVersion: synthetics.dev/v1alpha1
+kind: DNSProbe
+metadata:
+  name: example-mx-records
+spec:
+  interval: 5m
+  timeout: 5s
+  query:
+    name: example.com
+    type: MX
+  assertions:
+    - name: mx_present
+      expr: "answer_count > 0"

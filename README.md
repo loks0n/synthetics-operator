@@ -43,6 +43,32 @@ NATS ships as a single ~20MB binary with ~32Mi idle memory footprint. It is not 
 
 The operator uses the OpenTelemetry Go SDK for all internal instrumentation and exports via the OTel Prometheus exporter on `/metrics`. This keeps the external interface compatible with the Prometheus ecosystem (Alertmanager, Grafana, recording rules, existing k8s monitoring stacks) while using OTel as the instrumentation layer. No OTel collector is required — the operator's `/metrics` endpoint is scraped directly by whatever Prometheus is already in the cluster.
 
+### 1.5 Install
+
+The Helm chart is published as an OCI artifact on GHCR. Kubernetes 1.33+ is required (native sidecar containers for CronJob-backed tests).
+
+```sh
+helm install synthetics-operator \
+  oci://ghcr.io/loks0n/charts/synthetics-operator \
+  --version <release> \
+  --namespace synthetics-system --create-namespace
+```
+
+Enable the NATS result bus (required for K6Test and PlaywrightTest) and point at the published runner images:
+
+```sh
+helm install synthetics-operator \
+  oci://ghcr.io/loks0n/charts/synthetics-operator \
+  --version <release> \
+  --namespace synthetics-system --create-namespace \
+  --set nats.enabled=true \
+  --set-string testSidecar.image=ghcr.io/loks0n/synthetics-test-sidecar:<release> \
+  --set-string k6Runner.image=ghcr.io/loks0n/synthetics-k6-runner:<release> \
+  --set-string playwrightRunner.image=ghcr.io/loks0n/synthetics-playwright-runner:<release>
+```
+
+For local development, `make dev` spins up a kind cluster with Tilt — see `CONTRIBUTING.md`.
+
 ---
 
 ## 2. Custom Resource Definitions

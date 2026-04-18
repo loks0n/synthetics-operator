@@ -1,0 +1,60 @@
+# Three probes demonstrating depends-driven alert suppression.
+#
+#   checkout-api   ─depends──►   auth-service   ─depends──►   db-dns
+#
+# If db-dns fails, auth-service will likely also fail, and checkout-api will
+# fail as a direct result. With `depends` declared, the alert system only
+# pages once (for db-dns). The operator emits synthetics_probe_suppressed=1
+# on the downstream probes, and alert rules filter them out via:
+#
+#   synthetics_probe == 0
+#     unless on(name, namespace, kind) synthetics_probe_suppressed == 1
+#
+# See alerts/synthetics-rules.yaml.
+---
+apiVersion: synthetics.dev/v1alpha1
+kind: DNSProbe
+metadata:
+  name: db-dns
+spec:
+  interval: 30s
+  query:
+    name: db.default.svc.cluster.local
+    type: A
+  assertions:
+    - name: resolves
+      expr: "answer_count > 0"
+---
+apiVersion: synthetics.dev/v1alpha1
+kind: HTTPProbe
+metadata:
+  name: auth-service
+spec:
+  interval: 30s
+  timeout: 10s
+  request:
+    url: http://auth.default.svc.cluster.local/health
+    method: GET
+  assertions:
+    - name: status_ok
+      expr: "status_code = 200"
+  depends:
+    - kind: DNSProbe
+      name: db-dns
+---
+apiVersion: synthetics.dev/v1alpha1
+kind: HTTPProbe
+metadata:
+  name: checkout-api
+spec:
+  interval: 30s
+  timeout: 10s
+  request:
+    url: http://checkout.default.svc.cluster.local/health
+    method: GET
+  assertions:
+    - name: status_ok
+      expr: "status_code = 200"
+  depends:
+    - kind: HTTPProbe
+      name: auth-service

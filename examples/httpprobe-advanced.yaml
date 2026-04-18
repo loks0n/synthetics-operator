@@ -1,0 +1,41 @@
+# Full-featured HTTPProbe: POST with headers + body, TLS with custom CA,
+# named latency and status assertions, and metricLabels for per-team routing.
+apiVersion: synthetics.dev/v1alpha1
+kind: HTTPProbe
+metadata:
+  name: checkout-api-smoke
+  namespace: default
+spec:
+  interval: 1m
+  timeout: 15s
+  suspend: false
+
+  request:
+    url: https://checkout.internal.example.com/api/v1/health
+    method: POST
+    headers:
+      Authorization: "Bearer redacted"
+      Content-Type: application/json
+      X-Team: payments
+    body: |
+      {"component": "checkout", "probe": "synthetics-operator"}
+
+  tls:
+    # Provide a CA bundle for internal PKI. Replace with your own.
+    caCert: |
+      -----BEGIN CERTIFICATE-----
+      MIIB...
+      -----END CERTIFICATE-----
+
+  assertions:
+    - name: status_ok
+      expr: "status_code = 200"
+    - name: latency_budget
+      expr: "duration_ms < 500"
+    - name: cert_fresh
+      expr: "ssl_expiry_days >= 14"
+
+  metricLabels:
+    team: payments
+    env: production
+    tier: critical

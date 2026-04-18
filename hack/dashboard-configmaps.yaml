@@ -710,3 +710,119 @@ metadata:
   name: synthetics-dns-probe-dashboard
   namespace: monitoring
 
+---
+apiVersion: v1
+data:
+  playwright-tests.json: "{\n  \"annotations\": {\n    \"list\": []\n  },\n  \"editable\"\
+    : true,\n  \"fiscalYearStartMonth\": 0,\n  \"graphTooltip\": 1,\n  \"links\":\
+    \ [\n    {\n      \"title\": \"Overview\",\n      \"url\": \"/d/synthetics-overview\"\
+    ,\n      \"type\": \"link\",\n      \"icon\": \"arrow-left\",\n      \"targetBlank\"\
+    : false\n    }\n  ],\n  \"refresh\": \"30s\",\n  \"schemaVersion\": 38,\n  \"\
+    tags\": [\"synthetics\", \"playwright\", \"tests\"],\n  \"templating\": {\n  \
+    \  \"list\": [\n      {\n        \"current\": {},\n        \"hide\": 0,\n    \
+    \    \"includeAll\": false,\n        \"label\": \"Namespace\",\n        \"multi\"\
+    : false,\n        \"name\": \"namespace\",\n        \"options\": [],\n       \
+    \ \"query\": {\n          \"query\": \"label_values(synthetics_test{kind=\\\"\
+    PlaywrightTest\\\"}, namespace)\",\n          \"refId\": \"StandardVariableQuery\"\
+    \n        },\n        \"refresh\": 2,\n        \"sort\": 1,\n        \"type\"\
+    : \"query\",\n        \"datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"\
+    }\n      },\n      {\n        \"current\": {},\n        \"hide\": 0,\n       \
+    \ \"includeAll\": true,\n        \"label\": \"Test\",\n        \"multi\": true,\n\
+    \        \"name\": \"test\",\n        \"options\": [],\n        \"query\": \"\
+    label_values(synthetics_test{kind=\\\"PlaywrightTest\\\", namespace=\\\"$namespace\\\
+    \"}, name)\",\n        \"refresh\": 2,\n        \"sort\": 1,\n        \"type\"\
+    : \"query\",\n        \"datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"\
+    }\n      }\n    ]\n  },\n  \"time\": {\"from\": \"now-6h\", \"to\": \"now\"},\n\
+    \  \"timepicker\": {},\n  \"timezone\": \"browser\",\n  \"title\": \"Synthetics\
+    \ / PlaywrightTests\",\n  \"uid\": \"synthetics-playwright-tests\",\n  \"version\"\
+    : 1,\n  \"panels\": [\n    {\n      \"id\": 1,\n      \"title\": \"Tests passing\"\
+    ,\n      \"type\": \"stat\",\n      \"datasource\": {\"type\": \"prometheus\"\
+    , \"uid\": \"prometheus\"},\n      \"gridPos\": {\"h\": 4, \"w\": 6, \"x\": 0,\
+    \ \"y\": 0},\n      \"targets\": [{\n        \"expr\": \"count(synthetics_test{kind=\\\
+    \"PlaywrightTest\\\", namespace=\\\"$namespace\\\", name=~\\\"$test\\\", result=\\\
+    \"ok\\\"})\",\n        \"refId\": \"A\"\n      }],\n      \"options\": {\n   \
+    \     \"colorMode\": \"value\",\n        \"graphMode\": \"area\",\n        \"\
+    reduceOptions\": {\"calcs\": [\"lastNotNull\"]}\n      },\n      \"fieldConfig\"\
+    : {\n        \"defaults\": {\n          \"thresholds\": {\"mode\": \"absolute\"\
+    , \"steps\": [\n            {\"color\": \"green\", \"value\": null}\n        \
+    \  ]},\n          \"color\": {\"mode\": \"thresholds\"}\n        }\n      }\n\
+    \    },\n    {\n      \"id\": 2,\n      \"title\": \"Tests failing\",\n      \"\
+    type\": \"stat\",\n      \"datasource\": {\"type\": \"prometheus\", \"uid\": \"\
+    prometheus\"},\n      \"gridPos\": {\"h\": 4, \"w\": 6, \"x\": 6, \"y\": 0},\n\
+    \      \"targets\": [{\n        \"expr\": \"count(synthetics_test{kind=\\\"PlaywrightTest\\\
+    \", namespace=\\\"$namespace\\\", name=~\\\"$test\\\"} == 0) or vector(0)\",\n\
+    \        \"refId\": \"A\"\n      }],\n      \"options\": {\n        \"colorMode\"\
+    : \"value\",\n        \"graphMode\": \"area\",\n        \"reduceOptions\": {\"\
+    calcs\": [\"lastNotNull\"]}\n      },\n      \"fieldConfig\": {\n        \"defaults\"\
+    : {\n          \"thresholds\": {\"mode\": \"absolute\", \"steps\": [\n       \
+    \     {\"color\": \"green\", \"value\": null},\n            {\"color\": \"red\"\
+    , \"value\": 1}\n          ]},\n          \"color\": {\"mode\": \"thresholds\"\
+    }\n        }\n      }\n    },\n    {\n      \"id\": 3,\n      \"title\": \"Cases\
+    \ passing / failing (per run)\",\n      \"type\": \"timeseries\",\n      \"datasource\"\
+    : {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n      \"gridPos\": {\"\
+    h\": 8, \"w\": 12, \"x\": 12, \"y\": 0},\n      \"targets\": [\n        {\"expr\"\
+    : \"sum by (name) (synthetics_test_playwright_cases_passed{namespace=\\\"$namespace\\\
+    \", name=~\\\"$test\\\"})\", \"refId\": \"A\", \"legendFormat\": \"{{name}} passed\"\
+    },\n        {\"expr\": \"sum by (name) (synthetics_test_playwright_cases_failed{namespace=\\\
+    \"$namespace\\\", name=~\\\"$test\\\"})\", \"refId\": \"B\", \"legendFormat\"\
+    : \"{{name}} failed\"}\n      ],\n      \"fieldConfig\": {\n        \"defaults\"\
+    : {\n          \"custom\": {\"lineInterpolation\": \"stepAfter\", \"fillOpacity\"\
+    : 20}\n        },\n        \"overrides\": [\n          {\"matcher\": {\"id\":\
+    \ \"byRegexp\", \"options\": \".* failed$\"}, \"properties\": [{\"id\": \"color\"\
+    , \"value\": {\"mode\": \"fixed\", \"fixedColor\": \"red\"}}]},\n          {\"\
+    matcher\": {\"id\": \"byRegexp\", \"options\": \".* passed$\"}, \"properties\"\
+    : [{\"id\": \"color\", \"value\": {\"mode\": \"fixed\", \"fixedColor\": \"green\"\
+    }}]}\n        ]\n      }\n    },\n    {\n      \"id\": 4,\n      \"title\": \"\
+    Per-case pass/fail (latest run)\",\n      \"type\": \"table\",\n      \"datasource\"\
+    : {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n      \"gridPos\": {\"\
+    h\": 10, \"w\": 24, \"x\": 0, \"y\": 8},\n      \"targets\": [{\n        \"expr\"\
+    : \"synthetics_test_playwright_case_passed{namespace=\\\"$namespace\\\", name=~\\\
+    \"$test\\\"}\",\n        \"refId\": \"A\",\n        \"instant\": true,\n     \
+    \   \"format\": \"table\"\n      }],\n      \"options\": {\n        \"showHeader\"\
+    : true\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n        \
+    \  \"custom\": {\"align\": \"left\"},\n          \"mappings\": [\n           \
+    \ {\"type\": \"value\", \"options\": {\"0\": {\"text\": \"FAIL\", \"color\": \"\
+    red\"}, \"1\": {\"text\": \"PASS\", \"color\": \"green\"}}}\n          ]\n   \
+    \     },\n        \"overrides\": [\n          {\"matcher\": {\"id\": \"byName\"\
+    , \"options\": \"Time\"}, \"properties\": [{\"id\": \"custom.hidden\", \"value\"\
+    : true}]},\n          {\"matcher\": {\"id\": \"byName\", \"options\": \"__name__\"\
+    }, \"properties\": [{\"id\": \"custom.hidden\", \"value\": true}]},\n        \
+    \  {\"matcher\": {\"id\": \"byName\", \"options\": \"kind\"}, \"properties\":\
+    \ [{\"id\": \"custom.hidden\", \"value\": true}]}\n        ]\n      }\n    },\n\
+    \    {\n      \"id\": 5,\n      \"title\": \"Case duration (ms)\",\n      \"type\"\
+    : \"timeseries\",\n      \"datasource\": {\"type\": \"prometheus\", \"uid\": \"\
+    prometheus\"},\n      \"gridPos\": {\"h\": 8, \"w\": 24, \"x\": 0, \"y\": 18},\n\
+    \      \"targets\": [{\n        \"expr\": \"synthetics_test_playwright_case_duration_ms{namespace=\\\
+    \"$namespace\\\", name=~\\\"$test\\\"}\",\n        \"refId\": \"A\",\n       \
+    \ \"legendFormat\": \"{{name}} \u2014 {{test}}\"\n      }],\n      \"fieldConfig\"\
+    : {\n        \"defaults\": {\n          \"unit\": \"ms\",\n          \"custom\"\
+    : {\"fillOpacity\": 10}\n        }\n      }\n    },\n    {\n      \"id\": 6,\n\
+    \      \"title\": \"Test run duration (ms)\",\n      \"type\": \"timeseries\"\
+    ,\n      \"datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n\
+    \      \"gridPos\": {\"h\": 8, \"w\": 12, \"x\": 0, \"y\": 26},\n      \"targets\"\
+    : [{\n        \"expr\": \"synthetics_test_duration_ms{kind=\\\"PlaywrightTest\\\
+    \", namespace=\\\"$namespace\\\", name=~\\\"$test\\\"}\",\n        \"refId\":\
+    \ \"A\",\n        \"legendFormat\": \"{{name}}\"\n      }],\n      \"fieldConfig\"\
+    : {\n        \"defaults\": {\n          \"unit\": \"ms\",\n          \"custom\"\
+    : {\"fillOpacity\": 10}\n        }\n      }\n    },\n    {\n      \"id\": 7,\n\
+    \      \"title\": \"Last run (seconds ago)\",\n      \"type\": \"stat\",\n   \
+    \   \"datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n   \
+    \   \"gridPos\": {\"h\": 8, \"w\": 12, \"x\": 12, \"y\": 26},\n      \"targets\"\
+    : [{\n        \"expr\": \"time() - synthetics_test_last_run_timestamp{kind=\\\"\
+    PlaywrightTest\\\", namespace=\\\"$namespace\\\", name=~\\\"$test\\\"}\",\n  \
+    \      \"refId\": \"A\",\n        \"legendFormat\": \"{{name}}\"\n      }],\n\
+    \      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"s\"\
+    ,\n          \"thresholds\": {\"mode\": \"absolute\", \"steps\": [\n         \
+    \   {\"color\": \"green\", \"value\": null},\n            {\"color\": \"yellow\"\
+    , \"value\": 300},\n            {\"color\": \"red\", \"value\": 900}\n       \
+    \   ]}\n        }\n      },\n      \"options\": {\n        \"colorMode\": \"background\"\
+    ,\n        \"graphMode\": \"none\",\n        \"reduceOptions\": {\"calcs\": [\"\
+    lastNotNull\"]}\n      }\n    }\n  ]\n}\n"
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  labels:
+    grafana_dashboard: '1'
+  name: synthetics-playwright-tests-dashboard
+  namespace: monitoring
+
