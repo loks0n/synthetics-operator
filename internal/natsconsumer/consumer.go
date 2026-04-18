@@ -52,10 +52,11 @@ func (c *Consumer) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer sub.Unsubscribe() //nolint:errcheck
-
 	c.log.Info("subscribed to NATS", "subject", subject, "url", c.natsURL)
 	<-ctx.Done()
+	if err := sub.Unsubscribe(); err != nil {
+		c.log.Error(err, "failed to unsubscribe from NATS")
+	}
 	return nil
 }
 

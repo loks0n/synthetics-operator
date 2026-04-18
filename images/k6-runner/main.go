@@ -22,15 +22,15 @@ import (
 const (
 	outputFile = "/results/output.json"
 	runnerDest = "/runner-bin/k6-runner"
+	scriptPath = "/scripts/test.js"
 )
 
 func main() {
 	var install bool
-	var name, namespace, scriptPath string
+	var name, namespace string
 	flag.BoolVar(&install, "install", false, "copy self to "+runnerDest+" and exit")
 	flag.StringVar(&name, "name", "", "K6Test resource name")
 	flag.StringVar(&namespace, "namespace", "", "K6Test resource namespace")
-	flag.StringVar(&scriptPath, "script", "/scripts/test.js", "path to k6 script")
 	flag.Parse()
 
 	if install {
@@ -41,15 +41,15 @@ func main() {
 		return
 	}
 
-	if err := run(name, namespace, scriptPath); err != nil {
+	if err := run(name, namespace); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(name, namespace, scriptPath string) error {
+func run(name, namespace string) error {
 	start := time.Now()
-	cmd := exec.CommandContext(context.Background(), "k6", "run", scriptPath) //nolint:gosec
+	cmd := exec.CommandContext(context.Background(), "k6", "run", scriptPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
