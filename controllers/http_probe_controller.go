@@ -70,4 +70,3 @@ func (r *HTTPProbeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&syntheticsv1alpha1.HTTPProbe{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Complete(r)
 }
-

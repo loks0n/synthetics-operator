@@ -70,4 +70,3 @@ func (r *DNSProbeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&syntheticsv1alpha1.DNSProbe{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Complete(r)
 }
-

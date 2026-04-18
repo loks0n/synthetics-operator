@@ -94,4 +94,3 @@ func (n *Notifier) emit(obj client.Object, name types.NamespacedName, activeReas
 		n.recorder.Event(obj, corev1.EventTypeWarning, failedReason, msg)
 	}
 }
-
