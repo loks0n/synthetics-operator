@@ -82,6 +82,10 @@ func waitForFile(ctx context.Context, path string) ([]byte, error) {
 		}
 		select {
 		case <-ctx.Done():
+			// One final attempt — the runner may have written the file just before SIGTERM.
+			if data, err := os.ReadFile(path); err == nil {
+				return data, nil
+			}
 			return nil, ctx.Err()
 		case <-time.After(pollInterval):
 		}

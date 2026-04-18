@@ -41,3 +41,6 @@ nats:
 
 testSidecar:
   image: ""
+
+k6Runner:
+  image: ""

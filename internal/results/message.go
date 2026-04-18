@@ -5,6 +5,8 @@ import "time"
 // Kind identifies the CRD type that produced the result.
 type Kind string
 
+const KindK6Test Kind = "K6Test"
+
 // TestResult is the JSON payload published by the test-sidecar and consumed
 // by the operator's NATS subscriber.
 type TestResult struct {

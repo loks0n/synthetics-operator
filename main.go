@@ -45,6 +45,8 @@ func main() {
 	var validatingWebhookConfiguration string
 	var mutatingWebhookConfiguration string
 	var natsURL string
+	var testSidecarImage string
+	var k6RunnerImage string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.IntVar(&probeConcurrency, "probe-concurrency", 4, "Number of concurrent HTTP probes.")
@@ -57,6 +59,8 @@ func main() {
 	flag.StringVar(&validatingWebhookConfiguration, "validating-webhook-configuration", "synthetics-operator-validating-webhook-configuration", "ValidatingWebhookConfiguration name to inject with the CA bundle.")
 	flag.StringVar(&mutatingWebhookConfiguration, "mutating-webhook-configuration", "synthetics-operator-mutating-webhook-configuration", "MutatingWebhookConfiguration name to inject with the CA bundle.")
 	flag.StringVar(&natsURL, "nats-url", "", "NATS server URL for consuming CronJob probe results (e.g. nats://nats:4222). Empty disables NATS.")
+	flag.StringVar(&testSidecarImage, "test-sidecar-image", "", "Image for the test-sidecar container in K6Test jobs.")
+	flag.StringVar(&k6RunnerImage, "k6-runner-image", "", "Image for the k6-runner init container in K6Test jobs.")
 	flag.Parse()
 
 	ctrl.SetLogger(logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
@@ -85,7 +89,7 @@ func main() {
 	if webhookOnly {
 		runErr = runWebhookOnly(cfg, scheme, certManager, webhookPort)
 	} else {
-		runErr = runController(cfg, scheme, certManager, metricsAddr, natsURL, probeConcurrency, enableLeaderElection)
+		runErr = runController(cfg, scheme, certManager, metricsAddr, natsURL, testSidecarImage, k6RunnerImage, probeConcurrency, enableLeaderElection)
 	}
 	if runErr != nil {
 		ctrl.Log.WithName("setup").Error(runErr, "manager exited with error")
@@ -128,6 +132,10 @@ func runWebhookOnly(cfg *rest.Config, scheme *runtime.Scheme, certManager *inter
 		return fmt.Errorf("registering DNSProbe webhook: %w", err)
 	}
 
+	if err := syntheticsv1alpha1.SetupK6TestWebhookWithManager(mgr); err != nil {
+		return fmt.Errorf("registering K6Test webhook: %w", err)
+	}
+
 	if err := mgr.Add(certManager); err != nil {
 		return fmt.Errorf("adding cert watcher: %w", err)
 	}
@@ -150,7 +158,7 @@ func runController(
 	cfg *rest.Config,
 	scheme *runtime.Scheme,
 	certManager *internalwebhookcerts.Manager,
-	metricsAddr, natsURL string,
+	metricsAddr, natsURL, testSidecarImage, k6RunnerImage string,
 	probeConcurrency int,
 	enableLeaderElection bool,
 ) error {
@@ -224,6 +232,18 @@ func runController(
 	}
 	if err := dnsReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("creating DNSProbe controller: %w", err)
+	}
+
+	k6Reconciler := &controllers.K6TestReconciler{
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		Clock:            time.Now,
+		NATSUrl:          natsURL,
+		TestSidecarImage: testSidecarImage,
+		K6RunnerImage:    k6RunnerImage,
+	}
+	if err := k6Reconciler.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("creating K6Test controller: %w", err)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

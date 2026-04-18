@@ -35,6 +35,12 @@ spec:
             {{- if .Values.nats.enabled }}
             - --nats-url=nats://{{ include "synthetics-operator.fullname" . }}-nats:4222
             {{- end }}
+            {{- if .Values.testSidecar.image }}
+            - --test-sidecar-image={{ .Values.testSidecar.image }}
+            {{- end }}
+            {{- if .Values.k6Runner.image }}
+            - --k6-runner-image={{ .Values.k6Runner.image }}
+            {{- end }}
           ports:
             - name: metrics
               containerPort: 8080

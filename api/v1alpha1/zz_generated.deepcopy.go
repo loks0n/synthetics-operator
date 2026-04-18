@@ -5,6 +5,7 @@ package v1alpha1
 import (
 	"maps"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -272,6 +273,161 @@ func (in *DNSProbeList) DeepCopy() *DNSProbeList {
 }
 
 func (in *DNSProbeList) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+// K6Test types
+
+func (in *ConfigMapKeyRef) DeepCopyInto(out *ConfigMapKeyRef) {
+	*out = *in
+}
+
+func (in *ConfigMapKeyRef) DeepCopy() *ConfigMapKeyRef {
+	if in == nil {
+		return nil
+	}
+	out := new(ConfigMapKeyRef)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *K6ScriptRef) DeepCopyInto(out *K6ScriptRef) {
+	*out = *in
+	out.ConfigMap = in.ConfigMap
+}
+
+func (in *K6ScriptRef) DeepCopy() *K6ScriptRef {
+	if in == nil {
+		return nil
+	}
+	out := new(K6ScriptRef)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *RunnerSpec) DeepCopyInto(out *RunnerSpec) {
+	*out = *in
+	if in.Env != nil {
+		in, out := &in.Env, &out.Env
+		*out = make([]corev1.EnvVar, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+	if in.EnvFrom != nil {
+		in, out := &in.EnvFrom, &out.EnvFrom
+		*out = make([]corev1.EnvFromSource, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+	in.Resources.DeepCopyInto(&out.Resources)
+	if in.Affinity != nil {
+		in, out := &in.Affinity, &out.Affinity
+		*out = new(corev1.Affinity)
+		(*in).DeepCopyInto(*out)
+	}
+}
+
+func (in *RunnerSpec) DeepCopy() *RunnerSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(RunnerSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *K6TestSpec) DeepCopyInto(out *K6TestSpec) {
+	*out = *in
+	out.Interval = in.Interval
+	out.TTLAfterFinished = in.TTLAfterFinished
+	if in.Runner != nil {
+		in, out := &in.Runner, &out.Runner
+		*out = new(RunnerSpec)
+		(*in).DeepCopyInto(*out)
+	}
+}
+
+func (in *K6TestSpec) DeepCopy() *K6TestSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(K6TestSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *K6TestStatus) DeepCopyInto(out *K6TestStatus) {
+	*out = *in
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]metav1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+func (in *K6TestStatus) DeepCopy() *K6TestStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(K6TestStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *K6Test) DeepCopyInto(out *K6Test) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.Spec.DeepCopyInto(&out.Spec)
+	in.Status.DeepCopyInto(&out.Status)
+}
+
+func (in *K6Test) DeepCopy() *K6Test {
+	if in == nil {
+		return nil
+	}
+	out := new(K6Test)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *K6Test) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+func (in *K6TestList) DeepCopyInto(out *K6TestList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]K6Test, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+func (in *K6TestList) DeepCopy() *K6TestList {
+	if in == nil {
+		return nil
+	}
+	out := new(K6TestList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *K6TestList) DeepCopyObject() runtime.Object {
 	if c := in.DeepCopy(); c != nil {
 		return c
 	}
