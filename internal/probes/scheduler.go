@@ -11,14 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// ProbeScheduler is the interface controllers depend on. Callers construct
-// Jobs via NewHTTPJob or NewDNSJob and pass them to Register; the scheduler
-// is ignorant of probe types.
-type ProbeScheduler interface {
-	Register(job Job)
-	Unregister(name types.NamespacedName)
-}
-
 type Scheduler struct {
 	logger   logr.Logger
 	pool     *WorkerPool

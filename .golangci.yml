@@ -13,6 +13,8 @@ linters:
     - bodyclose
     - canonicalheader
     - copyloopvar
+    - depguard
+    - dupl
     - dupword
     - durationcheck
     - errname
@@ -20,17 +22,23 @@ linters:
     - exhaustive
     - exptostd
     - fatcontext
+    - gochecknoglobals
     - gocheckcompilerdirectives
     - gomodguard
     - gomoddirectives
     - goprintffuncname
+    - iface
+    - interfacebloat
     - intrange
+    - ireturn
     - loggercheck
+    - maintidx
     - makezero
     - mirror
     - misspell
     - modernize
     - musttag
+    - nestif
     - nilerr
     - nilnesserr
     - nilnil
@@ -63,6 +71,60 @@ linters:
       case:
         rules:
           json: camel
+    ireturn:
+      allow:
+        - error
+        - stdlib
+        - anon
+        - empty
+    interfacebloat:
+      max: 5
+    iface:
+      enable:
+        - identical
+        - unused
+        - opaque
+        - unexported
+    depguard:
+      rules:
+        api_isolate:
+          files:
+            - "**/api/**"
+          deny:
+            - pkg: "github.com/loks0n/synthetics-operator/internal"
+              desc: "api types must not import internal packages"
+            - pkg: "github.com/loks0n/synthetics-operator/controllers"
+              desc: "api types must not import controllers"
+        metrics_isolate:
+          files:
+            - "**/internal/metrics/**"
+          deny:
+            - pkg: "github.com/loks0n/synthetics-operator/internal/probes"
+              desc: "metrics must not depend on higher layers"
+            - pkg: "github.com/loks0n/synthetics-operator/controllers"
+              desc: "metrics must not depend on controllers"
+        webhookcerts_isolate:
+          files:
+            - "**/internal/webhookcerts/**"
+          deny:
+            - pkg: "github.com/loks0n/synthetics-operator/internal/probes"
+              desc: "webhookcerts must not depend on probes"
+            - pkg: "github.com/loks0n/synthetics-operator/internal/metrics"
+              desc: "webhookcerts must not depend on metrics"
+            - pkg: "github.com/loks0n/synthetics-operator/controllers"
+              desc: "webhookcerts must not depend on controllers"
+        probes_no_controllers:
+          files:
+            - "**/internal/probes/**"
+          deny:
+            - pkg: "github.com/loks0n/synthetics-operator/controllers"
+              desc: "probes must not depend on controllers"
+    dupl:
+      threshold: 100
+    nestif:
+      min-complexity: 4
+    maintidx:
+      under: 20
     gomodguard:
       blocked:
         modules:
@@ -144,6 +206,20 @@ linters:
         - name: use-slices-sort
         - name: use-waitgroup-go
   exclusions:
+    rules:
+      - linters:
+          - dupl
+        path: controllers/.*_controller\.go
+      - linters:
+          - dupl
+        path: internal/webhookcerts/cert_manager\.go
+      - linters:
+          - gochecknoglobals
+        path: api/v1alpha1/groupversion_info\.go
+      - linters:
+          - gochecknoglobals
+          - ireturn
+        path: _test\.go$
     paths:
       - "zz_generated\\..*\\.go"
     presets:

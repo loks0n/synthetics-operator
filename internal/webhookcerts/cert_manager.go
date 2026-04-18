@@ -279,52 +279,63 @@ func (m *Manager) injectCABundle(ctx context.Context, caBundle []byte) error {
 	return nil
 }
 
-func patchValidatingWebhookConfiguration(ctx context.Context, clientset kubernetes.Interface, name string, caBundle []byte) error {
-	client := clientset.AdmissionregistrationV1().ValidatingWebhookConfigurations()
-	current, err := client.Get(ctx, name, metav1.GetOptions{})
+// patchWebhookCABundle performs the get-modify-update cycle for injecting a CA
+// bundle into webhook configurations. access must return pointers to each
+// webhook's CABundle field and a commit function that patches the resource;
+// returning a nil commit indicates the resource was not found.
+func patchWebhookCABundle(ctx context.Context, name string, caBundle []byte,
+	access func(ctx context.Context, name string) (bundlePtrs []*[]byte, commit func() error, err error),
+) error {
+	ptrs, commit, err := access(ctx, name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
 		return err
 	}
-	updatedWebhookConfig := current.DeepCopy()
 	changed := false
-	for i := range updatedWebhookConfig.Webhooks {
-		if string(updatedWebhookConfig.Webhooks[i].ClientConfig.CABundle) != string(caBundle) {
-			updatedWebhookConfig.Webhooks[i].ClientConfig.CABundle = caBundle
+	for _, bp := range ptrs {
+		if string(*bp) != string(caBundle) {
+			*bp = caBundle
 			changed = true
 		}
 	}
 	if !changed {
 		return nil
 	}
-	_, err = client.Update(ctx, updatedWebhookConfig, metav1.UpdateOptions{})
-	return err
+	return commit()
+}
+
+func patchValidatingWebhookConfiguration(ctx context.Context, clientset kubernetes.Interface, name string, caBundle []byte) error {
+	c := clientset.AdmissionregistrationV1().ValidatingWebhookConfigurations()
+	return patchWebhookCABundle(ctx, name, caBundle, func(ctx context.Context, name string) ([]*[]byte, func() error, error) {
+		obj, err := c.Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return nil, nil, err
+		}
+		cp := obj.DeepCopy()
+		ptrs := make([]*[]byte, len(cp.Webhooks))
+		for i := range cp.Webhooks {
+			ptrs[i] = &cp.Webhooks[i].ClientConfig.CABundle
+		}
+		return ptrs, func() error { _, err := c.Update(ctx, cp, metav1.UpdateOptions{}); return err }, nil
+	})
 }
 
 func patchMutatingWebhookConfiguration(ctx context.Context, clientset kubernetes.Interface, name string, caBundle []byte) error {
-	client := clientset.AdmissionregistrationV1().MutatingWebhookConfigurations()
-	current, err := client.Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
+	c := clientset.AdmissionregistrationV1().MutatingWebhookConfigurations()
+	return patchWebhookCABundle(ctx, name, caBundle, func(ctx context.Context, name string) ([]*[]byte, func() error, error) {
+		obj, err := c.Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return nil, nil, err
 		}
-		return err
-	}
-	updatedWebhookConfig := current.DeepCopy()
-	changed := false
-	for i := range updatedWebhookConfig.Webhooks {
-		if string(updatedWebhookConfig.Webhooks[i].ClientConfig.CABundle) != string(caBundle) {
-			updatedWebhookConfig.Webhooks[i].ClientConfig.CABundle = caBundle
-			changed = true
+		cp := obj.DeepCopy()
+		ptrs := make([]*[]byte, len(cp.Webhooks))
+		for i := range cp.Webhooks {
+			ptrs[i] = &cp.Webhooks[i].ClientConfig.CABundle
 		}
-	}
-	if !changed {
-		return nil
-	}
-	_, err = client.Update(ctx, updatedWebhookConfig, metav1.UpdateOptions{})
-	return err
+		return ptrs, func() error { _, err := c.Update(ctx, cp, metav1.UpdateOptions{}); return err }, nil
+	})
 }
 
 func (m *Manager) generateBundle() (*certBundle, error) {

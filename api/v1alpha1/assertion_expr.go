@@ -26,11 +26,8 @@ type Assertion struct {
 	Expr string `json:"expr"`
 }
 
-// ValidHTTPAssertionVars lists the variables available in HTTP probe assertions.
-var ValidHTTPAssertionVars = []string{"status_code", "duration_ms", "ssl_expiry_days"}
-
-// ValidDNSAssertionVars lists the variables available in DNS probe assertions.
-var ValidDNSAssertionVars = []string{"answer_count", "duration_ms"}
+func httpAssertionVars() []string { return []string{"status_code", "duration_ms", "ssl_expiry_days"} }
+func dnsAssertionVars() []string  { return []string{"answer_count", "duration_ms"} }
 
 // ValidateAssertionExpr checks that expr is syntactically valid and references
 // one of the allowed variables.

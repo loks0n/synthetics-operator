@@ -28,14 +28,11 @@ import (
 	internalwebhookcerts "github.com/loks0n/synthetics-operator/internal/webhookcerts"
 )
 
-var scheme = runtime.NewScheme()
-
-func init() {
+func main() {
+	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(syntheticsv1alpha1.AddToScheme(scheme))
-}
 
-func main() {
 	var metricsAddr string
 	var probeConcurrency int
 	var webhookPort int
@@ -83,9 +80,9 @@ func main() {
 
 	var runErr error
 	if webhookOnly {
-		runErr = runWebhookOnly(cfg, certManager, webhookPort)
+		runErr = runWebhookOnly(cfg, scheme, certManager, webhookPort)
 	} else {
-		runErr = runController(cfg, certManager, metricsAddr, probeConcurrency, enableLeaderElection)
+		runErr = runController(cfg, scheme, certManager, metricsAddr, probeConcurrency, enableLeaderElection)
 	}
 	if runErr != nil {
 		ctrl.Log.WithName("setup").Error(runErr, "manager exited with error")
@@ -96,7 +93,7 @@ func main() {
 // runWebhookOnly starts only the webhook server. It reads the cert Secret
 // written by the controller deployment and watches it for hot-reload. No
 // reconcilers, probe workers, metrics server, or cert rotation run here.
-func runWebhookOnly(cfg *rest.Config, certManager *internalwebhookcerts.Manager, webhookPort int) error {
+func runWebhookOnly(cfg *rest.Config, scheme *runtime.Scheme, certManager *internalwebhookcerts.Manager, webhookPort int) error {
 	if err := certManager.InitializeReadOnly(context.Background()); err != nil {
 		return fmt.Errorf("loading webhook certificates: %w", err)
 	}
@@ -148,6 +145,7 @@ func runWebhookOnly(cfg *rest.Config, certManager *internalwebhookcerts.Manager,
 // in a separate synthetics-operator-webhook deployment.
 func runController(
 	cfg *rest.Config,
+	scheme *runtime.Scheme,
 	certManager *internalwebhookcerts.Manager,
 	metricsAddr string,
 	probeConcurrency int,

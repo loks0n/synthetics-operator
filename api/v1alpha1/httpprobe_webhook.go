@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/url"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,17 +29,11 @@ func SetupWebhookWithManager(mgr ctrl.Manager) error {
 
 func (h *HTTPProbe) Default(ctx context.Context, obj runtime.Object) error {
 	probe := obj.(*HTTPProbe)
-	logger := log.FromContext(ctx)
-	if probe.Spec.Interval.Duration == 0 {
-		probe.Spec.Interval.Duration = 30 * time.Second
-	}
-	if probe.Spec.Timeout.Duration == 0 {
-		probe.Spec.Timeout.Duration = 10 * time.Second
-	}
+	defaultIntervalTimeout(&probe.Spec.Interval, &probe.Spec.Timeout)
 	if probe.Spec.Request.Method == "" {
 		probe.Spec.Request.Method = "GET"
 	}
-	logger.V(1).Info("defaulted HTTPProbe", "name", probe.Name)
+	log.FromContext(ctx).V(1).Info("defaulted HTTPProbe", "name", probe.Name)
 	return nil
 }
 
@@ -85,7 +78,7 @@ func (h *HTTPProbe) validate() error {
 		if a.Name == "" {
 			allErrs = append(allErrs, field.Required(fp.Child("name"), "assertion name is required"))
 		}
-		if err := ValidateAssertionExpr(a.Expr, ValidHTTPAssertionVars); err != nil {
+		if err := ValidateAssertionExpr(a.Expr, httpAssertionVars()); err != nil {
 			allErrs = append(allErrs, field.Invalid(fp.Child("expr"), a.Expr, err.Error()))
 		}
 	}

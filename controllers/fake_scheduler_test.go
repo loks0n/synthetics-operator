@@ -9,7 +9,7 @@ import (
 )
 
 // fakeScheduler records Register/Unregister calls for use in unit tests.
-// It satisfies internalprobes.ProbeScheduler without starting any goroutines.
+// It satisfies the ProbeScheduler interface without starting any goroutines.
 type fakeScheduler struct {
 	mu         sync.Mutex
 	active     map[types.NamespacedName]internalprobes.Job

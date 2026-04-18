@@ -21,7 +21,7 @@ import (
 type DNSProbeReconciler struct {
 	client.Client
 	Scheme      *runtime.Scheme
-	Scheduler   internalprobes.ProbeScheduler
+	Scheduler   ProbeScheduler
 	DNSExecutor internalprobes.DNSExecutor
 	Metrics     *internalmetrics.Store
 	Clock       func() time.Time
@@ -48,7 +48,7 @@ func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	now := metav1.NewTime(r.Clock())
 
 	probe.Status.ObservedGeneration = probe.Generation
-	setDNSSuspendedCondition(&probe, probe.Spec.Suspend, now)
+	setSuspendedCondition(&probe.Status.Conditions, probe.Generation, probe.Spec.Suspend, now)
 	if apimeta.FindStatusCondition(probe.Status.Conditions, syntheticsv1alpha1.ConditionReady) == nil {
 		apimeta.SetStatusCondition(&probe.Status.Conditions, metav1.Condition{
 			Type:               syntheticsv1alpha1.ConditionReady,
@@ -67,7 +67,7 @@ func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		r.Scheduler.Register(internalprobes.NewDNSJob(&probe, r.DNSExecutor, r.Metrics))
 	}
 
-	if dnsStatusChanged(original, &probe) {
+	if probeStatusChanged(original.Status.ObservedGeneration, probe.Status.ObservedGeneration, original.Status.Conditions, probe.Status.Conditions) {
 		if err := r.Status().Patch(ctx, &probe, client.MergeFrom(original)); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -82,35 +82,3 @@ func (r *DNSProbeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func dnsStatusChanged(before, after *syntheticsv1alpha1.DNSProbe) bool {
-	if before.Status.ObservedGeneration != after.Status.ObservedGeneration {
-		return true
-	}
-	if len(before.Status.Conditions) != len(after.Status.Conditions) {
-		return true
-	}
-	for i := range before.Status.Conditions {
-		if before.Status.Conditions[i] != after.Status.Conditions[i] {
-			return true
-		}
-	}
-	return false
-}
-
-func setDNSSuspendedCondition(probe *syntheticsv1alpha1.DNSProbe, suspended bool, now metav1.Time) {
-	condition := metav1.Condition{
-		Type:               syntheticsv1alpha1.ConditionSuspended,
-		ObservedGeneration: probe.Generation,
-		LastTransitionTime: now,
-	}
-	if suspended {
-		condition.Status = metav1.ConditionTrue
-		condition.Reason = syntheticsv1alpha1.ReasonSuspended
-		condition.Message = "probe execution is suspended"
-	} else {
-		condition.Status = metav1.ConditionFalse
-		condition.Reason = syntheticsv1alpha1.ReasonResumed
-		condition.Message = "probe execution is active"
-	}
-	apimeta.SetStatusCondition(&probe.Status.Conditions, condition)
-}

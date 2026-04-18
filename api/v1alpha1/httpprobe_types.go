@@ -1,6 +1,8 @@
 package v1alpha1
 
 import (
+	"time"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -78,4 +80,13 @@ type HTTPProbeList struct {
 
 func init() {
 	SchemeBuilder.Register(&HTTPProbe{}, &HTTPProbeList{})
+}
+
+func defaultIntervalTimeout(interval, timeout *metav1.Duration) {
+	if interval.Duration == 0 {
+		interval.Duration = 30 * time.Second
+	}
+	if timeout.Duration == 0 {
+		timeout.Duration = 10 * time.Second
+	}
 }

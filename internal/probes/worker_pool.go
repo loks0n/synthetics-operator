@@ -228,6 +228,27 @@ func resultToProbeState(r Result) internalmetrics.ProbeState {
 	return state
 }
 
+func applyHTTPAssertions(state *internalmetrics.ProbeState, r Result, assertions []syntheticsv1alpha1.Assertion) {
+	if r.ConfigError {
+		state.FailureReason = ReasonConfigError
+		state.Success = 0
+		return
+	}
+	sslExpiryDays := float64(-1)
+	if r.CertExpiryTime != nil {
+		sslExpiryDays = time.Until(*r.CertExpiryTime).Hours() / 24
+	}
+	ac := assertionContext{
+		"status_code":     float64(r.StatusCode),
+		"duration_ms":     float64(r.Duration.Milliseconds()),
+		"ssl_expiry_days": sslExpiryDays,
+	}
+	ok, failReason, results := evalAssertions(assertions, ac)
+	state.FailureReason = failReason
+	state.AssertionResults = results
+	state.Success = boolToFloat(ok)
+}
+
 // NewHTTPJob constructs a Job for an HTTPProbe. This is the only place in the
 // codebase that couples the Job abstraction to the HTTPProbe CRD type.
 func NewHTTPJob(probe *syntheticsv1alpha1.HTTPProbe, exec Executor, store *internalmetrics.Store) Job {
@@ -243,22 +264,7 @@ func NewHTTPJob(probe *syntheticsv1alpha1.HTTPProbe, exec Executor, store *inter
 			state.URL = snapshot.Spec.Request.URL
 			state.Method = strings.ToUpper(snapshot.Spec.Request.Method)
 			if len(snapshot.Spec.Assertions) > 0 {
-				ok := !r.ConfigError
-				if !ok {
-					state.FailureReason = ReasonConfigError
-				} else {
-					sslExpiryDays := float64(-1)
-					if r.CertExpiryTime != nil {
-						sslExpiryDays = time.Until(*r.CertExpiryTime).Hours() / 24
-					}
-					ac := assertionContext{
-						"status_code":     float64(r.StatusCode),
-						"duration_ms":     float64(r.Duration.Milliseconds()),
-						"ssl_expiry_days": sslExpiryDays,
-					}
-					ok, state.FailureReason, state.AssertionResults = evalAssertions(snapshot.Spec.Assertions, ac)
-				}
-				state.Success = boolToFloat(ok)
+				applyHTTPAssertions(&state, r, snapshot.Spec.Assertions)
 			} else if r.ConfigError {
 				state.FailureReason = ReasonConfigError
 			} else if r.StatusCode == 0 {

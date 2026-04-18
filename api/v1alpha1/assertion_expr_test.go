@@ -108,7 +108,7 @@ func TestValidateAssertionExprHTTPVars(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.expr, func(t *testing.T) {
-			err := ValidateAssertionExpr(tc.expr, ValidHTTPAssertionVars)
+			err := ValidateAssertionExpr(tc.expr, httpAssertionVars())
 			if tc.wantErr && err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -133,7 +133,7 @@ func TestValidateAssertionExprDNSVars(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.expr, func(t *testing.T) {
-			err := ValidateAssertionExpr(tc.expr, ValidDNSAssertionVars)
+			err := ValidateAssertionExpr(tc.expr, dnsAssertionVars())
 			if tc.wantErr && err == nil {
 				t.Fatal("expected error, got nil")
 			}

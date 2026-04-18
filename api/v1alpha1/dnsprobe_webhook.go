@@ -6,7 +6,6 @@ import (
 	"net"
 	"slices"
 	"strings"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -21,8 +20,6 @@ import (
 var _ webhook.CustomDefaulter = &DNSProbe{}
 var _ webhook.CustomValidator = &DNSProbe{}
 
-var validDNSTypes = []string{"A", "AAAA", "CNAME", "MX", "TXT", "NS", "PTR"}
-
 func SetupDNSWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&DNSProbe{}).
@@ -33,17 +30,11 @@ func SetupDNSWebhookWithManager(mgr ctrl.Manager) error {
 
 func (d *DNSProbe) Default(ctx context.Context, obj runtime.Object) error {
 	probe := obj.(*DNSProbe)
-	logger := log.FromContext(ctx)
-	if probe.Spec.Interval.Duration == 0 {
-		probe.Spec.Interval.Duration = 30 * time.Second
-	}
-	if probe.Spec.Timeout.Duration == 0 {
-		probe.Spec.Timeout.Duration = 10 * time.Second
-	}
+	defaultIntervalTimeout(&probe.Spec.Interval, &probe.Spec.Timeout)
 	if probe.Spec.Query.Type == "" {
 		probe.Spec.Query.Type = "A"
 	}
-	logger.V(1).Info("defaulted DNSProbe", "name", probe.Name)
+	log.FromContext(ctx).V(1).Info("defaulted DNSProbe", "name", probe.Name)
 	return nil
 }
 
@@ -76,9 +67,10 @@ func (d *DNSProbe) validate() error {
 		allErrs = append(allErrs, field.Required(field.NewPath("spec", "query", "name"), "must be non-empty"))
 	}
 
+	dnsTypes := []string{"A", "AAAA", "CNAME", "MX", "TXT", "NS", "PTR"}
 	queryType := strings.ToUpper(d.Spec.Query.Type)
-	if !slices.Contains(validDNSTypes, queryType) {
-		allErrs = append(allErrs, field.NotSupported(field.NewPath("spec", "query", "type"), d.Spec.Query.Type, validDNSTypes))
+	if !slices.Contains(dnsTypes, queryType) {
+		allErrs = append(allErrs, field.NotSupported(field.NewPath("spec", "query", "type"), d.Spec.Query.Type, dnsTypes))
 	}
 
 	if d.Spec.Query.Resolver != "" {
@@ -93,7 +85,7 @@ func (d *DNSProbe) validate() error {
 		if a.Name == "" {
 			allErrs = append(allErrs, field.Required(fp.Child("name"), "assertion name is required"))
 		}
-		if err := ValidateAssertionExpr(a.Expr, ValidDNSAssertionVars); err != nil {
+		if err := ValidateAssertionExpr(a.Expr, dnsAssertionVars()); err != nil {
 			allErrs = append(allErrs, field.Invalid(fp.Child("expr"), a.Expr, err.Error()))
 		}
 	}
