@@ -82,6 +82,7 @@ func (k *K6Test) validate(ctx context.Context, reader client.Reader) error {
 	}
 
 	allErrs = append(allErrs, ValidateDepends(ctx, reader, DependencyKindK6Test, k.Namespace, k.Name, k.Spec.Depends, field.NewPath("spec", "depends"))...)
+	allErrs = append(allErrs, ValidateMetricLabels(k.Spec.MetricLabels, field.NewPath("spec", "metricLabels"))...)
 
 	if len(allErrs) == 0 {
 		return nil

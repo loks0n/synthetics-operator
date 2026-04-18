@@ -42,6 +42,12 @@ type HTTPProbeSpec struct {
 	// Depends lists other probes or tests in the same namespace whose failure
 	// should suppress alerts on this probe. See DependencyRef.
 	Depends []DependencyRef `json:"depends,omitempty"`
+	// MetricLabels are user-supplied key/value pairs appended to every
+	// Prometheus metric the operator emits for this probe. Use for team,
+	// environment, or tier filtering. Avoid high-cardinality values (user
+	// IDs, timestamps, request IDs) — each unique value creates a new
+	// Prometheus time-series.
+	MetricLabels map[string]string `json:"metricLabels,omitempty"`
 }
 
 type HTTPProbeStatus struct {

@@ -2,7 +2,9 @@ package metrics
 
 import (
 	"context"
+	"maps"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -125,24 +127,29 @@ type instruments struct {
 // to an events.Notifier; nil in tests that don't exercise the event path.
 type TransitionFn func(name types.NamespacedName, kind string, prev, next Result)
 
-// dependsKey identifies a CR by kind + namespaced name for the Depends
-// map. Needed because names collide across kinds (HTTPProbe "foo" and
-// DNSProbe "foo" can coexist in the same namespace).
-type dependsKey struct {
+// crKey identifies a CR by kind + namespaced name. Used as the map key for
+// per-CR ancillary state (depends list, user metric labels). Needed because
+// names collide across kinds (HTTPProbe "foo" and DNSProbe "foo" can coexist
+// in the same namespace).
+type crKey struct {
 	kind string
 	name types.NamespacedName
 }
 
+// Legacy alias; kept so old dependsKey references don't need renaming.
+type dependsKey = crKey
+
 // Store is the in-process metrics state. Probes and tests live in separate
 // maps so their metric families stay cleanly separated: probes use
-// synthetics_probe_*, tests use synthetics_test_*. Depends is a sibling map
-// written by reconcilers on spec change, read by the observe callback to
-// evaluate suppression.
+// synthetics_probe_*, tests use synthetics_test_*. Depends + MetricLabels are
+// sibling maps written by reconcilers on spec change, read by the observe
+// callback.
 type Store struct {
 	mu                sync.RWMutex
 	probes            map[types.NamespacedName]ProbeState
 	tests             map[types.NamespacedName]TestState
-	depends           map[dependsKey][]syntheticsv1alpha1.DependencyRef
+	depends           map[crKey][]syntheticsv1alpha1.DependencyRef
+	metricLabels      map[crKey]map[string]string
 	registry          *promclient.Registry
 	exporter          *otelprom.Exporter
 	provider          *metric.MeterProvider
@@ -173,13 +180,14 @@ func NewStore() (*Store, error) {
 	}
 
 	store := &Store{
-		probes:   map[types.NamespacedName]ProbeState{},
-		tests:    map[types.NamespacedName]TestState{},
-		depends:  map[dependsKey][]syntheticsv1alpha1.DependencyRef{},
-		registry: registry,
-		exporter: exporter,
-		provider: provider,
-		instr:    instr,
+		probes:       map[types.NamespacedName]ProbeState{},
+		tests:        map[types.NamespacedName]TestState{},
+		depends:      map[crKey][]syntheticsv1alpha1.DependencyRef{},
+		metricLabels: map[crKey]map[string]string{},
+		registry:     registry,
+		exporter:     exporter,
+		provider:     provider,
+		instr:        instr,
 	}
 
 	if err := store.registerCallback(meter); err != nil {
@@ -334,6 +342,7 @@ func (s *Store) observeProbe(observer apimetric.Observer, name types.NamespacedN
 	if kind == "HTTPProbe" && state.URL != "" {
 		attrs = append(attrs, attribute.String("url", state.URL))
 	}
+	attrs = append(attrs, s.userLabelsLocked(kind, name)...)
 
 	upAttrs := append(attrs,
 		attribute.String("result", string(state.Result)),
@@ -410,6 +419,7 @@ func (s *Store) observeTest(observer apimetric.Observer, name types.NamespacedNa
 		attribute.String("namespace", name.Namespace),
 		attribute.String("kind", state.Kind),
 	}
+	attrs = append(attrs, s.userLabelsLocked(state.Kind, name)...)
 
 	upAttrs := append(attrs, attribute.String("result", string(state.Result)))
 	observer.ObserveFloat64(instr.testGauge, state.Result.successValue(), apimetric.WithAttributes(upAttrs...))
@@ -551,12 +561,11 @@ func (s *Store) Delete(name types.NamespacedName) {
 func (s *Store) SetDepends(kind string, name types.NamespacedName, deps []syntheticsv1alpha1.DependencyRef) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := dependsKey{kind: kind, name: name}
+	key := crKey{kind: kind, name: name}
 	if len(deps) == 0 {
 		delete(s.depends, key)
 		return
 	}
-	// Copy to protect against later mutation of the caller's slice.
 	out := make([]syntheticsv1alpha1.DependencyRef, len(deps))
 	copy(out, deps)
 	s.depends[key] = out
@@ -567,7 +576,52 @@ func (s *Store) SetDepends(kind string, name types.NamespacedName, deps []synthe
 func (s *Store) ClearDepends(kind string, name types.NamespacedName) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.depends, dependsKey{kind: kind, name: name})
+	delete(s.depends, crKey{kind: kind, name: name})
+}
+
+// SetMetricLabels records user-supplied label key/value pairs (from
+// spec.metricLabels) for a probe or test. The observe callback appends them
+// to every metric the operator emits for that CR. An empty or nil map
+// clears the entry.
+func (s *Store) SetMetricLabels(kind string, name types.NamespacedName, labels map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := crKey{kind: kind, name: name}
+	if len(labels) == 0 {
+		delete(s.metricLabels, key)
+		return
+	}
+	// Copy to protect against later mutation of the caller's map.
+	out := make(map[string]string, len(labels))
+	maps.Copy(out, labels)
+	s.metricLabels[key] = out
+}
+
+// ClearMetricLabels removes the metricLabels entry for a probe or test.
+func (s *Store) ClearMetricLabels(kind string, name types.NamespacedName) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.metricLabels, crKey{kind: kind, name: name})
+}
+
+// userLabelsLocked returns the attribute list for a CR's metricLabels.
+// Stable, alphabetical key order so label sets are deterministic across
+// scrapes. Caller must hold s.mu.RLock.
+func (s *Store) userLabelsLocked(kind string, name types.NamespacedName) []attribute.KeyValue {
+	labels := s.metricLabels[crKey{kind: kind, name: name}]
+	if len(labels) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	out := make([]attribute.KeyValue, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, attribute.String(k, labels[k]))
+	}
+	return out
 }
 
 // findUnhealthyDep walks the transitive dependency graph from origin. Returns

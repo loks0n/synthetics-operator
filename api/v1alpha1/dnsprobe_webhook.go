@@ -100,6 +100,7 @@ func (d *DNSProbe) validate(ctx context.Context, reader client.Reader) error {
 	}
 
 	allErrs = append(allErrs, ValidateDepends(ctx, reader, DependencyKindDNSProbe, d.Namespace, d.Name, d.Spec.Depends, field.NewPath("spec", "depends"))...)
+	allErrs = append(allErrs, ValidateMetricLabels(d.Spec.MetricLabels, field.NewPath("spec", "metricLabels"))...)
 
 	if len(allErrs) == 0 {
 		return nil

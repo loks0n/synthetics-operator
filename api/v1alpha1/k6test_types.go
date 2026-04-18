@@ -53,6 +53,10 @@ type K6TestSpec struct {
 	// Depends lists other probes or tests in the same namespace whose failure
 	// should suppress alerts on this test. See DependencyRef.
 	Depends []DependencyRef `json:"depends,omitempty"`
+	// MetricLabels are user-supplied key/value pairs appended to every
+	// Prometheus metric the operator emits for this test. Use for team,
+	// environment, or tier filtering. Avoid high-cardinality values.
+	MetricLabels map[string]string `json:"metricLabels,omitempty"`
 }
 
 // K6TestStatus reflects the reconciler's view of the K6Test. Runtime pass/fail

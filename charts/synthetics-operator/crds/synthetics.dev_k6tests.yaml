@@ -90,6 +90,14 @@ spec:
                 description: K6Version pins the grafana/k6 image tag used for the
                   runner container.
                 type: string
+              metricLabels:
+                additionalProperties:
+                  type: string
+                description: |-
+                  MetricLabels are user-supplied key/value pairs appended to every
+                  Prometheus metric the operator emits for this test. Use for team,
+                  environment, or tier filtering. Avoid high-cardinality values.
+                type: object
               runner:
                 description: Runner configures pod-level concerns for the runner container.
                 properties:

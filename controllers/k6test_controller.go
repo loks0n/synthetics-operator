@@ -36,6 +36,7 @@ func (r *K6TestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		if apierrors.IsNotFound(err) {
 			r.Metrics.Delete(req.NamespacedName)
 			r.Metrics.ClearDepends(kind, req.NamespacedName)
+			r.Metrics.ClearMetricLabels(kind, req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -44,10 +45,12 @@ func (r *K6TestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if !test.DeletionTimestamp.IsZero() {
 		r.Metrics.Delete(req.NamespacedName)
 		r.Metrics.ClearDepends(kind, req.NamespacedName)
+		r.Metrics.ClearMetricLabels(kind, req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 
 	r.Metrics.SetDepends(kind, req.NamespacedName, test.Spec.Depends)
+	r.Metrics.SetMetricLabels(kind, req.NamespacedName, test.Spec.MetricLabels)
 
 	original := test.DeepCopy()
 	now := metav1.NewTime(r.Clock())

@@ -106,6 +106,16 @@ spec:
                 type: array
               interval:
                 type: string
+              metricLabels:
+                additionalProperties:
+                  type: string
+                description: |-
+                  MetricLabels are user-supplied key/value pairs appended to every
+                  Prometheus metric the operator emits for this probe. Use for team,
+                  environment, or tier filtering. Avoid high-cardinality values (user
+                  IDs, timestamps, request IDs) — each unique value creates a new
+                  Prometheus time-series.
+                type: object
               query:
                 properties:
                   name:

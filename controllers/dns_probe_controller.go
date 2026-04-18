@@ -34,6 +34,7 @@ func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			r.Scheduler.Unregister(req.NamespacedName)
 			r.Metrics.Delete(req.NamespacedName)
 			r.Metrics.ClearDepends(kind, req.NamespacedName)
+			r.Metrics.ClearMetricLabels(kind, req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -43,10 +44,12 @@ func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		r.Scheduler.Unregister(req.NamespacedName)
 		r.Metrics.Delete(req.NamespacedName)
 		r.Metrics.ClearDepends(kind, req.NamespacedName)
+		r.Metrics.ClearMetricLabels(kind, req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 
 	r.Metrics.SetDepends(kind, req.NamespacedName, probe.Spec.Depends)
+	r.Metrics.SetMetricLabels(kind, req.NamespacedName, probe.Spec.MetricLabels)
 
 	original := probe.DeepCopy()
 	now := metav1.NewTime(r.Clock())

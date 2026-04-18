@@ -86,6 +86,14 @@ spec:
                   Interval between runs (Go duration). Minimum 1m; must evenly divide 60
                   minutes (sub-hour) or evenly divide 24 hours. Default 1h.
                 type: string
+              metricLabels:
+                additionalProperties:
+                  type: string
+                description: |-
+                  MetricLabels are user-supplied key/value pairs appended to every
+                  Prometheus metric the operator emits for this test. Use for team,
+                  environment, or tier filtering. Avoid high-cardinality values.
+                type: object
               runner:
                 description: Runner configures pod-level concerns for the runner container.
                 properties:

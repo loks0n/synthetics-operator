@@ -466,7 +466,11 @@ expr: min_over_time(synthetics_probe{team="payments"}[5m]) == 0
 
 And per-team Grafana dashboard variables — filter by `team` without needing separate namespaces.
 
-These labels are distinct from Kubernetes metadata labels on the CRD — `spec.metricLabels` is explicitly for Prometheus metric labels, giving users precise control over metric cardinality. This is a deliberate separation: Kubernetes `metadata.labels` remain for selectors, policy, and GitOps tooling; `spec.metricLabels` is for observability. High-cardinality values (e.g. `user_id`) should be avoided as they create unbounded metric series.
+These labels are distinct from Kubernetes metadata labels on the CRD — `spec.metricLabels` is explicitly for Prometheus metric labels, giving users precise control over metric cardinality. Kubernetes `metadata.labels` remain for selectors, policy, and GitOps tooling; `spec.metricLabels` is for observability.
+
+**Validation.** The webhook rejects keys that don't match Prometheus's label-name format (`[a-zA-Z_][a-zA-Z0-9_]*`), keys starting with `__` (Prometheus-reserved), and keys that collide with operator-emitted labels like `name`, `kind`, or `result`. Values are not validated — users are trusted to manage their own cardinality.
+
+**Cardinality guidance — read this before shipping a probe.** Every unique value across all label combinations creates a new Prometheus time-series. A label like `team=payments` stays O(teams). A label like `user_id` scales with users and will overwhelm Prometheus. Avoid putting UUIDs, IPs, timestamps, request IDs, or anything unbounded in `metricLabels`. If in doubt, count the distinct values across a week of probe runs and multiply by your number of probes.
 
 ---
 
