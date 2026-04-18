@@ -35,7 +35,7 @@ The alternatives all have the same problem in different forms:
 - **Kubernetes API (ConfigMaps)** — makes the API server the data plane. Every run creates a ConfigMap, triggers a watch event, and requires a reconcile + status patch. The scaling ceiling is the API server reconcile throughput, not the number of probes.
 - **HTTP endpoint on the operator** — the operator becomes the shared stateful component. A single replica is a bottleneck and availability risk; multiple replicas require coordinating who owns the metrics state.
 
-Given a shared stateful component is required, NATS is the right choice. It is purpose-built for exactly this — lightweight message routing between processes — and it keeps every other component stateless and independently scalable. The `results-writer` sidecar publishes and disconnects. Probe workers consume and scale freely. The metrics consumer reads the stream without any knowledge of who wrote to it.
+Given a shared stateful component is required, NATS is the right choice. It is purpose-built for exactly this — lightweight message routing between processes — and it keeps every other component stateless and independently scalable. The `test-sidecar` publishes and disconnects. Probe workers consume and scale freely. The metrics consumer reads the stream without any knowledge of who wrote to it.
 
 NATS ships as a single ~20MB binary with ~32Mi idle memory footprint. It is not a heavy dependency. With JetStream disabled (the default), it adds no persistence requirements. With JetStream enabled, it gains durability and the ability to buffer results across restarts — controlled entirely by Helm values.
 
@@ -47,7 +47,7 @@ The operator uses the OpenTelemetry Go SDK for all internal instrumentation and 
 
 ## 2. Custom Resource Definitions
 
-The operator defines four CRDs, split into two execution models: lightweight network probes that run in-process within the operator, and script-based runners that execute as Kubernetes CronJobs.
+The operator defines four CRDs, split into two execution models: lightweight network probes that run in-process within the operator, and script-based tests that execute as Kubernetes CronJobs.
 
 | CRD | Execution Model | Purpose |
 |-----|----------------|---------|
@@ -192,11 +192,11 @@ spec:
         cpu: 500m
 ```
 
-All four CRD types use `interval` (duration string). For PlaywrightTest and K6Test, the operator converts the interval to a CronJob schedule string and applies a per-probe minute offset using `probeOffset()` — preventing clustering when multiple tests share the same interval. Minimum interval for CronJob-backed probes is `1m` (cron resolution limit); sub-minute intervals are only supported by HttpProbe and DnsProbe.
+All four CRD types use `interval` (duration string). For PlaywrightTest and K6Test, the operator converts the interval to a CronJob schedule string and applies a per-test minute offset using `probeOffset()` — preventing clustering when multiple tests share the same interval. Minimum interval for CronJob-backed tests is `1m` (cron resolution limit); sub-minute intervals are only supported by HttpProbe and DnsProbe.
 
 ### 2.5 K6Test
 
-k6 scripts executed on an interval or triggered externally via CI. Supports distributed execution via parallelism — the operator automatically divides VUs across runner pods using k6 execution segments, users just set total VUs in the script. A `runner` block configures all pod-level concerns separately from test configuration.
+k6 scripts executed on an interval or triggered externally via CI. Supports distributed execution via parallelism — the operator automatically divides VUs across test pods using k6 execution segments, users just set total VUs in the script. A `runner` block configures all pod-level concerns separately from test configuration.
 
 Thresholds are defined in the k6 script itself — the script is the source of truth. The operator parses threshold pass/fail results from k6 summary output; there is no `spec.thresholds` field on the CRD.
 
@@ -425,7 +425,7 @@ These labels are distinct from Kubernetes metadata labels on the CRD — `spec.m
 
 ## 4. Controller Architecture
 
-> This section describes both the Phase 1 shipping shape and the later target architecture. Phase 1 is intentionally smaller: one operator deployment, in-process HttpProbe execution, in-memory OTel instruments, and no NATS, CronJob runners, or deployment split yet.
+> This section describes both the Phase 1 shipping shape and the later target architecture. Phase 1 is intentionally smaller: one operator deployment, in-process HttpProbe execution, in-memory OTel instruments, and no NATS, CronJob-backed tests, or deployment split yet.
 
 ### 4.1 Phase 1 deployment architecture
 
@@ -558,7 +558,7 @@ All results flow through NATS — probe workers publish in-process results, Cron
 4. Metrics consumer receives result, updates OTel instruments
 ```
 
-The main container stays completely stock — users can pin to official `mcr.microsoft.com/playwright` or `grafana/k6` images without modification. The `results-writer` sidecar handles normalization and NATS publishing across all runner types.
+The main container stays completely stock — users can pin to official `mcr.microsoft.com/playwright` or `grafana/k6` images without modification. The `test-sidecar` handles NATS publishing across all test types.
 
 **Result message:**
 
@@ -808,14 +808,14 @@ resources:
 
 ### 4.10 RBAC summary
 
-Phase 1 RBAC is a reduced subset of the target model: the single operator Deployment needs CRD, Secret, webhook configuration, Event, and leader-election style access, but not NATS-specific worker separation or CronJob runner permissions yet.
+Phase 1 RBAC is a reduced subset of the target model: the single operator Deployment needs CRD, Secret, webhook configuration, Event, and leader-election style access, but not NATS-specific worker separation or CronJob test permissions yet.
 
 **`synthetics-operator-controller` ClusterRole:**
 
 | Resource | Verbs | Why |
 |----------|-------|-----|
 | `httpprobes`, `dnsprobes`, `playwrighttests`, `k6tests` | get, list, watch, update, patch | Reconcile CRDs, update status conditions |
-| `jobs`, `cronjobs` | get, list, watch, create, update, delete | Manage CronJobs for script runners |
+| `jobs`, `cronjobs` | get, list, watch, create, update, delete | Manage CronJobs for script-based tests |
 | `configmaps` | get, list, watch, create, update, patch | Read scripts, manage webhook ConfigMaps |
 | `secrets` | get, list, watch, create, update | Webhook certs Secret |
 | `validatingwebhookconfigurations`, `mutatingwebhookconfigurations` | get, update, patch | Inject caBundle |
@@ -863,7 +863,7 @@ When enabled, separate policies are generated per deployment:
 - `synthetics-operator-webhook`: `:9443` from all namespaces (API server), `:8081` from kubelet
 - `synthetics-operator-controller`: `:8081` from kubelet only
 - `synthetics-operator-probes`: `:8081` from kubelet only
-- `nats`: `:4222` (client) from runner namespaces + operator namespace, `:6222` (cluster) between NATS pods only
+- `nats`: `:4222` (client) from test namespaces + operator namespace, `:6222` (cluster) between NATS pods only
 
 Egress is not restricted — probe workers need to reach arbitrary external endpoints.
 
@@ -974,7 +974,7 @@ Phase 1 only needs a subset of this layout: `HttpProbe` API types, a controller,
 /metrics                        # Metrics consumer (runs in metrics deployment)
   consumer.go                   # NATS result stream consumer, OTel instrument updates
 /images
-  /results-writer               # Sidecar image for normalizing runner output and publishing to NATS
+  /test-sidecar                 # Sidecar image for publishing TestResult JSON to NATS
 /charts
   /synthetics-operator          # Helm chart for the operator
 /dashboards
@@ -1066,7 +1066,7 @@ envtest ships with controller-runtime and spins up a real API server and etcd lo
 What to cover:
 
 - Reconcile creates the correct CronJob from a `K6Test` or `PlaywrightTest` spec
-- CronJob pods include results-writer sidecar with correct ServiceAccount
+- CronJob pods include test-sidecar with correct ServiceAccount
 - Updating a probe interval updates the CronJob schedule
 - Deleting a probe cleans up owned resources
 - `depends` suppression — create two probes, mark one unhealthy, verify the other is suppressed in metrics
@@ -1157,7 +1157,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | NATS as the shared stateful component | CronJob results must go somewhere external to the operator process — a shared stateful component is unavoidable. NATS is the minimal right answer: purpose-built for message routing, ~32Mi idle, no persistence required by default, and keeps every other component stateless. ConfigMaps and an HTTP ingest endpoint were considered; both make either the API server or the operator a scaling bottleneck. See section 1.3. |
 | NATS work queue for probe scheduling | Deferred to Phase 15. Phase 1 uses the same hash-based offset algorithm with an in-memory worker pool inside the operator; later the controller publishes jobs to a NATS work queue and stateless probe workers compete to consume them. |
 | NATS result stream | All results (probe workers + CronJob sidecars) flow through a single NATS result stream. Decouples writers from the metrics consumer. With JetStream enabled, results are buffered across restarts. |
-| Result writer sidecar pattern | Job pods include a native sidecar (`results-writer`) that normalizes runner output and publishes to NATS. Main container stays completely stock (official Playwright/k6 images). Runner pods need no Kubernetes API write permissions. Requires Kubernetes 1.33+. |
+| test-sidecar pattern | CronJob test pods include a native sidecar (`test-sidecar`) that reads the TestResult JSON and publishes it to NATS. Main container stays completely stock (official Playwright/k6 images). Test pods need no Kubernetes API write permissions. Requires Kubernetes 1.33+. |
 | Re-export k6 metrics | Curated k6 summary metrics re-exported by operator rather than forwarding full k6 Prometheus output. Keeps schema clean. |
 | depends field | One level deep only. Suppresses failure metrics when a dependency is unhealthy. No orchestration, no chaining — purely noise reduction. |
 | CRD webhooks | Phase 1 ships validating and defaulting webhooks in the main operator process. Phase 7 moves them into a separate `synthetics-operator-webhook` deployment (2–3 replicas, stateless) so `kubectl apply` stays available during operator restarts. Same binary, `--webhook-only` flag. |
@@ -1166,14 +1166,14 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Operator health metrics | NATS queue depth, reconcile errors, CronJob failures, Job rejections, result stream lag, and cert expiry all instrumented via OTel SDK. Exported as Prometheus on `/metrics` via OTel Prometheus exporter. NATS queue depth is the key saturation signal. |
 | Custom metric labels | `spec.metricLabels` on all CRDs propagates to OTel metric attributes (Prometheus labels). Enables per-team alerting and dashboard filtering without separate namespaces. Deliberately separate from k8s metadata labels so observability labels can be managed independently and cardinality stays explicit. |
 | suspend field | All CRDs support `spec.suspend` to pause probes without deletion. In-operator probes are unscheduled; CronJobs set `suspend: true`. |
-| Consistent interval syntax | All four CRDs use `interval` (duration string). For CronJob-backed probes the operator converts the interval to a CronJob schedule with a per-probe offset for even distribution. Sub-minute intervals (e.g. `10s`) only supported by HttpProbe and DnsProbe; minimum for PlaywrightTest and K6Test is `1m`. |
+| Consistent interval syntax | All four CRDs use `interval` (duration string). For CronJob-backed tests the operator converts the interval to a CronJob schedule with a per-test offset for even distribution. Sub-minute intervals (e.g. `10s`) only supported by HttpProbe and DnsProbe; minimum for PlaywrightTest and K6Test is `1m`. |
 | OTel SDK, Prometheus export | OTel Go SDK for all instrumentation, exported via OTel Prometheus exporter on `/metrics`. External interface stays Prometheus-compatible; no OTel collector required. |
 | Testing layers | Unit tests for pure logic, envtest for controller/webhook behaviour, kind for full end-to-end. envtest covers ~80% of operator behaviour without needing a full cluster. Scale tests include churn scenarios. |
 | CI cadence | `gofmt`, `go vet`, unit tests, envtest, and Helm lint/render run on every PR. A kind smoke install runs on pushes to `main` and on demand. A nightly kind matrix covers currently-supported bootstrap versions and can expand as the project adds more phases. |
-| Multi-version testing | The nightly kind matrix currently covers Kubernetes 1.33 and 1.34 for the Phase 1 HttpProbe path. Expand the matrix as later phases add CronJob runners and more version-sensitive behaviour. |
+| Multi-version testing | The nightly kind matrix currently covers Kubernetes 1.33 and 1.34 for the Phase 1 HttpProbe path. Expand the matrix as later phases add CronJob-backed tests and more version-sensitive behaviour. |
 | CRD graduation | `v1alpha1` initially. Graduation to `v1beta1` and `v1` driven by schema stability and adoption, with conversion webhooks at each transition. |
 | Status writes scoped to config changes | For HttpProbe/DnsProbe, the reconciler writes status only on spec changes (`GenerationChangedPredicate`): `observedGeneration`, `Suspended` condition, and the initial `Ready=Initializing` condition. The worker pool never patches the CR — runtime state (pass/fail, duration, consecutive failures) lives exclusively in the metrics store. This keeps API server write load proportional to configuration changes, not probe execution frequency. `lastRunTime`/`consecutiveFailures` in the CR schema are reserved for a future decision on when/whether to surface per-run state in kubectl output. |
-| NetworkPolicy (opt-in) | Helm chart ships per-deployment opt-in NetworkPolicies. NATS client port `:4222` restricted to operator + runner namespaces. Metrics `:8080` restricted to monitoring namespace. Webhook `:9443` open to API server. Disabled by default — not every cluster has an enforcing CNI. |
+| NetworkPolicy (opt-in) | Helm chart ships per-deployment opt-in NetworkPolicies. NATS client port `:4222` restricted to operator + test namespaces. Metrics `:8080` restricted to monitoring namespace. Webhook `:9443` open to API server. Disabled by default — not every cluster has an enforcing CNI. |
 | Cert reload via atomic pointer | Webhook `tls.Config` uses `GetCertificate` reading from `atomic.Pointer[tls.Certificate]`. Leader rotates and writes Secret; all replicas reload via Secret informer `OnUpdate`. No fsnotify, no polling, no restart. Startup re-injects `caBundle` if it diverges from Secret CA (self-heals after crashed rotation). |
 
 ---
@@ -1291,10 +1291,10 @@ Each phase ships a usable product. No phase is purely foundational.
 
 ### Phase 8 — NATS + CronJob result transport
 
-**Deliverable:** Shared result transport infrastructure required by all CronJob-backed probe types.
+**Deliverable:** Shared result transport infrastructure required by all CronJob-backed tests.
 
 - NATS deployment (single replica, no JetStream by default) added to Helm chart
-- `results-writer` sidecar image: normalizes runner output, publishes to NATS result stream with retry
+- `test-sidecar` image: reads TestResult JSON, publishes to NATS result stream with retry
 - Operator subscribes to NATS result stream and updates OTel instruments — single `/metrics` endpoint, no deployment split yet
 - Helm values for NATS scaling tiers (replicas, JetStream, storage)
 
@@ -1311,7 +1311,7 @@ In-process probe workers continue to update OTel instruments directly. NATS work
 - `K6Test` CRD: script ConfigMap reference, `interval`, `parallelism`, `k6Version`, `ttlAfterFinished`, `runner` block
 - CronJob reconciliation with even distribution offset
 - Automatic VU distribution across parallel pods using k6 execution segments
-- k6 summary JSON parsing in the results-writer sidecar
+- k6 summary JSON parsing in the test-sidecar
 - Job rejection detection: `Ready=False` with `reason: JobCreationFailed`, metric, and Kubernetes Event
 - k6 Grafana dashboard
 - kind integration tests for full Job lifecycle
@@ -1327,7 +1327,7 @@ In-process probe workers continue to update OTel instruments directly. NATS work
 
 - `PlaywrightTest` CRD: script ConfigMap reference, `interval`, `playwrightVersion`, `ttlAfterFinished`, `runner` block
 - CronJob reconciliation with even distribution offset
-- Playwright JSON reporter output parsing in the results-writer sidecar
+- Playwright JSON reporter output parsing in the test-sidecar
 - Per-test metrics with `suite` and `test` labels; suite-level rollups
 - Playwright Grafana dashboard
 - kind integration tests with real Playwright image
