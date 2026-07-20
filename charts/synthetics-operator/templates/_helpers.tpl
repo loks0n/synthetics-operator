@@ -72,3 +72,22 @@ sidecars should use. Precedence:
 nats://{{ include "synthetics-operator.fullname" . }}-nats.{{ .Release.Namespace }}.svc:4222
 {{- end -}}
 {{- end -}}
+
+{{/*
+Pod scheduling knobs shared by every component pod (deployments + bundled NATS).
+Rendered inside .spec.template.spec.
+*/}}
+{{- define "synthetics-operator.podScheduling" -}}
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+{{ toYaml . }}
+{{- end }}
+{{- with .Values.nodeSelector }}
+nodeSelector:
+{{ toYaml . | indent 2 }}
+{{- end }}
+{{- with .Values.tolerations }}
+tolerations:
+{{ toYaml . }}
+{{- end }}
+{{- end }}

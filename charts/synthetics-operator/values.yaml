@@ -1,3 +1,8 @@
+# Scheduling applied to every component pod (deployments + bundled NATS).
+imagePullSecrets: []
+nodeSelector: {}
+tolerations: []
+
 # Controller Deployment.
 #
 # Runs reconcilers + the NATS scheduler + the event notifier. Publishes
