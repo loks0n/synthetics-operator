@@ -14,6 +14,7 @@ spec:
         app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
         app.kubernetes.io/component: webhook
     spec:
+{{- include "synthetics-operator.podScheduling" . | indent 6 }}
       serviceAccountName: {{ include "synthetics-operator.webhookServiceAccountName" . }}
       {{- with .Values.webhook.priorityClassName }}
       priorityClassName: {{ . }}
