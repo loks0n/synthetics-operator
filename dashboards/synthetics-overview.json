@@ -1,24 +1,37 @@
 {
-  "annotations": {"list": []},
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["synthetics"],
+  "tags": [
+    "synthetics"
+  ],
   "templating": {
     "list": [
       {
         "name": "namespace",
         "label": "Namespace",
         "type": "query",
-        "datasource": {"type": "prometheus", "uid": "prometheus"},
-        "query": {"query": "label_values(synthetics_probe_last_run_timestamp, namespace)", "refId": "A"},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values({__name__=~\"synthetics_probe_last_run_timestamp|synthetics_test_last_run_timestamp\"}, namespace)",
+          "refId": "A"
+        },
         "refresh": 2,
         "multi": true,
         "includeAll": true,
         "allValue": ".*",
-        "current": {"text": "All", "value": "$__all"},
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
         "sort": 1
       },
       {
@@ -29,12 +42,25 @@
         "multi": true,
         "includeAll": true,
         "allValue": ".*",
-        "current": {"text": "All", "value": "$__all"}
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
       }
     ]
   },
-  "time": {"from": "now-6h", "to": "now"},
-  "timepicker": {"refresh_intervals": ["10s", "30s", "1m", "5m"]},
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
   "timezone": "browser",
   "title": "Synthetics / Overview",
   "uid": "synthetics-overview",
@@ -45,23 +71,40 @@
       "title": "Passing",
       "description": "Probes whose last run succeeded.",
       "type": "stat",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "gridPos": {"h": 5, "w": 5, "x": 0, "y": 0},
-      "targets": [{
-        "refId": "A",
-        "expr": "count(synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} == 1) OR on() vector(0)"
-      }],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count((synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test{namespace=~\"$namespace\", kind=~\"$kind\"}) == 1) OR on() vector(0)"
+        }
+      ],
       "options": {
         "colorMode": "background",
         "graphMode": "area",
         "justifyMode": "center",
         "textMode": "value_and_name",
-        "reduceOptions": {"calcs": ["lastNotNull"]}
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "color": {"mode": "fixed", "fixedColor": "green"},
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
           "displayName": "PASS"
         }
       }
@@ -71,27 +114,52 @@
       "title": "Failing",
       "description": "Probes whose last run failed (assertion or transport).",
       "type": "stat",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "gridPos": {"h": 5, "w": 5, "x": 5, "y": 0},
-      "targets": [{
-        "refId": "A",
-        "expr": "count(synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} == 0) OR on() vector(0)"
-      }],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 5,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count((synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test{namespace=~\"$namespace\", kind=~\"$kind\"}) == 0) OR on() vector(0)"
+        }
+      ],
       "options": {
         "colorMode": "background",
         "graphMode": "area",
         "justifyMode": "center",
         "textMode": "value_and_name",
-        "reduceOptions": {"calcs": ["lastNotNull"]}
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [
-            {"color": "green", "value": null},
-            {"color": "red", "value": 1}
-          ]},
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
           "displayName": "FAIL"
         }
       }
@@ -101,27 +169,52 @@
       "title": "Suppressed",
       "description": "Failing probes attributed to an unhealthy dependency.",
       "type": "stat",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "gridPos": {"h": 5, "w": 5, "x": 10, "y": 0},
-      "targets": [{
-        "refId": "A",
-        "expr": "count(synthetics_probe_suppressed{namespace=~\"$namespace\", kind=~\"$kind\"} == 1) OR on() vector(0)"
-      }],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 10,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(synthetics_probe_suppressed{namespace=~\"$namespace\", kind=~\"$kind\"} == 1) OR on() vector(0)"
+        }
+      ],
       "options": {
         "colorMode": "background",
         "graphMode": "area",
         "justifyMode": "center",
         "textMode": "value_and_name",
-        "reduceOptions": {"calcs": ["lastNotNull"]}
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [
-            {"color": "blue", "value": null},
-            {"color": "orange", "value": 1}
-          ]},
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
           "displayName": "UPSTREAM"
         }
       }
@@ -131,18 +224,32 @@
       "title": "Pass rate (window)",
       "description": "Fraction of probe runs returning OK in the dashboard time range.",
       "type": "stat",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "gridPos": {"h": 5, "w": 9, "x": 15, "y": 0},
-      "targets": [{
-        "refId": "A",
-        "expr": "avg(avg_over_time(synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"}[$__range]))"
-      }],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 9,
+        "x": 15,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(avg_over_time((synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test{namespace=~\"$namespace\", kind=~\"$kind\"})[$__range:]))"
+        }
+      ],
       "options": {
         "colorMode": "background",
         "graphMode": "area",
         "justifyMode": "center",
         "textMode": "value",
-        "reduceOptions": {"calcs": ["lastNotNull"]}
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
       },
       "fieldConfig": {
         "defaults": {
@@ -150,13 +257,30 @@
           "min": 0,
           "max": 1,
           "decimals": 2,
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [
-            {"color": "red", "value": null},
-            {"color": "orange", "value": 0.95},
-            {"color": "yellow", "value": 0.99},
-            {"color": "green", "value": 0.999}
-          ]}
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.95
+              },
+              {
+                "color": "yellow",
+                "value": 0.99
+              },
+              {
+                "color": "green",
+                "value": 0.999
+              }
+            ]
+          }
         }
       }
     },
@@ -165,78 +289,253 @@
       "title": "Currently failing",
       "description": "Probes whose last run failed. Click a name to jump to the Probes dashboard for full history.",
       "type": "table",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "gridPos": {"h": 10, "w": 14, "x": 0, "y": 5},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 14,
+        "x": 0,
+        "y": 5
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "(synthetics_probe_duration_ms{namespace=~\"$namespace\", kind=~\"$kind\"} + on (name, namespace, kind) group_left (result, failed_assertion) synthetics_probe_result_info{namespace=~\"$namespace\", kind=~\"$kind\"}) and on (name, namespace, kind) (synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} == 0)",
+          "expr": "max by (name, kind, namespace, url) (((synthetics_probe_duration_ms{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test_duration_ms{namespace=~\"$namespace\", kind=~\"$kind\"}) + on (name, namespace, kind) group_left (result, failed_assertion) (synthetics_probe_result_info{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test_result_info{namespace=~\"$namespace\", kind=~\"$kind\"})) and on (name, namespace, kind) ((synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test{namespace=~\"$namespace\", kind=~\"$kind\"}) == 0))",
           "format": "table",
           "instant": true
         },
         {
           "refId": "B",
-          "expr": "((time() - synthetics_probe_last_run_timestamp{namespace=~\"$namespace\", kind=~\"$kind\"}) + on (name, namespace, kind) group_left (result, failed_assertion) synthetics_probe_result_info{namespace=~\"$namespace\", kind=~\"$kind\"}) and on (name, namespace, kind) (synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} == 0)",
+          "expr": "max by (name, kind, namespace, url) (((time() - (synthetics_probe_last_run_timestamp{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test_last_run_timestamp{namespace=~\"$namespace\", kind=~\"$kind\"})) + on (name, namespace, kind) group_left (result, failed_assertion) (synthetics_probe_result_info{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test_result_info{namespace=~\"$namespace\", kind=~\"$kind\"})) and on (name, namespace, kind) ((synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test{namespace=~\"$namespace\", kind=~\"$kind\"}) == 0))",
           "format": "table",
           "instant": true
         }
       ],
       "transformations": [
-        {"id": "merge", "options": {}},
-        {"id": "filterFieldsByName", "options": {"include": {"names": [
-          "name", "kind", "namespace", "result", "failed_assertion", "url",
-          "Value #A", "Value #B"
-        ]}}},
-        {"id": "organize", "options": {
-          "renameByName": {
-            "Value #A": "duration_ms",
-            "Value #B": "age_s"
-          },
-          "indexByName": {
-            "name": 0, "kind": 1, "namespace": 2, "result": 3, "failed_assertion": 4,
-            "duration_ms": 5, "age_s": 6, "url": 7
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "name",
+                "kind",
+                "namespace",
+                "result",
+                "failed_assertion",
+                "url",
+                "Value #A",
+                "Value #B"
+              ]
+            }
           }
-        }}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "Value #A": "duration_ms",
+              "Value #B": "age_s"
+            },
+            "indexByName": {
+              "name": 0,
+              "kind": 1,
+              "namespace": 2,
+              "result": 3,
+              "failed_assertion": 4,
+              "duration_ms": 5,
+              "age_s": 6,
+              "url": 7
+            }
+          }
+        }
       ],
-      "options": {"showHeader": true, "sortBy": [{"displayName": "age_s", "desc": false}]},
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "age_s",
+            "desc": false
+          }
+        ]
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": {"align": "left", "cellOptions": {"type": "auto"}},
-          "links": [{
-            "title": "Open probe",
-            "url": "/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}"
-          }]
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "links": [
+            {
+              "title": "Open probe",
+              "url": "/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}"
+            }
+          ]
         },
         "overrides": [
-          {"matcher": {"id": "byName", "options": "duration_ms"}, "properties": [
-            {"id": "unit", "value": "ms"},
-            {"id": "custom.cellOptions", "value": {"type": "color-text"}},
-            {"id": "thresholds", "value": {"mode": "absolute", "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 1000},
-              {"color": "red", "value": 5000}
-            ]}}
-          ]},
-          {"matcher": {"id": "byName", "options": "age_s"}, "properties": [
-            {"id": "unit", "value": "s"},
-            {"id": "custom.cellOptions", "value": {"type": "color-text"}},
-            {"id": "thresholds", "value": {"mode": "absolute", "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 120},
-              {"color": "red", "value": 600}
-            ]}}
-          ]},
-          {"matcher": {"id": "byName", "options": "result"}, "properties": [
-            {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "basic"}},
-            {"id": "mappings", "value": [
-              {"type": "value", "options": {"ok": {"color": "green", "index": 0, "text": "ok"}}},
-              {"type": "value", "options": {"assertion_failed": {"color": "red", "index": 1, "text": "assertion_failed"}}},
-              {"type": "value", "options": {"timeout": {"color": "red", "index": 2, "text": "timeout"}}},
-              {"type": "value", "options": {"dns_failed": {"color": "red", "index": 3, "text": "dns_failed"}}},
-              {"type": "value", "options": {"tls_failed": {"color": "red", "index": 4, "text": "tls_failed"}}},
-              {"type": "value", "options": {"connect_failed": {"color": "red", "index": 5, "text": "connect_failed"}}}
-            ]}
-          ]}
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1000
+                    },
+                    {
+                      "color": "red",
+                      "value": 5000
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "age_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 120
+                    },
+                    {
+                      "color": "red",
+                      "value": 600
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "result"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "ok": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "ok"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "assertion_failed": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "assertion_failed"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "timeout": {
+                        "color": "red",
+                        "index": 2,
+                        "text": "timeout"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "dns_failed": {
+                        "color": "red",
+                        "index": 3,
+                        "text": "dns_failed"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "tls_failed": {
+                        "color": "red",
+                        "index": 4,
+                        "text": "tls_failed"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "connect_failed": {
+                        "color": "red",
+                        "index": 5,
+                        "text": "connect_failed"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
         ]
       }
     },
@@ -245,39 +544,116 @@
       "title": "Certificates expiring soon",
       "description": "HTTPS probes whose TLS certificate expires within the highlighted thresholds.",
       "type": "table",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "gridPos": {"h": 10, "w": 10, "x": 14, "y": 5},
-      "targets": [{
-        "refId": "A",
-        "expr": "(synthetics_probe_tls_cert_expiry_timestamp_seconds{namespace=~\"$namespace\"} - time()) / 86400",
-        "format": "table",
-        "instant": true
-      }],
-      "transformations": [
-        {"id": "filterFieldsByName", "options": {"include": {"names": ["name", "namespace", "url", "Value"]}}},
-        {"id": "organize", "options": {"renameByName": {"Value": "days_remaining"}}}
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 10,
+        "x": 14,
+        "y": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(synthetics_probe_tls_cert_expiry_timestamp_seconds{namespace=~\"$namespace\"} - time()) / 86400",
+          "format": "table",
+          "instant": true
+        }
       ],
-      "options": {"showHeader": true, "sortBy": [{"displayName": "days_remaining", "desc": false}]},
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "name",
+                "namespace",
+                "url",
+                "Value"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "Value": "days_remaining"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "days_remaining",
+            "desc": false
+          }
+        ]
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": {"align": "left"},
-          "links": [{
-            "title": "Open probe",
-            "url": "/d/synthetics-HTTPProbe?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}"
-          }]
+          "custom": {
+            "align": "left"
+          },
+          "links": [
+            {
+              "title": "Open probe",
+              "url": "/d/synthetics-HTTPProbe?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}"
+            }
+          ]
         },
         "overrides": [
-          {"matcher": {"id": "byName", "options": "days_remaining"}, "properties": [
-            {"id": "unit", "value": "d"},
-            {"id": "decimals", "value": 1},
-            {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "basic"}},
-            {"id": "thresholds", "value": {"mode": "absolute", "steps": [
-              {"color": "red", "value": null},
-              {"color": "orange", "value": 7},
-              {"color": "yellow", "value": 30},
-              {"color": "green", "value": 90}
-            ]}}
-          ]}
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "days_remaining"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "d"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 7
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 30
+                    },
+                    {
+                      "color": "green",
+                      "value": 90
+                    }
+                  ]
+                }
+              }
+            ]
+          }
         ]
       }
     },
@@ -286,17 +662,25 @@
       "title": "Fleet health over time",
       "description": "Count of probes currently passing / failing / suppressed over the dashboard window. Scales independently of probe count.",
       "type": "timeseries",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 15},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "count(synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} == 1) OR on() vector(0)",
+          "expr": "count((synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test{namespace=~\"$namespace\", kind=~\"$kind\"}) == 1) OR on() vector(0)",
           "legendFormat": "passing"
         },
         {
           "refId": "B",
-          "expr": "count(synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} == 0) OR on() vector(0)",
+          "expr": "count((synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test{namespace=~\"$namespace\", kind=~\"$kind\"}) == 0) OR on() vector(0)",
           "legendFormat": "failing"
         },
         {
@@ -313,95 +697,336 @@
             "fillOpacity": 25,
             "lineInterpolation": "stepAfter",
             "showPoints": "never",
-            "stacking": {"mode": "normal", "group": "A"}
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
           }
         },
         "overrides": [
-          {"matcher": {"id": "byName", "options": "passing"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]},
-          {"matcher": {"id": "byName", "options": "failing"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
-          {"matcher": {"id": "byName", "options": "suppressed"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]}
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "passing"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failing"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "suppressed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max", "min"]}}
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max",
+            "min"
+          ]
+        }
+      }
     },
     {
       "id": 10,
-      "title": "Probe state — current",
+      "title": "Probe state \u2014 current",
       "description": "All probes, sorted by most-recent failures. Click a name to open the Probes dashboard for that probe's full timeline.",
       "type": "table",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "gridPos": {"h": 14, "w": 24, "x": 0, "y": 24},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
       "targets": [
-        {"refId": "A", "expr": "synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"}", "format": "table", "instant": true},
-        {"refId": "B", "expr": "avg_over_time(synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"}[1h])", "format": "table", "instant": true},
-        {"refId": "C", "expr": "synthetics_probe_duration_ms{namespace=~\"$namespace\", kind=~\"$kind\"}", "format": "table", "instant": true},
-        {"refId": "D", "expr": "time() - synthetics_probe_last_run_timestamp{namespace=~\"$namespace\", kind=~\"$kind\"}", "format": "table", "instant": true}
+        {
+          "refId": "A",
+          "expr": "max by (name, kind, namespace, url) ((synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test{namespace=~\"$namespace\", kind=~\"$kind\"}))",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "expr": "max by (name, kind, namespace, url) (avg_over_time((synthetics_probe{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test{namespace=~\"$namespace\", kind=~\"$kind\"})[1h:]))",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "C",
+          "expr": "max by (name, kind, namespace, url) ((synthetics_probe_duration_ms{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test_duration_ms{namespace=~\"$namespace\", kind=~\"$kind\"}))",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "D",
+          "expr": "max by (name, kind, namespace, url) (time() - (synthetics_probe_last_run_timestamp{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test_last_run_timestamp{namespace=~\"$namespace\", kind=~\"$kind\"}))",
+          "format": "table",
+          "instant": true
+        }
       ],
       "transformations": [
-        {"id": "merge", "options": {}},
-        {"id": "filterFieldsByName", "options": {"include": {"names": [
-          "name", "kind", "namespace", "url",
-          "Value #A", "Value #B", "Value #C", "Value #D"
-        ]}}},
-        {"id": "organize", "options": {
-          "renameByName": {
-            "Value #A": "state",
-            "Value #B": "pass_rate_1h",
-            "Value #C": "duration_ms",
-            "Value #D": "age_s"
-          },
-          "indexByName": {
-            "name": 0, "kind": 1, "namespace": 2, "state": 3,
-            "pass_rate_1h": 4, "duration_ms": 5, "age_s": 6, "url": 7
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "name",
+                "kind",
+                "namespace",
+                "url",
+                "Value #A",
+                "Value #B",
+                "Value #C",
+                "Value #D"
+              ]
+            }
           }
-        }}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "Value #A": "state",
+              "Value #B": "pass_rate_1h",
+              "Value #C": "duration_ms",
+              "Value #D": "age_s"
+            },
+            "indexByName": {
+              "name": 0,
+              "kind": 1,
+              "namespace": 2,
+              "state": 3,
+              "pass_rate_1h": 4,
+              "duration_ms": 5,
+              "age_s": 6,
+              "url": 7
+            }
+          }
+        }
       ],
       "options": {
         "showHeader": true,
-        "footer": {"show": false},
-        "sortBy": [{"displayName": "state", "desc": false}, {"displayName": "age_s", "desc": false}]
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "state",
+            "desc": false
+          },
+          {
+            "displayName": "age_s",
+            "desc": false
+          }
+        ]
       },
       "fieldConfig": {
         "defaults": {
-          "custom": {"align": "left", "cellOptions": {"type": "auto"}},
-          "links": [{
-            "title": "Open probe",
-            "url": "/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}"
-          }]
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "links": [
+            {
+              "title": "Open probe",
+              "url": "/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}"
+            }
+          ]
         },
         "overrides": [
-          {"matcher": {"id": "byName", "options": "state"}, "properties": [
-            {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "basic"}},
-            {"id": "mappings", "value": [
-              {"type": "value", "options": {"0": {"color": "red", "text": "FAIL", "index": 0}}},
-              {"type": "value", "options": {"1": {"color": "green", "text": "PASS", "index": 1}}}
-            ]}
-          ]},
-          {"matcher": {"id": "byName", "options": "pass_rate_1h"}, "properties": [
-            {"id": "unit", "value": "percentunit"},
-            {"id": "decimals", "value": 2},
-            {"id": "min", "value": 0},
-            {"id": "max", "value": 1},
-            {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "continuous-RdYlGr"}}
-          ]},
-          {"matcher": {"id": "byName", "options": "duration_ms"}, "properties": [
-            {"id": "unit", "value": "ms"},
-            {"id": "custom.cellOptions", "value": {"type": "color-text"}},
-            {"id": "thresholds", "value": {"mode": "absolute", "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 1000},
-              {"color": "red", "value": 5000}
-            ]}}
-          ]},
-          {"matcher": {"id": "byName", "options": "age_s"}, "properties": [
-            {"id": "unit", "value": "s"},
-            {"id": "custom.cellOptions", "value": {"type": "color-text"}},
-            {"id": "thresholds", "value": {"mode": "absolute", "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 120},
-              {"color": "red", "value": 600}
-            ]}}
-          ]}
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "text": "FAIL",
+                        "index": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "color": "green",
+                        "text": "PASS",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pass_rate_1h"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "continuous-RdYlGr"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1000
+                    },
+                    {
+                      "color": "red",
+                      "value": 5000
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "age_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 120
+                    },
+                    {
+                      "color": "red",
+                      "value": 600
+                    }
+                  ]
+                }
+              }
+            ]
+          }
         ]
       }
     },
@@ -410,48 +1035,140 @@
       "title": "Duration by kind (avg)",
       "description": "Average probe duration grouped by CRD kind.",
       "type": "timeseries",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 38},
-      "targets": [{
-        "refId": "A",
-        "expr": "avg by (kind) (synthetics_probe_duration_ms{namespace=~\"$namespace\", kind=~\"$kind\"})",
-        "legendFormat": "{{kind}}"
-      }],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg by (kind) ((synthetics_probe_duration_ms{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test_duration_ms{namespace=~\"$namespace\", kind=~\"$kind\"}))",
+          "legendFormat": "{{kind}}"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
-          "custom": {"fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never"},
-          "color": {"mode": "palette-classic"}
+          "custom": {
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
         }
       },
-      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}}
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        }
+      }
     },
     {
       "id": 9,
       "title": "Result breakdown",
       "description": "Probes bucketed by current result label.",
       "type": "piechart",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 38},
-      "targets": [{
-        "refId": "A",
-        "expr": "count by (result) (synthetics_probe_result_info{namespace=~\"$namespace\", kind=~\"$kind\"})",
-        "legendFormat": "{{result}}"
-      }],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count by (result) ((synthetics_probe_result_info{namespace=~\"$namespace\", kind=~\"$kind\"} or synthetics_test_result_info{namespace=~\"$namespace\", kind=~\"$kind\"}))",
+          "legendFormat": "{{result}}"
+        }
+      ],
       "options": {
         "pieType": "donut",
-        "legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]},
-        "displayLabels": ["name"]
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "displayLabels": [
+          "name"
+        ]
       },
       "fieldConfig": {
         "defaults": {
           "mappings": [
-            {"type": "value", "options": {"ok": {"color": "green", "index": 0}}},
-            {"type": "value", "options": {"assertion_failed": {"color": "red", "index": 1}}},
-            {"type": "value", "options": {"timeout": {"color": "red", "index": 2}}},
-            {"type": "value", "options": {"dns_failed": {"color": "dark-red", "index": 3}}},
-            {"type": "value", "options": {"tls_failed": {"color": "dark-red", "index": 4}}},
-            {"type": "value", "options": {"connect_failed": {"color": "dark-red", "index": 5}}}
+            {
+              "type": "value",
+              "options": {
+                "ok": {
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "assertion_failed": {
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "timeout": {
+                  "color": "red",
+                  "index": 2
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "dns_failed": {
+                  "color": "dark-red",
+                  "index": 3
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "tls_failed": {
+                  "color": "dark-red",
+                  "index": 4
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "connect_failed": {
+                  "color": "dark-red",
+                  "index": 5
+                }
+              }
+            }
           ]
         }
       }
@@ -461,33 +1178,97 @@
       "title": "Suppressions",
       "description": "Failing probes whose failure is attributed to an unhealthy upstream dependency. `unhealthy_dependency` names the root cause.",
       "type": "table",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 47},
-      "targets": [{
-        "refId": "A",
-        "expr": "synthetics_probe_suppressed{namespace=~\"$namespace\", kind=~\"$kind\"} == 1",
-        "format": "table",
-        "instant": true
-      }],
-      "transformations": [
-        {"id": "filterFieldsByName", "options": {"include": {"names": ["name", "kind", "namespace", "unhealthy_dependency", "unhealthy_dependency_kind"]}}},
-        {"id": "organize", "options": {"indexByName": {"name": 0, "kind": 1, "namespace": 2, "unhealthy_dependency": 3, "unhealthy_dependency_kind": 4}}}
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 47
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "synthetics_probe_suppressed{namespace=~\"$namespace\", kind=~\"$kind\"} == 1",
+          "format": "table",
+          "instant": true
+        }
       ],
-      "options": {"showHeader": true, "sortBy": [{"displayName": "name", "desc": false}]},
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "name",
+                "kind",
+                "namespace",
+                "unhealthy_dependency",
+                "unhealthy_dependency_kind"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "name": 0,
+              "kind": 1,
+              "namespace": 2,
+              "unhealthy_dependency": 3,
+              "unhealthy_dependency_kind": 4
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "name",
+            "desc": false
+          }
+        ]
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": {"align": "left"},
-          "noValue": "No suppressed probes — every failing probe is being attributed directly, not to an upstream.",
-          "links": [{
-            "title": "Open probe",
-            "url": "/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}"
-          }]
+          "custom": {
+            "align": "left"
+          },
+          "noValue": "No suppressed probes \u2014 every failing probe is being attributed directly, not to an upstream.",
+          "links": [
+            {
+              "title": "Open probe",
+              "url": "/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}"
+            }
+          ]
         },
         "overrides": [
-          {"matcher": {"id": "byName", "options": "unhealthy_dependency"}, "properties": [
-            {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "basic"}},
-            {"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}
-          ]}
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "unhealthy_dependency"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
         ]
       }
     }
