@@ -143,6 +143,14 @@ func run(
 	}
 
 	scheduler := internalprobes.NewScheduler(log.WithName("scheduler"), bus)
+	if err := mgr.Add(&controllers.SpecResyncer{
+		Client:    mgr.GetClient(),
+		Publisher: bus,
+		Interval:  time.Minute,
+		Log:       log.WithName("spec-resync"),
+	}); err != nil {
+		return fmt.Errorf("adding spec resyncer: %w", err)
+	}
 	if err := mgr.Add(scheduler); err != nil {
 		return fmt.Errorf("adding scheduler: %w", err)
 	}
