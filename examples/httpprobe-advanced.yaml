@@ -17,6 +17,13 @@ spec:
       Authorization: "Bearer redacted"
       Content-Type: application/json
       X-Team: payments
+    # Headers whose values live in a Secret (API keys, tokens) — resolved by
+    # the controller at publish time; wins over `headers` on conflict.
+    headersFrom:
+      - name: X-Api-Key
+        secretKeyRef:
+          name: checkout-probe-credentials
+          key: api-key
     body: |
       {"component": "checkout", "probe": "synthetics-operator"}
 

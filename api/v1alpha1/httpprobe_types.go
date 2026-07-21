@@ -19,7 +19,26 @@ type HTTPRequestSpec struct {
 	URL     string            `json:"url"`
 	Method  string            `json:"method,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
-	Body    string            `json:"body,omitempty"`
+	// HeadersFrom sets request headers from Kubernetes Secrets in the probe's
+	// namespace, for credentials that must not appear as literals in the CR
+	// (API keys, tokens). Resolved by the controller when the spec snapshot is
+	// published; on conflict with Headers, HeadersFrom wins.
+	HeadersFrom []HeaderFromSource `json:"headersFrom,omitempty"`
+	Body        string             `json:"body,omitempty"`
+}
+
+// HeaderFromSource names one request header sourced from a Secret key.
+type HeaderFromSource struct {
+	// Name is the HTTP header to set.
+	Name string `json:"name"`
+	// SecretKeyRef selects the Secret key holding the header value.
+	SecretKeyRef SecretKeySelector `json:"secretKeyRef"`
+}
+
+// SecretKeySelector points at a key inside a Secret in the probe's namespace.
+type SecretKeySelector struct {
+	Name string `json:"name"`
+	Key  string `json:"key"`
 }
 
 // TLSConfig controls TLS verification for the probe request.

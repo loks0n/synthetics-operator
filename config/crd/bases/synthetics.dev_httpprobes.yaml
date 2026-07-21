@@ -121,6 +121,36 @@ spec:
                     additionalProperties:
                       type: string
                     type: object
+                  headersFrom:
+                    description: |-
+                      HeadersFrom sets request headers from Kubernetes Secrets in the probe's
+                      namespace, for credentials that must not appear as literals in the CR
+                      (API keys, tokens). Resolved by the controller when the spec snapshot is
+                      published; on conflict with Headers, HeadersFrom wins.
+                    items:
+                      description: HeaderFromSource names one request header sourced
+                        from a Secret key.
+                      properties:
+                        name:
+                          description: Name is the HTTP header to set.
+                          type: string
+                        secretKeyRef:
+                          description: SecretKeyRef selects the Secret key holding
+                            the header value.
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      required:
+                      - name
+                      - secretKeyRef
+                      type: object
+                    type: array
                   method:
                     type: string
                   url:
