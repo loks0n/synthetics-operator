@@ -176,6 +176,34 @@ func TestHTTPProbeValidateRules(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "headersFrom missing header name rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Request.HeadersFrom = []HeaderFromSource{{SecretKeyRef: SecretKeySelector{Name: "creds", Key: "key"}}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "headersFrom missing secret name rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Request.HeadersFrom = []HeaderFromSource{{Name: "X-Key", SecretKeyRef: SecretKeySelector{Key: "key"}}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "headersFrom missing secret key rejected",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Request.HeadersFrom = []HeaderFromSource{{Name: "X-Key", SecretKeyRef: SecretKeySelector{Name: "creds"}}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "complete headersFrom accepted",
+			mutate: func(p *HTTPProbe) {
+				p.Spec.Request.HeadersFrom = []HeaderFromSource{{Name: "X-Key", SecretKeyRef: SecretKeySelector{Name: "creds", Key: "key"}}}
+			},
+			wantErr: false,
+		},
+		{
 			name:    "http scheme accepted",
 			mutate:  func(p *HTTPProbe) { p.Spec.Request.URL = "http://127.0.0.1/health" },
 			wantErr: false,

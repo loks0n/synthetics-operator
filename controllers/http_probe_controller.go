@@ -44,7 +44,11 @@ func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindHTTPProbe, probe.Namespace, probe.Name))
 	}
 
-	if err := r.Publisher.PublishSpec(ctx, httpProbeSpecUpdate(&probe)); err != nil {
+	headers, err := resolveRequestHeaders(ctx, r.Client, probe.Namespace, probe.Spec.Request)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.Publisher.PublishSpec(ctx, httpProbeSpecUpdate(&probe, headers)); err != nil {
 		return ctrl.Result{}, err
 	}
 

@@ -84,6 +84,19 @@ func (h *HTTPProbe) validate(ctx context.Context, reader client.Reader) error {
 		allErrs = append(allErrs, field.NotSupported(field.NewPath("spec", "request", "url"), parsedURL.Scheme, []string{"http", "https"}))
 	}
 
+	for i, hf := range h.Spec.Request.HeadersFrom {
+		fp := field.NewPath("spec", "request", "headersFrom").Index(i)
+		if hf.Name == "" {
+			allErrs = append(allErrs, field.Required(fp.Child("name"), "header name is required"))
+		}
+		if hf.SecretKeyRef.Name == "" {
+			allErrs = append(allErrs, field.Required(fp.Child("secretKeyRef", "name"), "secret name is required"))
+		}
+		if hf.SecretKeyRef.Key == "" {
+			allErrs = append(allErrs, field.Required(fp.Child("secretKeyRef", "key"), "secret key is required"))
+		}
+	}
+
 	for i, a := range h.Spec.Assertions {
 		fp := field.NewPath("spec", "assertions").Index(i)
 		if a.Name == "" {

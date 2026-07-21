@@ -28,13 +28,15 @@ func toAssertions(in []syntheticsv1alpha1.Assertion) []results.Assertion {
 	return out
 }
 
-// httpProbeSpecUpdate builds a SpecUpdate message from an HTTPProbe.
-func httpProbeSpecUpdate(p *syntheticsv1alpha1.HTTPProbe) results.SpecUpdate {
+// httpProbeSpecUpdate builds a SpecUpdate message from an HTTPProbe. headers
+// is the resolved header set (literals merged with headersFrom Secret values)
+// — see resolveRequestHeaders.
+func httpProbeSpecUpdate(p *syntheticsv1alpha1.HTTPProbe, headers map[string]string) results.SpecUpdate {
 	payload := results.HTTPProbeSpecPayload{
 		TimeoutMs:  p.Spec.Timeout.Milliseconds(),
 		URL:        p.Spec.Request.URL,
 		Method:     p.Spec.Request.Method,
-		Headers:    p.Spec.Request.Headers,
+		Headers:    headers,
 		Body:       p.Spec.Request.Body,
 		Assertions: toAssertions(p.Spec.Assertions),
 	}
