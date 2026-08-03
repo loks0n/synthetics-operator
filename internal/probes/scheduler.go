@@ -33,7 +33,7 @@ type Scheduler struct {
 }
 
 type scheduledProbe struct {
-	kind     results.Kind
+	spec     results.SpecUpdate
 	interval time.Duration
 	stop     chan struct{}
 }
@@ -65,8 +65,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 // Register adds (or replaces) a scheduled probe. Re-registering with the
 // same key resets the timer. Called by reconcilers whenever a probe's spec
-// changes; the interval may change across calls.
-func (s *Scheduler) Register(key types.NamespacedName, kind results.Kind, interval time.Duration) {
+// changes; both the spec and its interval may change across calls. The spec
+// is held so every published job can carry it.
+func (s *Scheduler) Register(key types.NamespacedName, spec results.SpecUpdate) {
+	interval := time.Duration(spec.IntervalMs) * time.Millisecond
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -79,7 +81,7 @@ func (s *Scheduler) Register(key types.NamespacedName, kind results.Kind, interv
 	}
 
 	scheduled := &scheduledProbe{
-		kind:     kind,
+		spec:     spec,
 		interval: interval,
 		stop:     make(chan struct{}),
 	}
@@ -108,13 +110,11 @@ func (s *Scheduler) runLoop(ctx context.Context, key types.NamespacedName, sched
 			return
 		case now := <-timer.C:
 			msg := results.ProbeJob{
-				Kind:        scheduled.kind,
-				Name:        key.Name,
-				Namespace:   key.Namespace,
+				Spec:        scheduled.spec,
 				ScheduledAt: now,
 			}
 			if err := s.publisher.PublishProbeJob(ctx, msg); err != nil {
-				s.logger.Error(err, "publish probe job", "kind", scheduled.kind, "namespace", key.Namespace, "name", key.Name)
+				s.logger.Error(err, "publish probe job", "kind", scheduled.spec.Kind, "namespace", key.Namespace, "name", key.Name)
 			}
 			timer.Reset(scheduled.interval)
 		}

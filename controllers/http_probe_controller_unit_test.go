@@ -155,7 +155,7 @@ func TestHTTPProbeReconcile_TombstonesOnDelete(t *testing.T) {
 	r := newUnitReconciler(k8sClient, sched, pub)
 
 	key := types.NamespacedName{Namespace: "default", Name: "gone"}
-	sched.Register(key, results.KindHTTPProbe, 30*time.Second)
+	sched.Register(key, results.SpecUpdate{Kind: results.KindHTTPProbe, IntervalMs: (30 * time.Second).Milliseconds()})
 
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
 		t.Fatalf("reconcile of missing probe should not error: %v", err)

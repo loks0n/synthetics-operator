@@ -47,9 +47,10 @@ webhook:
 
 # Prober Deployment.
 #
-# Stateless. Subscribes to NATS (synthetics.specs + synthetics.probes.jobs
-# via a queue group) and executes HTTPProbe / DNSProbe runs. Horizontally
-# scalable — NATS queue groups load-balance jobs across replicas.
+# Stateless. Pulls jobs from synthetics.probes.jobs via a NATS queue group
+# and executes HTTPProbe / DNSProbe runs. Each job carries its own spec, so
+# a new replica is useful immediately. Horizontally scalable — NATS queue
+# groups load-balance jobs across replicas.
 prober:
   image:
     ref: ""

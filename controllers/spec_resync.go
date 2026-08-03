@@ -15,12 +15,13 @@ import (
 // SpecResyncer periodically re-publishes a SpecUpdate for every live CR.
 //
 // Spec snapshots travel over core NATS, which is fire-and-forget: a spec
-// published while the bus is still connecting — or before a consumer
-// (prober, metrics) has established its subscription, e.g. when all
-// deployments restart together — is lost permanently. Probe jobs self-heal
-// because the scheduler re-publishes them every tick; specs were published
-// exactly once per reconcile, so a lost spec left probes running but
-// invisible to the metrics store until the controller was restarted by hand.
+// published while the bus is still connecting — or before the metrics
+// consumer has established its subscription, e.g. when all deployments
+// restart together — is lost permanently. Probe jobs self-heal because the
+// scheduler re-publishes them every tick and each job carries its own spec;
+// specs were published exactly once per reconcile, so a lost spec left
+// probes running but invisible to the metrics store until the controller
+// was restarted by hand.
 //
 // Re-broadcasting is safe: consumers upsert specs by identity, so a
 // duplicate is a no-op. Deletion remains reconcile-driven via tombstones.

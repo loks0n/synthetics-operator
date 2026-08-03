@@ -1,6 +1,6 @@
-// Package prober subscribes to NATS for spec updates and probe jobs,
-// executes probes, publishes results. Stateless — the in-memory spec
-// cache hydrates from the NATS stream at startup.
+// Package prober subscribes to NATS for probe jobs, executes them, and
+// publishes results. Genuinely stateless: each job carries the spec it needs,
+// so a freshly started replica can execute the very first job it receives.
 package prober
 
 import (
@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -32,15 +31,6 @@ type Worker struct {
 	Log       logr.Logger
 	Bus       *natsbus.Client
 	Publisher ResultPublisher
-
-	mu    sync.RWMutex
-	specs map[specKey]results.SpecUpdate
-}
-
-type specKey struct {
-	kind      results.Kind
-	namespace string
-	name      string
 }
 
 // NeedLeaderElection tells controller-runtime to run the Worker on every
@@ -48,69 +38,38 @@ type specKey struct {
 // group, leader election would defeat the point.
 func (*Worker) NeedLeaderElection() bool { return false }
 
-// Start subscribes to specs + jobs and blocks until ctx is cancelled.
+// Start subscribes to probe jobs and blocks until ctx is cancelled.
 func (w *Worker) Start(ctx context.Context) error {
-	if w.specs == nil {
-		w.specs = map[specKey]results.SpecUpdate{}
-	}
-
-	specErr := make(chan error, 1)
 	jobErr := make(chan error, 1)
-
-	go func() { specErr <- w.Bus.SubscribeSpecs(ctx, w.onSpec) }()
 	go func() { jobErr <- w.Bus.SubscribeProbeJobs(ctx, w.onJob) }()
 
 	select {
 	case <-ctx.Done():
 		return nil
-	case err := <-specErr:
-		return err
 	case err := <-jobErr:
 		return err
 	}
 }
 
-func (w *Worker) onSpec(_ context.Context, msg results.SpecUpdate) {
-	if msg.Kind != results.KindHTTPProbe && msg.Kind != results.KindDNSProbe {
+func (w *Worker) onJob(ctx context.Context, job results.ProbeJob) {
+	spec := job.Spec
+	if spec.Kind != results.KindHTTPProbe && spec.Kind != results.KindDNSProbe {
 		return // workers only execute probes, not tests
 	}
-	key := specKey{kind: msg.Kind, namespace: msg.Namespace, name: msg.Name}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if msg.Deleted {
-		delete(w.specs, key)
-		return
-	}
-	w.specs[key] = msg
-}
-
-func (w *Worker) onJob(ctx context.Context, job results.ProbeJob) {
-	spec, ok := w.specLookup(job.Kind, job.Namespace, job.Name)
-	if !ok {
-		// Job arrived before we've cached the spec. This is rare and
-		// transient; the next tick will hit a populated cache.
-		w.Log.V(1).Info("no spec cached for job", "kind", job.Kind, "namespace", job.Namespace, "name", job.Name)
-		return
-	}
+	// The scheduler unregisters suspended probes, so this should not arrive;
+	// it covers a suspend landing between publish and delivery.
 	if spec.Suspend {
 		return
 	}
 
 	res := w.execute(ctx, spec, job)
 	w.Log.Info("probed",
-		"kind", job.Kind, "namespace", job.Namespace, "name", job.Name,
+		"kind", spec.Kind, "namespace", spec.Namespace, "name", spec.Name,
 		"result", res.Result, "failed_assertion", res.FailedAssertion,
 		"duration_ms", res.DurationMs)
 	if err := w.Publisher.PublishProbeResult(ctx, res); err != nil {
-		w.Log.Error(err, "publish probe result", "kind", job.Kind, "namespace", job.Namespace, "name", job.Name)
+		w.Log.Error(err, "publish probe result", "kind", spec.Kind, "namespace", spec.Namespace, "name", spec.Name)
 	}
-}
-
-func (w *Worker) specLookup(kind results.Kind, namespace, name string) (results.SpecUpdate, bool) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	s, ok := w.specs[specKey{kind: kind, namespace: namespace, name: name}]
-	return s, ok
 }
 
 func (w *Worker) execute(ctx context.Context, spec results.SpecUpdate, job results.ProbeJob) results.ProbeResult {
