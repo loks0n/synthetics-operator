@@ -14,4 +14,23 @@ spec:
     - name: monitor
       port: 8222
       targetPort: monitor
+---
+# Headless Service backing the StatefulSet: gives each NATS pod a stable
+# DNS name for the cluster routes. publishNotReadyAddresses is required —
+# a starting server must resolve its peers before it can become ready,
+# which would otherwise deadlock the whole cluster on a cold start.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-nats-headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+    app.kubernetes.io/component: nats
+  ports:
+    - name: cluster
+      port: 6222
+      targetPort: cluster
 {{- end }}

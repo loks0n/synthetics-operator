@@ -1,10 +1,18 @@
 {{- if and .Values.nats.enabled (not .Values.nats.externalUrl) }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "synthetics-operator.fullname" . }}-nats
 spec:
   replicas: {{ .Values.nats.replicas }}
+  # Stable pod DNS names — the routes below address peers as
+  # <fullname>-nats-0.<fullname>-nats-headless, which a Deployment's random
+  # pod names can't provide. No volumes: without JetStream, NATS holds
+  # nothing worth persisting.
+  serviceName: {{ include "synthetics-operator.fullname" . }}-nats-headless
+  # Peers discover each other through the headless Service, so there's no
+  # reason to start them one at a time.
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
@@ -31,14 +39,23 @@ spec:
           # built-in defaults for the rest (no JetStream, no auth, 1MB max
           # payload). For anything larger, switch to nats.externalUrl and
           # run NATS with a real config file.
+          #
+          # --cluster + --routes form a full mesh across replicas: every
+          # server sees every subject, so queue-group subscribers (prober,
+          # metrics) load-balance correctly no matter which server the
+          # client Service happened to route them to.
           args:
             - --name=$(POD_NAME)
             - --cluster_name={{ .Values.nats.clusterName }}
             - --port=4222
             - --http_port=8222
+            - --cluster=nats://0.0.0.0:6222
+            - --routes={{ include "synthetics-operator.natsRoutes" . }}
           ports:
             - name: client
               containerPort: 4222
+            - name: cluster
+              containerPort: 6222
             - name: monitor
               containerPort: 8222
           readinessProbe:

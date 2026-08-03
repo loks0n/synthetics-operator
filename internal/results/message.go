@@ -100,15 +100,18 @@ type SpecUpdate struct {
 }
 
 // ProbeJob is published by the controller's scheduler on each scheduled
-// tick. Workers pull from a NATS queue group (`ProberQueue`) so each
-// job is handled by exactly one worker. The job is deliberately thin — the
-// worker resolves the rest from its spec cache.
+// tick. Workers pull from a NATS queue group (`ProberQueue`) so each job is
+// handled by exactly one worker.
+//
+// The job carries the whole spec rather than a reference to one. A worker
+// therefore needs no prior state to execute it, which is what makes workers
+// safe to scale: a replica that started seconds ago is immediately useful.
+// Carrying only {kind, namespace, name} meant a worker could win a job for a
+// probe it had never seen a spec for — specs are only published on change —
+// and silently drop it.
 type ProbeJob struct {
-	Kind        Kind      `json:"kind"`
-	Name        string    `json:"name"`
-	Namespace   string    `json:"namespace"`
-	Generation  int64     `json:"generation"`
-	ScheduledAt time.Time `json:"scheduledAt"`
+	Spec        SpecUpdate `json:"spec"`
+	ScheduledAt time.Time  `json:"scheduledAt"`
 }
 
 // AssertionResult is the per-assertion 0/1 outcome carried back to the

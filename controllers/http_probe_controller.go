@@ -48,7 +48,8 @@ func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.Publisher.PublishSpec(ctx, httpProbeSpecUpdate(&probe, headers)); err != nil {
+	spec := httpProbeSpecUpdate(&probe, headers)
+	if err := r.Publisher.PublishSpec(ctx, spec); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -61,7 +62,7 @@ func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if probe.Spec.Suspend {
 		r.Scheduler.Unregister(req.NamespacedName)
 	} else {
-		r.Scheduler.Register(req.NamespacedName, results.KindHTTPProbe, probe.Spec.Interval.Duration)
+		r.Scheduler.Register(req.NamespacedName, spec)
 	}
 
 	if probeStatusChanged(original.Status.ObservedGeneration, probe.Status.ObservedGeneration, original.Status.Conditions, probe.Status.Conditions) {

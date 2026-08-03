@@ -66,7 +66,7 @@ func TestSchedulerRegisterBeforeStartDropsProbe(t *testing.T) {
 	s := NewScheduler(logr.Discard(), &fakeJobPublisher{})
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
-	s.Register(key, results.KindHTTPProbe, 30*time.Second)
+	s.Register(key, results.SpecUpdate{Kind: results.KindHTTPProbe, IntervalMs: (30 * time.Second).Milliseconds()})
 
 	s.mu.Lock()
 	_, ok := s.probes[key]
@@ -85,7 +85,7 @@ func TestSchedulerUnregisterRemovesProbe(t *testing.T) {
 	waitStarted(t, s)
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
-	s.Register(key, results.KindHTTPProbe, 30*time.Second)
+	s.Register(key, results.SpecUpdate{Kind: results.KindHTTPProbe, IntervalMs: (30 * time.Second).Milliseconds()})
 	s.Unregister(key)
 
 	s.mu.Lock()
@@ -105,12 +105,12 @@ func TestSchedulerReRegisterReplacesExisting(t *testing.T) {
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
 
-	s.Register(key, results.KindHTTPProbe, 30*time.Second)
+	s.Register(key, results.SpecUpdate{Kind: results.KindHTTPProbe, IntervalMs: (30 * time.Second).Milliseconds()})
 	s.mu.Lock()
 	first := s.probes[key]
 	s.mu.Unlock()
 
-	s.Register(key, results.KindHTTPProbe, 30*time.Second)
+	s.Register(key, results.SpecUpdate{Kind: results.KindHTTPProbe, IntervalMs: (30 * time.Second).Milliseconds()})
 	s.mu.Lock()
 	second := s.probes[key]
 	s.mu.Unlock()

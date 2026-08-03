@@ -13,7 +13,6 @@ webhooks:
         namespace: {{ .Release.Namespace }}
         name: {{ include "synthetics-operator.webhookServiceName" . }}
         path: /mutate-synthetics-dev-v1alpha1-httpprobe
-      caBundle: ""
     rules:
       - apiGroups: ["synthetics.dev"]
         apiVersions: ["v1alpha1"]
@@ -29,7 +28,6 @@ webhooks:
         namespace: {{ .Release.Namespace }}
         name: {{ include "synthetics-operator.webhookServiceName" . }}
         path: /mutate-synthetics-dev-v1alpha1-dnsprobe
-      caBundle: ""
     rules:
       - apiGroups: ["synthetics.dev"]
         apiVersions: ["v1alpha1"]
@@ -45,7 +43,6 @@ webhooks:
         namespace: {{ .Release.Namespace }}
         name: {{ include "synthetics-operator.webhookServiceName" . }}
         path: /mutate-synthetics-dev-v1alpha1-k6test
-      caBundle: ""
     rules:
       - apiGroups: ["synthetics.dev"]
         apiVersions: ["v1alpha1"]
@@ -61,7 +58,6 @@ webhooks:
         namespace: {{ .Release.Namespace }}
         name: {{ include "synthetics-operator.webhookServiceName" . }}
         path: /mutate-synthetics-dev-v1alpha1-playwrighttest
-      caBundle: ""
     rules:
       - apiGroups: ["synthetics.dev"]
         apiVersions: ["v1alpha1"]
@@ -83,7 +79,6 @@ webhooks:
         namespace: {{ .Release.Namespace }}
         name: {{ include "synthetics-operator.webhookServiceName" . }}
         path: /validate-synthetics-dev-v1alpha1-httpprobe
-      caBundle: ""
     rules:
       - apiGroups: ["synthetics.dev"]
         apiVersions: ["v1alpha1"]
@@ -99,7 +94,6 @@ webhooks:
         namespace: {{ .Release.Namespace }}
         name: {{ include "synthetics-operator.webhookServiceName" . }}
         path: /validate-synthetics-dev-v1alpha1-dnsprobe
-      caBundle: ""
     rules:
       - apiGroups: ["synthetics.dev"]
         apiVersions: ["v1alpha1"]
@@ -115,7 +109,6 @@ webhooks:
         namespace: {{ .Release.Namespace }}
         name: {{ include "synthetics-operator.webhookServiceName" . }}
         path: /validate-synthetics-dev-v1alpha1-k6test
-      caBundle: ""
     rules:
       - apiGroups: ["synthetics.dev"]
         apiVersions: ["v1alpha1"]
@@ -131,7 +124,6 @@ webhooks:
         namespace: {{ .Release.Namespace }}
         name: {{ include "synthetics-operator.webhookServiceName" . }}
         path: /validate-synthetics-dev-v1alpha1-playwrighttest
-      caBundle: ""
     rules:
       - apiGroups: ["synthetics.dev"]
         apiVersions: ["v1alpha1"]

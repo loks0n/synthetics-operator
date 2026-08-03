@@ -14,18 +14,23 @@ import (
 type fakeScheduler struct {
 	mu         sync.Mutex
 	active     map[types.NamespacedName]time.Duration
+	specs      map[types.NamespacedName]results.SpecUpdate
 	registered []types.NamespacedName
 	removed    []types.NamespacedName
 }
 
 func newFakeScheduler() *fakeScheduler {
-	return &fakeScheduler{active: make(map[types.NamespacedName]time.Duration)}
+	return &fakeScheduler{
+		active: make(map[types.NamespacedName]time.Duration),
+		specs:  make(map[types.NamespacedName]results.SpecUpdate),
+	}
 }
 
-func (f *fakeScheduler) Register(key types.NamespacedName, _ results.Kind, interval time.Duration) {
+func (f *fakeScheduler) Register(key types.NamespacedName, spec results.SpecUpdate) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.active[key] = interval
+	f.active[key] = time.Duration(spec.IntervalMs) * time.Millisecond
+	f.specs[key] = spec
 	f.registered = append(f.registered, key)
 }
 

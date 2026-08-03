@@ -61,7 +61,16 @@ helm install synthetics-operator \
 
 Every image (controller, webhook, prober, metrics, test-sidecar, k6-runner, playwright-runner) defaults to the chart's AppVersion — no image pinning flags needed for a straight install. Override individually with `--set controller.image.ref=…` etc. if you need custom builds.
 
-`nats.enabled=true` spins up a single-node NATS alongside the operator. For production, point `nats.externalUrl` at an existing NATS cluster you manage.
+`nats.enabled=true` spins up NATS alongside the operator — one server by default, or a clustered StatefulSet at `--set nats.replicas=3`. Neither uses JetStream, so results in flight when a server dies are lost; for durable delivery, point `nats.externalUrl` at an external NATS cluster you manage.
+
+The prober scales horizontally off the NATS queue group. Raise `prober.replicaCount`, or hand the count to [KEDA](https://keda.sh):
+
+```sh
+--set prober.autoscaling.enabled=true \
+--set prober.autoscaling.maxReplicaCount=20
+```
+
+The default trigger is 70% CPU; `prober.autoscaling.triggers` is passed to the `ScaledObject` verbatim, so any KEDA scaler works. KEDA itself is not installed by this chart.
 
 ## CRDs
 

@@ -43,7 +43,8 @@ func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindDNSProbe, probe.Namespace, probe.Name))
 	}
 
-	if err := r.Publisher.PublishSpec(ctx, dnsProbeSpecUpdate(&probe)); err != nil {
+	spec := dnsProbeSpecUpdate(&probe)
+	if err := r.Publisher.PublishSpec(ctx, spec); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -56,7 +57,7 @@ func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if probe.Spec.Suspend {
 		r.Scheduler.Unregister(req.NamespacedName)
 	} else {
-		r.Scheduler.Register(req.NamespacedName, results.KindDNSProbe, probe.Spec.Interval.Duration)
+		r.Scheduler.Register(req.NamespacedName, spec)
 	}
 
 	if probeStatusChanged(original.Status.ObservedGeneration, probe.Status.ObservedGeneration, original.Status.Conditions, probe.Status.Conditions) {
