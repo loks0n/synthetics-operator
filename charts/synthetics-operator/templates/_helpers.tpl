@@ -65,6 +65,22 @@ sidecars should use. Precedence:
      when forwarded into pods running in user namespaces.
   3. Empty, if neither — CronJob-backed tests won't publish results.
 */}}
+{{/*
+synthetics-operator.natsRoutes renders the comma-separated route list every
+bundled NATS server is started with — one entry per StatefulSet ordinal,
+addressed through the headless Service. A server ignores the route pointing
+at itself, so the same list works for all replicas, and it stays correct
+across `helm upgrade --set nats.replicas=N`.
+*/}}
+{{- define "synthetics-operator.natsRoutes" -}}
+{{- $fullname := include "synthetics-operator.fullname" . -}}
+{{- $routes := list -}}
+{{- range $i := until (int .Values.nats.replicas) -}}
+{{- $routes = append $routes (printf "nats://%s-nats-%d.%s-nats-headless.%s.svc:6222" $fullname $i $fullname $.Release.Namespace) -}}
+{{- end -}}
+{{ join "," $routes }}
+{{- end -}}
+
 {{- define "synthetics-operator.natsURL" -}}
 {{- if .Values.nats.externalUrl -}}
 {{ .Values.nats.externalUrl }}

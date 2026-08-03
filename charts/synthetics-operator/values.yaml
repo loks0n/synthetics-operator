@@ -59,6 +59,27 @@ prober:
     pullPolicy: IfNotPresent
   replicaCount: 1
   resources: {}
+  # Optional KEDA autoscaling. Requires KEDA installed in the cluster
+  # (https://keda.sh) — the chart only renders the ScaledObject.
+  # When enabled, replicaCount is ignored and KEDA owns the replica count.
+  #
+  # `triggers` is passed through to the ScaledObject verbatim, so any KEDA
+  # scaler works. The CPU default below is a safe starting point; if you run
+  # Prometheus, scaling on prober queue depth or run latency generally
+  # tracks probe load better.
+  autoscaling:
+    enabled: false
+    minReplicaCount: 1
+    maxReplicaCount: 10
+    # Both only take effect when minReplicaCount is 0 — KEDA logs a warning
+    # if you set them otherwise. Left empty so they don't render.
+    pollingInterval: ""
+    cooldownPeriod: ""
+    triggers:
+      - type: cpu
+        metricType: Utilization
+        metadata:
+          value: "70"
 
 # Metrics Deployment.
 #
@@ -86,9 +107,11 @@ metrics:
 #
 # Two supported postures:
 #
-#   1. Chart-bundled NATS (nats.enabled: true, externalUrl empty) — single
-#      replica, no JetStream, fine for dev and small production setups.
-#      Messages in flight during a NATS restart are lost.
+#   1. Chart-bundled NATS (nats.enabled: true, externalUrl empty) — a
+#      StatefulSet, no JetStream. `replicas: 3` forms a full-mesh route
+#      cluster so a single server going away doesn't stop delivery. Still
+#      no persistence: messages in flight when a server dies are lost.
+#      Fine for dev and small production setups.
 #
 #   2. External NATS (nats.enabled: false, externalUrl set) — point at a
 #      NATS cluster you manage separately. The official nats-io/k8s Helm
@@ -97,6 +120,7 @@ metrics:
 nats:
   enabled: false
   image: nats:2.10-alpine
+  # Set to 3+ (odd numbers preferred) for a clustered, drain-tolerant bus.
   replicas: 1
   resources: {}
   # Human-readable cluster name — shows up in nats-server logs, monitoring

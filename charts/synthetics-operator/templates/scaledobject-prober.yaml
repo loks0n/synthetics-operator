@@ -1,0 +1,19 @@
+{{- if .Values.prober.autoscaling.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-prober
+spec:
+  scaleTargetRef:
+    name: {{ include "synthetics-operator.fullname" . }}-prober
+  minReplicaCount: {{ .Values.prober.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ .Values.prober.autoscaling.maxReplicaCount }}
+  {{- with .Values.prober.autoscaling.pollingInterval }}
+  pollingInterval: {{ . }}
+  {{- end }}
+  {{- with .Values.prober.autoscaling.cooldownPeriod }}
+  cooldownPeriod: {{ . }}
+  {{- end }}
+  triggers:
+{{ toYaml .Values.prober.autoscaling.triggers | indent 4 }}
+{{- end }}

@@ -1,10 +1,34 @@
+{{/*
+One PodDisruptionBudget per component, but only where it can do any good.
+
+`maxUnavailable: 1` rather than `minAvailable: 1`: at a single replica the
+latter blocks node drains forever, because evicting the only pod would breach
+the budget. That's why each entry is gated on replicas > 1 — below that
+there's nothing to protect, and a PDB would just wedge cluster maintenance.
+
+The prober's count comes from KEDA's floor when autoscaling owns it; the live
+count is usually higher, so this is the conservative reading.
+*/}}
+{{- $components := list
+  (dict "name" "controller" "replicas" (int .Values.controller.replicaCount))
+  (dict "name" "webhook" "replicas" (int .Values.webhook.replicaCount))
+  (dict "name" "metrics" "replicas" (int .Values.metrics.replicaCount))
+  (dict "name" "prober" "replicas" (ternary (int .Values.prober.autoscaling.minReplicaCount) (int .Values.prober.replicaCount) .Values.prober.autoscaling.enabled)) -}}
+{{- if and .Values.nats.enabled (not .Values.nats.externalUrl) -}}
+{{- $components = append $components (dict "name" "nats" "replicas" (int .Values.nats.replicas)) -}}
+{{- end -}}
+{{- range $c := $components }}
+{{- if gt $c.replicas 1 }}
+---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "synthetics-operator.fullname" . }}-webhook
+  name: {{ include "synthetics-operator.fullname" $ }}-{{ $c.name }}
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
-      app.kubernetes.io/component: webhook
+      app.kubernetes.io/name: {{ include "synthetics-operator.name" $ }}
+      app.kubernetes.io/component: {{ $c.name }}
+{{- end }}
+{{- end }}

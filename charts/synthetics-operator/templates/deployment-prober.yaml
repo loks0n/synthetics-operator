@@ -3,7 +3,11 @@ kind: Deployment
 metadata:
   name: {{ include "synthetics-operator.fullname" . }}-prober
 spec:
+  {{- /* Omitted under autoscaling so `helm upgrade` doesn't stomp the
+         replica count KEDA is managing. */}}
+  {{- if not .Values.prober.autoscaling.enabled }}
   replicas: {{ .Values.prober.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
