@@ -655,6 +655,8 @@ Subscribes to the NATS result stream and records results directly into OTel inst
 
 On restart, instrument state is lost until results arrive from each probe's next run — typically within one interval. Prometheus shows a gap, not stale data.
 
+A result is held back until the consumer has received that CR's spec, because `metricLabels` and `depends` arrive only on `synthetics.specs`. Recording early would export a series stripped of the user's labels, which Prometheus treats as a *distinct* series from the correctly-labelled one the other replicas export — not as a stale value — and it then lingers for the retention period. So a freshly started replica reports nothing for a probe until the next spec broadcast reaches it, bounded by `--spec-resync-interval` (default 1m, exposed as `controller.specResyncInterval`). A gap is honest; a mislabelled series is not. This cannot stall indefinitely: probe jobs and test CronJobs both originate from the controller, so if no specs are flowing, no results are being produced either.
+
 **Sidecar NATS auth:**
 
 The sidecar authenticates to NATS using its pod ServiceAccount token. NATS is configured with a callout to the operator controller for token validation via the Kubernetes TokenReview API. Runner pods require no Kubernetes API write permissions.

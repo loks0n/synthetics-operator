@@ -6,6 +6,7 @@ package metricsconsumer
 
 import (
 	"context"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
@@ -22,6 +23,16 @@ type Consumer struct {
 	Log   logr.Logger
 	Bus   *natsbus.Client
 	Store *metrics.Store
+
+	// CRs this replica has received a spec for. Results for anything absent
+	// are dropped — see recordable.
+	mu    sync.RWMutex
+	known map[crKey]struct{}
+}
+
+type crKey struct {
+	kind string
+	name types.NamespacedName
 }
 
 // NeedLeaderElection runs on every replica; each consumer subscribes
@@ -54,6 +65,7 @@ func (c *Consumer) onSpec(_ context.Context, msg results.SpecUpdate) {
 	name := types.NamespacedName{Namespace: msg.Namespace, Name: msg.Name}
 	kind := string(msg.Kind)
 	if msg.Deleted {
+		c.forget(kind, name)
 		c.Store.Delete(name)
 		c.Store.ClearDepends(kind, name)
 		c.Store.ClearMetricLabels(kind, name)
@@ -61,10 +73,50 @@ func (c *Consumer) onSpec(_ context.Context, msg results.SpecUpdate) {
 	}
 	c.Store.SetDepends(kind, name, toAPIDepends(msg.Depends))
 	c.Store.SetMetricLabels(kind, name, msg.MetricLabels)
+	c.remember(kind, name)
+}
+
+// recordable reports whether a result may be folded into the Store yet.
+//
+// A result carries no metricLabels and no depends — those reach us only on
+// synthetics.specs. Recording one before its spec arrives publishes a series
+// stripped of the user's labels, which Prometheus treats as a *different*
+// series from the correctly-labelled one the other replicas export, not as a
+// stale value. It then lingers for the retention period. Dropping instead
+// costs a gap of at most one SpecResyncer interval on a freshly started
+// replica, and a gap is honest where a mislabelled series is not.
+//
+// This cannot black-hole results indefinitely: probe jobs and test CronJobs
+// both originate from the controller, so if no spec is arriving, no results
+// are being produced either.
+func (c *Consumer) recordable(kind string, name types.NamespacedName) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, ok := c.known[crKey{kind: kind, name: name}]
+	return ok
+}
+
+func (c *Consumer) remember(kind string, name types.NamespacedName) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.known == nil {
+		c.known = map[crKey]struct{}{}
+	}
+	c.known[crKey{kind: kind, name: name}] = struct{}{}
+}
+
+func (c *Consumer) forget(kind string, name types.NamespacedName) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.known, crKey{kind: kind, name: name})
 }
 
 func (c *Consumer) onProbeResult(_ context.Context, msg results.ProbeResult) {
 	name := types.NamespacedName{Namespace: msg.Namespace, Name: msg.Name}
+	if !c.recordable(string(msg.Kind), name) {
+		c.Log.V(1).Info("dropping result until spec arrives", "kind", msg.Kind, "namespace", msg.Namespace, "name", msg.Name)
+		return
+	}
 	state := metrics.ProbeState{
 		Kind:                  string(msg.Kind),
 		Result:                metrics.Result(msg.Result),
@@ -101,6 +153,10 @@ func (c *Consumer) onProbeResult(_ context.Context, msg results.ProbeResult) {
 
 func (c *Consumer) onTestResult(ctx context.Context, msg results.TestResult) {
 	name := types.NamespacedName{Namespace: msg.Namespace, Name: msg.Name}
+	if !c.recordable(string(msg.Kind), name) {
+		c.Log.V(1).Info("dropping result until spec arrives", "kind", msg.Kind, "namespace", msg.Namespace, "name", msg.Name)
+		return
+	}
 	ts := float64(msg.Timestamp.Unix())
 	if msg.Kind == results.KindPlaywrightTest {
 		c.Store.RecordPlaywrightResult(ctx, name, msg.Success, msg.DurationMs, ts, msg.Tests)
