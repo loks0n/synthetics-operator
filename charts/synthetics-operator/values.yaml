@@ -20,6 +20,13 @@ controller:
     pullPolicy: IfNotPresent
   replicaCount: 1
   leaderElection: false
+  # How often the leader re-publishes every CR's spec onto NATS. Specs travel
+  # over core NATS with no persistence, so this is what heals a lost one — and
+  # it bounds how long a freshly started metrics replica reports no metrics for
+  # a probe, since results are held back until their spec arrives. Empty uses
+  # the binary default (1m). Lower it to shorten that gap at the cost of more
+  # bus traffic.
+  specResyncInterval: ""
   serviceAccount:
     create: true
     name: ""

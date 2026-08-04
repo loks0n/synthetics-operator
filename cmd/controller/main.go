@@ -49,6 +49,7 @@ func main() {
 		testSidecarImage               string
 		k6RunnerImage                  string
 		playwrightRunnerImage          string
+		specResyncInterval             time.Duration
 	)
 
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for the controller manager.")
@@ -61,12 +62,13 @@ func main() {
 	flag.StringVar(&testSidecarImage, "test-sidecar-image", "", "Image for the test-sidecar container in K6Test/PlaywrightTest jobs.")
 	flag.StringVar(&k6RunnerImage, "k6-runner-image", "", "Image for the k6-runner init container.")
 	flag.StringVar(&playwrightRunnerImage, "playwright-runner-image", "", "Image for the playwright-runner container.")
+	flag.DurationVar(&specResyncInterval, "spec-resync-interval", time.Minute, "How often to re-publish every CR's spec onto NATS. Also bounds how long a freshly started metrics replica goes without metrics for a probe.")
 	flag.Parse()
 
 	ctrl.SetLogger(logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	log := ctrl.Log.WithName("controller")
 
-	if err := run(scheme, log, enableLeaderElection, webhookNamespace, webhookSecretName, webhookServiceName, validatingWebhookConfiguration, mutatingWebhookConfiguration, natsURL, testSidecarImage, k6RunnerImage, playwrightRunnerImage); err != nil {
+	if err := run(scheme, log, enableLeaderElection, webhookNamespace, webhookSecretName, webhookServiceName, validatingWebhookConfiguration, mutatingWebhookConfiguration, natsURL, testSidecarImage, k6RunnerImage, playwrightRunnerImage, specResyncInterval); err != nil {
 		log.Error(err, "exiting")
 		os.Exit(1)
 	}
@@ -79,6 +81,7 @@ func run(
 	webhookNamespace, webhookSecretName, webhookServiceName,
 	validatingWebhookConfiguration, mutatingWebhookConfiguration,
 	natsURL, testSidecarImage, k6RunnerImage, playwrightRunnerImage string,
+	specResyncInterval time.Duration,
 ) error {
 	if natsURL == "" {
 		return errors.New("--nats-url is required")
@@ -146,7 +149,7 @@ func run(
 	if err := mgr.Add(&controllers.SpecResyncer{
 		Client:    mgr.GetClient(),
 		Publisher: bus,
-		Interval:  time.Minute,
+		Interval:  specResyncInterval,
 		Log:       log.WithName("spec-resync"),
 	}); err != nil {
 		return fmt.Errorf("adding spec resyncer: %w", err)
