@@ -34,7 +34,10 @@ async function main() {
 
   let tests = [];
   try {
-    tests = parseReport(JSON.parse(stdout));
+    const report = JSON.parse(stdout);
+    tests = parseReport(report);
+    if (exitCode !== 0)
+      console.error(formatFailures(report, exitCode));
   } catch (err) {
     console.error(`playwright-runner: failed to parse JSON report: ${err.message}`);
   }
@@ -97,7 +100,37 @@ function parseReport(report) {
   return out;
 }
 
-module.exports = { parseReport };
+function formatFailures(report, exitCode) {
+  const failures = [];
+  const appendErrors = (label, errors) => {
+    for (const error of errors || [])
+      failures.push(`[${label}]\n${error.stack || error.message || JSON.stringify(error)}`);
+  };
+  const walk = (suites, trail) => {
+    for (const suite of suites || []) {
+      const nextTrail = suite.title ? [...trail, suite.title] : trail;
+      for (const spec of suite.specs || []) {
+        for (const test of spec.tests || []) {
+          const results = test.results || [];
+          const last = results[results.length - 1];
+          if (!last || last.status === 'passed' || last.status === 'skipped') continue;
+          const label = [...nextTrail, spec.title].filter(Boolean).join(' > ');
+          appendErrors(label, last.errors?.length ? last.errors : [last.error].filter(Boolean));
+        }
+      }
+      walk(suite.suites, nextTrail);
+    }
+  };
+
+  appendErrors('Playwright', report.errors);
+  walk(report.suites, []);
+
+  if (!failures.length)
+    return `playwright-runner: Playwright exited with code ${exitCode}, but the report contained no error details.`;
+  return `playwright-runner: Playwright failed:\n${failures.join('\n\n')}`;
+}
+
+module.exports = { formatFailures, parseReport };
 
 if (require.main === module) {
   main().catch((err) => {
