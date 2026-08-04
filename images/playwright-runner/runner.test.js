@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { parseReport } = require('./runner.js');
+const { formatFailures, parseReport } = require('./runner.js');
 
 test('flattens nested suites into suite > subsuite paths', () => {
   const report = {
@@ -83,4 +83,39 @@ test('skips specs with no results', () => {
   assert.deepEqual(parseReport(report), [
     { suite: 's.spec.js', test: 'has result', passed: true, durationMs: 10 },
   ]);
+});
+
+test('formats root and final-attempt test errors for container logs', () => {
+  const report = {
+    errors: [{ message: 'configuration failed' }],
+    suites: [{
+      title: 'backups.spec.js',
+      specs: [{
+        title: 'has a recent archive',
+        tests: [{
+          results: [
+            { status: 'failed', errors: [{ message: 'first attempt' }] },
+            { status: 'failed', errors: [{ message: 'archive was too small', stack: 'Error: archive was too small\n    at test.spec.js:10:5' }] },
+          ],
+        }],
+      }],
+    }],
+  };
+
+  assert.equal(formatFailures(report, 1), [
+    'playwright-runner: Playwright failed:',
+    '[Playwright]',
+    'configuration failed',
+    '',
+    '[backups.spec.js > has a recent archive]',
+    'Error: archive was too small',
+    '    at test.spec.js:10:5',
+  ].join('\n'));
+});
+
+test('formats a fallback when a failed report has no errors', () => {
+  assert.equal(
+    formatFailures({ suites: [] }, 1),
+    'playwright-runner: Playwright exited with code 1, but the report contained no error details.',
+  );
 });
