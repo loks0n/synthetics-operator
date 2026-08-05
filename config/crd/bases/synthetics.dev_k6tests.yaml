@@ -102,8 +102,10 @@ spec:
                 description: Runner configures pod-level concerns for the runner container.
                 properties:
                   affinity:
-                    description: Affinity controls pod placement, e.g. spreading runs
-                      across nodes.
+                    description: |-
+                      Affinity controls pod placement, e.g. spreading runs across nodes.
+                      Unlike NodeSelector this replaces rather than merges, so a test setting
+                      it owns node affinity outright.
                     properties:
                       nodeAffinity:
                         description: Describes node affinity scheduling rules for
@@ -1229,6 +1231,15 @@ spec:
                           x-kubernetes-map-type: atomic
                       type: object
                     type: array
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      NodeSelector constrains the runner pod to nodes carrying these labels.
+                      Merged key-by-key over the operator's cluster-wide default
+                      (--runner-node-selector), with keys set here winning — so a test can
+                      add a constraint without having to restate the cluster's.
+                    type: object
                   resources:
                     description: Resources sets CPU/memory requests and limits on
                       the runner container.

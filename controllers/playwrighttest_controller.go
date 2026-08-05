@@ -28,6 +28,9 @@ type PlaywrightTestReconciler struct {
 	NATSUrl               string
 	TestSidecarImage      string
 	PlaywrightRunnerImage string
+	// RunnerNodeSelector is the cluster-wide default nodeSelector for runner
+	// pods, merged under each test's own spec.runner.nodeSelector.
+	RunnerNodeSelector map[string]string
 }
 
 func (r *PlaywrightTestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -99,6 +102,7 @@ func (r *PlaywrightTestReconciler) mutateCronJob(cj *batchv1.CronJob, test *synt
 	cj.Spec.JobTemplate.Spec.Template.Spec.Volumes = r.buildVolumes(test)
 	cj.Spec.JobTemplate.Spec.Template.Spec.InitContainers = r.buildInitContainers()
 	cj.Spec.JobTemplate.Spec.Template.Spec.Containers = r.buildRunnerContainers(test)
+	cj.Spec.JobTemplate.Spec.Template.Spec.NodeSelector = runnerNodeSelector(r.RunnerNodeSelector, test.Spec.Runner)
 
 	if test.Spec.Runner != nil {
 		cj.Spec.JobTemplate.Spec.Template.Spec.Affinity = test.Spec.Runner.Affinity

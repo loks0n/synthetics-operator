@@ -50,6 +50,7 @@ func main() {
 		k6RunnerImage                  string
 		playwrightRunnerImage          string
 	)
+	runnerNodeSelector := nodeSelectorFlag{}
 
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for the controller manager.")
 	flag.StringVar(&webhookNamespace, "webhook-namespace", namespaceFromEnv(), "Namespace containing the webhook service and certificate secret.")
@@ -61,12 +62,13 @@ func main() {
 	flag.StringVar(&testSidecarImage, "test-sidecar-image", "", "Image for the test-sidecar container in K6Test/PlaywrightTest jobs.")
 	flag.StringVar(&k6RunnerImage, "k6-runner-image", "", "Image for the k6-runner init container.")
 	flag.StringVar(&playwrightRunnerImage, "playwright-runner-image", "", "Image for the playwright-runner container.")
+	flag.Var(runnerNodeSelector, "runner-node-selector", "Default nodeSelector for K6Test/PlaywrightTest runner pods, as key=value pairs (repeatable or comma-separated). A test's spec.runner.nodeSelector merges over this.")
 	flag.Parse()
 
 	ctrl.SetLogger(logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	log := ctrl.Log.WithName("controller")
 
-	if err := run(scheme, log, enableLeaderElection, webhookNamespace, webhookSecretName, webhookServiceName, validatingWebhookConfiguration, mutatingWebhookConfiguration, natsURL, testSidecarImage, k6RunnerImage, playwrightRunnerImage); err != nil {
+	if err := run(scheme, log, enableLeaderElection, webhookNamespace, webhookSecretName, webhookServiceName, validatingWebhookConfiguration, mutatingWebhookConfiguration, natsURL, testSidecarImage, k6RunnerImage, playwrightRunnerImage, runnerNodeSelector); err != nil {
 		log.Error(err, "exiting")
 		os.Exit(1)
 	}
@@ -79,6 +81,7 @@ func run(
 	webhookNamespace, webhookSecretName, webhookServiceName,
 	validatingWebhookConfiguration, mutatingWebhookConfiguration,
 	natsURL, testSidecarImage, k6RunnerImage, playwrightRunnerImage string,
+	runnerNodeSelector map[string]string,
 ) error {
 	if natsURL == "" {
 		return errors.New("--nats-url is required")
@@ -176,13 +179,14 @@ func run(
 	}
 
 	if err := (&controllers.K6TestReconciler{
-		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		Publisher:        bus,
-		Clock:            time.Now,
-		NATSUrl:          natsURL,
-		TestSidecarImage: testSidecarImage,
-		K6RunnerImage:    k6RunnerImage,
+		Client:             mgr.GetClient(),
+		Scheme:             mgr.GetScheme(),
+		Publisher:          bus,
+		Clock:              time.Now,
+		NATSUrl:            natsURL,
+		TestSidecarImage:   testSidecarImage,
+		K6RunnerImage:      k6RunnerImage,
+		RunnerNodeSelector: runnerNodeSelector,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("creating K6Test controller: %w", err)
 	}
@@ -195,6 +199,7 @@ func run(
 		NATSUrl:               natsURL,
 		TestSidecarImage:      testSidecarImage,
 		PlaywrightRunnerImage: playwrightRunnerImage,
+		RunnerNodeSelector:    runnerNodeSelector,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("creating PlaywrightTest controller: %w", err)
 	}

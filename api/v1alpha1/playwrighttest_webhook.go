@@ -73,6 +73,10 @@ func (p *PlaywrightTest) validate(ctx context.Context, reader client.Reader) err
 		allErrs = append(allErrs, field.Required(field.NewPath("spec", "script", "configMap", "key"), "configMap key is required"))
 	}
 
+	if p.Spec.Runner != nil {
+		allErrs = append(allErrs, ValidateRunnerNodeSelector(p.Spec.Runner.NodeSelector, field.NewPath("spec", "runner", "nodeSelector"))...)
+	}
+
 	allErrs = append(allErrs, ValidateDepends(ctx, reader, DependencyKindPlaywrightTest, p.Namespace, p.Name, p.Spec.Depends, field.NewPath("spec", "depends"))...)
 	allErrs = append(allErrs, ValidateMetricLabels(p.Spec.MetricLabels, field.NewPath("spec", "metricLabels"))...)
 

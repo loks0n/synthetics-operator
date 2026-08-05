@@ -29,7 +29,14 @@ type RunnerSpec struct {
 	EnvFrom []corev1.EnvFromSource `json:"envFrom,omitempty"`
 	// Resources sets CPU/memory requests and limits on the runner container.
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+	// NodeSelector constrains the runner pod to nodes carrying these labels.
+	// Merged key-by-key over the operator's cluster-wide default
+	// (--runner-node-selector), with keys set here winning — so a test can
+	// add a constraint without having to restate the cluster's.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	// Affinity controls pod placement, e.g. spreading runs across nodes.
+	// Unlike NodeSelector this replaces rather than merges, so a test setting
+	// it owns node affinity outright.
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 }
 

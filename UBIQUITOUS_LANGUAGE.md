@@ -44,7 +44,7 @@
 | **test-sidecar** | The native sidecar container that runs alongside the **Runner**, reads the **TestResult** JSON, and publishes it over NATS. Kind-agnostic — the JSON payload carries whatever detail the **Runner** emits | results-writer, sidecar |
 | **k6-runner** | The init-container image that stages the k6 **Runner** binary into a shared volume, then runs k6 in the stock `grafana/k6` main container | runner-installer (only the install mode), results-writer |
 | **playwright-runner** | A single main-container image (`node:22-slim` + pinned `@playwright/test` + Chromium) whose ENTRYPOINT runs the Playwright test runner, parses the JSON reporter, and writes the **TestResult** | playwright sidecar, browser runner |
-| **RunnerSpec** | The optional pod-level configuration on a **K6Test** or **PlaywrightTest** (env, resources, affinity) for the **Runner** container | Runner config, pod spec |
+| **RunnerSpec** | The optional pod-level configuration on a **K6Test** or **PlaywrightTest** (env, resources, nodeSelector, affinity) for the **Runner** container | Runner config, pod spec |
 
 ## Relationships
 

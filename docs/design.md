@@ -264,11 +264,15 @@ spec:
       limits:
         memory: 512Mi
         cpu: 1000m
+    nodeSelector:
+      disk: ssd                                   # merged over runner.nodeSelector from the chart
     affinity:
       podAntiAffinity:
         preferred:
           - topologyKey: kubernetes.io/hostname   # spread runners across nodes
 ```
+
+`nodeSelector` merges key-by-key over the operator-wide default (`--runner-node-selector`, set from `runner.nodeSelector` in the chart) so a cluster can pin every runner to a node pool once and a test can add a constraint without restating it. `affinity` replaces instead of merging — a test that sets it owns node affinity outright.
 
 ### 2.6 depends field
 
@@ -1215,7 +1219,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 |----------|---------|
 | Opinionated stack | Playwright for browser tests, k6 for load tests only. No arbitrary script runtimes. Reduces complexity, sets clear expectations, enables purpose-built runner images. |
 | 4 CRDs, 2 prefixed | `HttpProbe` and `DnsProbe` are protocol-based and stay unprefixed. `PlaywrightTest` and `K6Test` are tool-coupled and prefixed explicitly — leaves room for alternatives like `GatlingTest` later. |
-| runner block on K6Test + PlaywrightTest | Pod-level config (env, envFrom, resources, affinity) isolated in a `runner` block, mirroring the k6 operator pattern. Separates test configuration from infrastructure configuration. `envFrom` supports bulk-loading from Secrets and ConfigMaps. |
+| runner block on K6Test + PlaywrightTest | Pod-level config (env, envFrom, resources, nodeSelector, affinity) isolated in a `runner` block, mirroring the k6 operator pattern. Separates test configuration from infrastructure configuration. `envFrom` supports bulk-loading from Secrets and ConfigMaps. |
 | Automatic VU distribution | K6Test operator divides total VUs by parallelism using k6 execution segments automatically. Users set total VUs in the script, not per-pod VUs. |
 | Thresholds in script only | k6 thresholds defined in the script, not duplicated in the CRD. Avoids drift between two sources of truth. Operator parses threshold results from k6 summary output. |
 | No alerting in operator | Operator emits metrics only. Users own Alertmanager rules. Avoids duplicating alerting infrastructure and keeps operator scope focused. |

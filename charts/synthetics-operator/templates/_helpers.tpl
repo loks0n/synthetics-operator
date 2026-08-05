@@ -41,6 +41,21 @@ GHCR coordinate pinned to the chart AppVersion.
 {{- end -}}
 {{- end -}}
 
+{{/*
+synthetics-operator.runnerNodeSelector flattens a label map into the
+comma-separated key=value form the controller's --runner-node-selector flag
+parses. Pass the map itself, e.g. .Values.runner.nodeSelector. Helm ranges
+maps in key order, so the rendered arg is stable across upgrades and doesn't
+churn the controller Deployment.
+*/}}
+{{- define "synthetics-operator.runnerNodeSelector" -}}
+{{- $pairs := list -}}
+{{- range $key, $value := . -}}
+{{- $pairs = append $pairs (printf "%s=%s" $key $value) -}}
+{{- end -}}
+{{ join "," $pairs }}
+{{- end -}}
+
 {{- define "synthetics-operator.webhookServiceName" -}}
 {{ .Values.webhook.serviceName }}
 {{- end -}}

@@ -133,6 +133,16 @@ nats:
   # Example: nats://nats.nats-system.svc.cluster.local:4222
   externalUrl: ""
 
+# Defaults for the runner pods of CronJob-backed tests (K6Test,
+# PlaywrightTest). The controller creates these pods, not the chart, so the
+# top-level nodeSelector above does not reach them — without this they
+# schedule anywhere in the cluster.
+#
+# A test's own spec.runner.nodeSelector merges over this key-by-key, so
+# per-test constraints add to the default rather than replacing it.
+runner:
+  nodeSelector: {}
+
 testSidecar:
   image: ""
 

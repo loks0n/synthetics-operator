@@ -38,6 +38,9 @@ spec:
             - --test-sidecar-image={{ include "synthetics-operator.runnerImage" (dict "ctx" . "override" .Values.testSidecar.image "defaultRepo" "ghcr.io/loks0n/synthetics-test-sidecar") }}
             - --k6-runner-image={{ include "synthetics-operator.runnerImage" (dict "ctx" . "override" .Values.k6Runner.image "defaultRepo" "ghcr.io/loks0n/synthetics-k6-runner") }}
             - --playwright-runner-image={{ include "synthetics-operator.runnerImage" (dict "ctx" . "override" .Values.playwrightRunner.image "defaultRepo" "ghcr.io/loks0n/synthetics-playwright-runner") }}
+            {{- with .Values.runner.nodeSelector }}
+            - --runner-node-selector={{ include "synthetics-operator.runnerNodeSelector" . }}
+            {{- end }}
           ports:
             - name: healthz
               containerPort: 8081

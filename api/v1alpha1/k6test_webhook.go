@@ -81,6 +81,10 @@ func (k *K6Test) validate(ctx context.Context, reader client.Reader) error {
 		allErrs = append(allErrs, field.Required(field.NewPath("spec", "script", "configMap", "key"), "configMap key is required"))
 	}
 
+	if k.Spec.Runner != nil {
+		allErrs = append(allErrs, ValidateRunnerNodeSelector(k.Spec.Runner.NodeSelector, field.NewPath("spec", "runner", "nodeSelector"))...)
+	}
+
 	allErrs = append(allErrs, ValidateDepends(ctx, reader, DependencyKindK6Test, k.Namespace, k.Name, k.Spec.Depends, field.NewPath("spec", "depends"))...)
 	allErrs = append(allErrs, ValidateMetricLabels(k.Spec.MetricLabels, field.NewPath("spec", "metricLabels"))...)
 

@@ -72,6 +72,14 @@ The prober scales horizontally off the NATS queue group. Raise `prober.replicaCo
 
 The default trigger is 70% CPU; `prober.autoscaling.triggers` is passed to the `ScaledObject` verbatim, so any KEDA scaler works. KEDA itself is not installed by this chart.
 
+`PlaywrightTest` and `K6Test` runner pods are created by the controller rather than the chart, so the top-level `nodeSelector` does not reach them — left alone, they schedule anywhere in the cluster. Pin them to a node pool with:
+
+```sh
+--set runner.nodeSelector.workload=monitoring
+```
+
+A test's own `spec.runner.nodeSelector` merges over that key-by-key, so per-test constraints add to the cluster default instead of replacing it.
+
 ## CRDs
 
 | Kind | Runs via | For |

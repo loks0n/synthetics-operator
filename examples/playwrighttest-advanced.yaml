@@ -67,6 +67,10 @@ spec:
       limits:
         memory: 1Gi
         cpu: 500m
+    # Browser runs are memory-hungry — keep them off the general pool. Merged
+    # over the operator-wide default from the chart's runner.nodeSelector.
+    nodeSelector:
+      workload: browsers
   metricLabels:
     team: storefront
     env: production
