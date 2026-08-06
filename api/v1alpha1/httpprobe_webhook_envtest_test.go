@@ -68,6 +68,9 @@ func TestMain(m *testing.M) {
 	if err := SetupWebhookWithManager(mgr); err != nil {
 		panic("setup webhook: " + err.Error())
 	}
+	if err := SetupTCPProbeWebhookWithManager(mgr); err != nil {
+		panic("setup TCP webhook: " + err.Error())
+	}
 
 	mgrCtx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
 	go func() { _ = mgr.Start(mgrCtx) }()
@@ -178,5 +181,42 @@ func TestWebhookRejectsInvalidURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Invalid") && !strings.Contains(err.Error(), "invalid") {
 		t.Fatalf("expected invalid field error, got: %v", err)
+	}
+}
+
+func TestTCPWebhookDefaultsAndValidates(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS not set")
+	}
+
+	minimal := &TCPProbe{
+		ObjectMeta: metav1.ObjectMeta{Name: "tcp-defaulted", Namespace: "default"},
+		Spec:       TCPProbeSpec{Target: TCPTarget{Host: " mysql.default.svc ", Port: 3306}},
+	}
+	if err := waitForWebhook(t, func() error {
+		return webhookClient.Create(t.Context(), minimal.DeepCopy())
+	}); err != nil {
+		t.Fatalf("expected TCPProbe to be accepted: %v", err)
+	}
+
+	persisted := &TCPProbe{}
+	if err := webhookClient.Get(t.Context(), types.NamespacedName{Name: minimal.Name, Namespace: minimal.Namespace}, persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Spec.Interval.Duration != 30*time.Second || persisted.Spec.Timeout.Duration != 10*time.Second {
+		t.Fatalf("unexpected defaults: interval=%s timeout=%s", persisted.Spec.Interval.Duration, persisted.Spec.Timeout.Duration)
+	}
+	if persisted.Spec.Target.Host != "mysql.default.svc" {
+		t.Fatalf("expected trimmed host, got %q", persisted.Spec.Target.Host)
+	}
+
+	invalid := &TCPProbe{
+		ObjectMeta: metav1.ObjectMeta{Name: "tcp-invalid", Namespace: "default"},
+		Spec:       TCPProbeSpec{Target: TCPTarget{Host: "tcp://mysql", Port: 0}},
+	}
+	if err := waitForWebhook(t, func() error {
+		return webhookClient.Create(t.Context(), invalid.DeepCopy())
+	}); err == nil {
+		t.Fatal("expected invalid TCPProbe to be rejected")
 	}
 }

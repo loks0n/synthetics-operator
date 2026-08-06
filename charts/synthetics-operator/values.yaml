@@ -48,7 +48,7 @@ webhook:
 # Prober Deployment.
 #
 # Stateless. Pulls jobs from synthetics.probes.jobs via a NATS queue group
-# and executes HTTPProbe / DNSProbe runs. Each job carries its own spec, so
+# and executes HTTPProbe / DNSProbe / TCPProbe runs. Each job carries its own spec, so
 # a new replica is useful immediately. Horizontally scalable — NATS queue
 # groups load-balance jobs across replicas.
 prober:
@@ -103,8 +103,7 @@ metrics:
     scrapeTimeout: 10s
     labels: {}
 
-# NATS is the result-transport bus for CronJob-backed tests (K6Test,
-# PlaywrightTest). Probes don't use it.
+# NATS transports scheduled probe jobs/results and CronJob-backed test results.
 #
 # Two supported postures:
 #

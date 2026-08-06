@@ -81,6 +81,27 @@ func dnsProbeSpecUpdate(p *syntheticsv1alpha1.DNSProbe) results.SpecUpdate {
 	}
 }
 
+// tcpProbeSpecUpdate builds a SpecUpdate message from a TCPProbe.
+func tcpProbeSpecUpdate(p *syntheticsv1alpha1.TCPProbe) results.SpecUpdate {
+	payload := results.TCPProbeSpecPayload{
+		TimeoutMs:  p.Spec.Timeout.Milliseconds(),
+		Host:       p.Spec.Target.Host,
+		Port:       p.Spec.Target.Port,
+		Assertions: toAssertions(p.Spec.Assertions),
+	}
+	return results.SpecUpdate{
+		Kind:         results.KindTCPProbe,
+		Name:         p.Name,
+		Namespace:    p.Namespace,
+		Generation:   p.Generation,
+		Suspend:      p.Spec.Suspend,
+		IntervalMs:   p.Spec.Interval.Milliseconds(),
+		Depends:      toDependsRefs(p.Spec.Depends),
+		MetricLabels: p.Spec.MetricLabels,
+		TCPProbe:     &payload,
+	}
+}
+
 // k6TestSpecUpdate builds a SpecUpdate for a K6Test. No executable payload —
 // test execution is owned by the CronJob; the message exists so the metrics
 // consumer learns about depends + metricLabels.

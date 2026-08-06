@@ -58,7 +58,7 @@ spec:
                     a probe result.\nThe Expr field uses a simple expression language:\n\n\tvariable
                     op value\n\nOperators: =, !=, <, <=, >, >=\nValue must be a numeric
                     literal.\n\nHTTP variables:  status_code, duration_ms, ssl_expiry_days\nDNS
-                    variables:   answer_count, duration_ms"
+                    variables:   answer_count, duration_ms\nTCP variables:   duration_ms"
                   properties:
                     expr:
                       description: Expr is the expression to evaluate, e.g. "status_code
@@ -91,6 +91,7 @@ spec:
                       enum:
                       - HTTPProbe
                       - DNSProbe
+                      - TCPProbe
                       - K6Test
                       - PlaywrightTest
                       type: string

@@ -1,0 +1,15 @@
+# Better Stack-style TCP availability check: success means the connection is
+# established within the timeout. No bytes are sent to the target.
+apiVersion: synthetics.dev/v1alpha1
+kind: TCPProbe
+metadata:
+  name: mysql-proxy
+spec:
+  interval: 30s
+  timeout: 5s
+  target:
+    host: mysql.default.svc.cluster.local
+    port: 3306
+  assertions:
+    - name: fast-connect
+      expr: duration_ms < 1000

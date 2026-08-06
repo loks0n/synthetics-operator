@@ -99,3 +99,12 @@ func EvalDNSAssertions(r DNSResult, assertions []v1alpha1.Assertion) (string, st
 	ok, failed, out := evalAssertions(assertions, ctx)
 	return outcomeFromOK(ok), failed, out
 }
+
+// EvalTCPAssertions evaluates TCP probe assertions against connection time.
+func EvalTCPAssertions(r TCPResult, assertions []v1alpha1.Assertion) (string, string, []results.AssertionResult) {
+	ctx := assertionContext{
+		"duration_ms": float64(r.Duration.Milliseconds()),
+	}
+	ok, failed, out := evalAssertions(assertions, ctx)
+	return outcomeFromOK(ok), failed, out
+}

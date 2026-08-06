@@ -53,7 +53,7 @@ func (w *Worker) Start(ctx context.Context) error {
 
 func (w *Worker) onJob(ctx context.Context, job results.ProbeJob) {
 	spec := job.Spec
-	if spec.Kind != results.KindHTTPProbe && spec.Kind != results.KindDNSProbe {
+	if spec.Kind != results.KindHTTPProbe && spec.Kind != results.KindDNSProbe && spec.Kind != results.KindTCPProbe {
 		return // workers only execute probes, not tests
 	}
 	// The scheduler unregisters suspended probes, so this should not arrive;
@@ -78,6 +78,8 @@ func (w *Worker) execute(ctx context.Context, spec results.SpecUpdate, job resul
 		return w.executeHTTP(ctx, spec, job)
 	case results.KindDNSProbe:
 		return w.executeDNS(ctx, spec, job)
+	case results.KindTCPProbe:
+		return w.executeTCP(ctx, spec, job)
 	case results.KindK6Test, results.KindPlaywrightTest:
 		// Workers don't execute test kinds — CronJob pods do.
 	}
@@ -88,6 +90,42 @@ func (w *Worker) execute(ctx context.Context, spec results.SpecUpdate, job resul
 		Timestamp: time.Now(),
 		Result:    "config_error",
 	}
+}
+
+func (w *Worker) executeTCP(ctx context.Context, spec results.SpecUpdate, job results.ProbeJob) results.ProbeResult {
+	payload := spec.TCPProbe
+	if payload == nil {
+		return results.ProbeResult{
+			Kind: spec.Kind, Name: spec.Name, Namespace: spec.Namespace,
+			Generation: spec.Generation, Timestamp: time.Now(), Result: "config_error",
+		}
+	}
+
+	timeout := time.Duration(payload.TimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	probe := w.tcpProbeFromPayload(spec, payload)
+	r := (internalprobes.TCPExecutor{}).Execute(runCtx, probe)
+	out := results.ProbeResult{
+		Kind: spec.Kind, Name: spec.Name, Namespace: spec.Namespace,
+		Generation: spec.Generation, Timestamp: job.ScheduledAt,
+		DurationMs: r.Duration.Milliseconds(), TCPHost: payload.Host, TCPPort: payload.Port,
+	}
+	switch {
+	case r.ConfigError:
+		out.Result = "config_error"
+	case r.ConnectErr != nil:
+		out.Result = internalprobes.ClassifyTCPConnect(r.ConnectErr)
+	case len(payload.Assertions) > 0:
+		out.Result, out.FailedAssertion, out.AssertionResults = internalprobes.EvalTCPAssertions(r, toInternalAssertions(payload.Assertions))
+	default:
+		out.Result = "ok"
+	}
+	return out
 }
 
 func (w *Worker) executeHTTP(ctx context.Context, spec results.SpecUpdate, job results.ProbeJob) results.ProbeResult {
@@ -236,6 +274,16 @@ func (w *Worker) dnsProbeFromPayload(spec results.SpecUpdate, payload *results.D
 				Type:     payload.Type,
 				Resolver: payload.Resolver,
 			},
+		},
+	}
+}
+
+func (w *Worker) tcpProbeFromPayload(spec results.SpecUpdate, payload *results.TCPProbeSpecPayload) *syntheticsv1alpha1.TCPProbe {
+	return &syntheticsv1alpha1.TCPProbe{
+		ObjectMeta: metav1.ObjectMeta{Name: spec.Name, Namespace: spec.Namespace},
+		Spec: syntheticsv1alpha1.TCPProbeSpec{
+			Timeout: metav1.Duration{Duration: time.Duration(payload.TimeoutMs) * time.Millisecond},
+			Target:  syntheticsv1alpha1.TCPTarget{Host: payload.Host, Port: payload.Port},
 		},
 	}
 }

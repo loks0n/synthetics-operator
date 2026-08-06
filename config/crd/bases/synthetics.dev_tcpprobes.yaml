@@ -4,22 +4,25 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: httpprobes.synthetics.dev
+  name: tcpprobes.synthetics.dev
 spec:
   group: synthetics.dev
   names:
-    kind: HTTPProbe
-    listKind: HTTPProbeList
-    plural: httpprobes
+    kind: TCPProbe
+    listKind: TCPProbeList
+    plural: tcpprobes
     shortNames:
-    - hp
-    singular: httpprobe
+    - tp
+    singular: tcpprobe
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.request.url
-      name: URL
+    - jsonPath: .spec.target.host
+      name: Host
       type: string
+    - jsonPath: .spec.target.port
+      name: Port
+      type: integer
     - jsonPath: .spec.interval
       name: Interval
       type: string
@@ -109,76 +112,31 @@ spec:
                   type: string
                 description: |-
                   MetricLabels are user-supplied key/value pairs appended to every
-                  Prometheus metric the operator emits for this probe. Use for team,
-                  environment, or tier filtering. Avoid high-cardinality values (user
-                  IDs, timestamps, request IDs) — each unique value creates a new
-                  Prometheus time-series.
-                type: object
-              request:
-                properties:
-                  body:
-                    type: string
-                  headers:
-                    additionalProperties:
-                      type: string
-                    type: object
-                  headersFrom:
-                    description: |-
-                      HeadersFrom sets request headers from Kubernetes Secrets in the probe's
-                      namespace, for credentials that must not appear as literals in the CR
-                      (API keys, tokens). Resolved by the controller when the spec snapshot is
-                      published; on conflict with Headers, HeadersFrom wins.
-                    items:
-                      description: HeaderFromSource names one request header sourced
-                        from a Secret key.
-                      properties:
-                        name:
-                          description: Name is the HTTP header to set.
-                          type: string
-                        secretKeyRef:
-                          description: SecretKeyRef selects the Secret key holding
-                            the header value.
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                          required:
-                          - key
-                          - name
-                          type: object
-                      required:
-                      - name
-                      - secretKeyRef
-                      type: object
-                    type: array
-                  method:
-                    type: string
-                  url:
-                    type: string
-                required:
-                - url
+                  Prometheus metric the operator emits for this probe.
                 type: object
               suspend:
                 type: boolean
+              target:
+                description: TCPTarget identifies the socket a TCPProbe connects to.
+                properties:
+                  host:
+                    description: |-
+                      Host is a DNS hostname, IPv4 address, or IPv6 address. Do not include a
+                      URL scheme or port; Port is configured separately.
+                    type: string
+                  port:
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                required:
+                - host
+                - port
+                type: object
               timeout:
                 type: string
-              tls:
-                description: TLSConfig controls TLS verification for the probe request.
-                properties:
-                  caCert:
-                    description: |-
-                      CACert is a PEM-encoded CA certificate to trust in addition to the
-                      system roots. Use for internal PKI or self-signed CA certificates.
-                    type: string
-                  insecureSkipVerify:
-                    description: |-
-                      InsecureSkipVerify disables server certificate verification. Use for
-                      self-signed certificates in dev/test environments.
-                    type: boolean
-                type: object
             required:
-            - request
+            - target
             type: object
           status:
             properties:
@@ -238,29 +196,9 @@ spec:
                   - type
                   type: object
                 type: array
-              lastFailureTime:
-                format: date-time
-                type: string
-              lastRunTime:
-                format: date-time
-                type: string
-              lastSuccessTime:
-                format: date-time
-                type: string
               observedGeneration:
                 format: int64
                 type: integer
-              summary:
-                properties:
-                  configError:
-                    type: boolean
-                  message:
-                    type: string
-                  statusCode:
-                    type: integer
-                  success:
-                    type: boolean
-                type: object
             type: object
         type: object
     served: true

@@ -90,6 +90,16 @@ func TestValidateDependsCrossKindExists(t *testing.T) {
 	}
 }
 
+func TestValidateDependsOnTCPProbe(t *testing.T) {
+	tcp := &TCPProbe{ObjectMeta: metav1.ObjectMeta{Name: "database", Namespace: "default"}}
+	reader := newDependsTestReader(t, tcp)
+	errs := ValidateDepends(context.Background(), reader, DependencyKindHTTPProbe, "default", "api",
+		[]DependencyRef{{Kind: DependencyKindTCPProbe, Name: "database"}}, field.NewPath("spec", "depends"))
+	if len(errs) != 0 {
+		t.Fatalf("expected TCPProbe dependency to validate, got %v", errs)
+	}
+}
+
 func TestValidateDependsCycleDetected(t *testing.T) {
 	// A → B, B → A. When we admit A's update to add depends on B, B already has
 	// depends on A, so the cycle walk hits A and rejects.

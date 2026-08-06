@@ -10,6 +10,6 @@ import (
 // concrete scheduler publishes a ProbeJob to NATS on each tick; a
 // prober pulls the job off a queue group and executes.
 type ProbeScheduler interface {
-	Register(key types.NamespacedName, spec results.SpecUpdate)
-	Unregister(name types.NamespacedName)
+	Register(spec results.SpecUpdate)
+	Unregister(kind results.Kind, name types.NamespacedName)
 }

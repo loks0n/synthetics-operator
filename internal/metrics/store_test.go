@@ -25,13 +25,14 @@ func TestStoreUpsertAndSnapshot(t *testing.T) {
 
 	key := types.NamespacedName{Namespace: "default", Name: "my-probe"}
 	state := ProbeState{
+		Kind:                 "HTTPProbe",
 		Result:               ResultOK,
 		DurationMilliseconds: 42,
 		LastRunTimestamp:     1000,
 	}
 	store.Upsert(key, state)
 
-	got, ok := store.Snapshot(key)
+	got, ok := store.Snapshot("HTTPProbe", key)
 	if !ok {
 		t.Fatal("expected Snapshot to find key after Upsert")
 	}
@@ -46,7 +47,7 @@ func TestStoreSnapshotMissing(t *testing.T) {
 		t.Fatalf("NewStore() error: %v", err)
 	}
 
-	_, ok := store.Snapshot(types.NamespacedName{Namespace: "x", Name: "y"})
+	_, ok := store.Snapshot("HTTPProbe", types.NamespacedName{Namespace: "x", Name: "y"})
 	if ok {
 		t.Fatal("expected Snapshot to return false for unknown key")
 	}
@@ -59,12 +60,37 @@ func TestStoreDelete(t *testing.T) {
 	}
 
 	key := types.NamespacedName{Namespace: "default", Name: "probe"}
-	store.Upsert(key, ProbeState{Result: ResultOK})
-	store.Delete(key)
+	store.Upsert(key, ProbeState{Kind: "HTTPProbe", Result: ResultOK})
+	store.Delete("HTTPProbe", key)
 
-	_, ok := store.Snapshot(key)
+	_, ok := store.Snapshot("HTTPProbe", key)
 	if ok {
 		t.Fatal("expected Snapshot to return false after Delete")
+	}
+}
+
+func TestStoreKeepsSameNamedProbeKindsIndependent(t *testing.T) {
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := types.NamespacedName{Namespace: "default", Name: "shared"}
+	store.Upsert(name, ProbeState{Kind: "HTTPProbe", Result: ResultOK})
+	store.Upsert(name, ProbeState{Kind: "TCPProbe", Result: ResultConnectRefused})
+
+	if _, ok := store.Snapshot("HTTPProbe", name); !ok {
+		t.Fatal("HTTPProbe missing")
+	}
+	if tcp, ok := store.Snapshot("TCPProbe", name); !ok || tcp.Result != ResultConnectRefused {
+		t.Fatalf("TCPProbe missing or overwritten: %+v %v", tcp, ok)
+	}
+
+	store.Delete("TCPProbe", name)
+	if _, ok := store.Snapshot("HTTPProbe", name); !ok {
+		t.Fatal("TCPProbe deletion removed same-named HTTPProbe")
+	}
+	if _, ok := store.Snapshot("TCPProbe", name); ok {
+		t.Fatal("TCPProbe remained after deletion")
 	}
 }
 
@@ -114,6 +140,40 @@ func TestStoreMetricsScrape(t *testing.T) {
 
 	if strings.Contains(text, "synthetics_probe_tls_cert_expiry") {
 		t.Error("tls_cert_expiry metric should not be present when TLSCertExpiry is 0")
+	}
+}
+
+func TestStoreTCPMetrics(t *testing.T) {
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Upsert(types.NamespacedName{Namespace: "default", Name: "mysql"}, ProbeState{
+		Kind: "TCPProbe", Result: ResultOK, DurationMilliseconds: 12,
+		TCPHost: "mysql.default.svc", TCPPort: 3306,
+		AssertionResults: []AssertionResult{{Name: "fast", Expr: "duration_ms < 1000", Result: 1}},
+	})
+
+	srv := httptest.NewServer(store.Server("").handler)
+	defer srv.Close()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	for _, want := range []string{
+		`synthetics_probe_tcp_info{host="mysql.default.svc",kind="TCPProbe",name="mysql",namespace="default",port="3306"} 1`,
+		`synthetics_probe_assertion_result{assertion="fast",expr="duration_ms < 1000",kind="TCPProbe",name="mysql",namespace="default"} 1`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("metrics output missing %q\n%s", want, text)
+		}
 	}
 }
 

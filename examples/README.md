@@ -10,6 +10,7 @@ Drop-in manifests for the CRDs the operator manages. Each one is meant to be a m
 | [`httpprobe-advanced.yaml`](httpprobe-advanced.yaml) | POST + headers + body, TLS with custom CA, latency/SSL assertions, `metricLabels` |
 | [`dnsprobe-basic.yaml`](dnsprobe-basic.yaml) | A-record probe against a specific resolver |
 | [`dnsprobe-mx.yaml`](dnsprobe-mx.yaml) | MX-record probe for mail routing |
+| [`tcpprobe-basic.yaml`](tcpprobe-basic.yaml) | TCP host/port availability and connection-duration assertion |
 
 ## Tests
 

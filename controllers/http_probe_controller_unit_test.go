@@ -97,7 +97,7 @@ func TestHTTPProbeReconcile_RegistersAndPublishes(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	if !sched.isActive(key) {
+	if !sched.isActive(results.KindHTTPProbe, key) {
 		t.Fatal("expected probe to be registered in scheduler")
 	}
 	spec := pub.latestSpec()
@@ -135,7 +135,7 @@ func TestHTTPProbeReconcile_UnregistersOnSuspend(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	if sched.isActive(key) {
+	if sched.isActive(results.KindHTTPProbe, key) {
 		t.Fatal("suspended probe should not be registered")
 	}
 	if len(sched.removed) == 0 {
@@ -155,13 +155,13 @@ func TestHTTPProbeReconcile_TombstonesOnDelete(t *testing.T) {
 	r := newUnitReconciler(k8sClient, sched, pub)
 
 	key := types.NamespacedName{Namespace: "default", Name: "gone"}
-	sched.Register(key, results.SpecUpdate{Kind: results.KindHTTPProbe, IntervalMs: (30 * time.Second).Milliseconds()})
+	sched.Register(results.SpecUpdate{Kind: results.KindHTTPProbe, Namespace: key.Namespace, Name: key.Name, IntervalMs: (30 * time.Second).Milliseconds()})
 
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
 		t.Fatalf("reconcile of missing probe should not error: %v", err)
 	}
 
-	if sched.isActive(key) {
+	if sched.isActive(results.KindHTTPProbe, key) {
 		t.Fatal("deleted probe should be unregistered")
 	}
 	spec := pub.latestSpec()

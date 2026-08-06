@@ -38,7 +38,7 @@
         "name": "kind",
         "label": "Kind",
         "type": "custom",
-        "query": "HTTPProbe, DNSProbe",
+        "query": "HTTPProbe, DNSProbe, TCPProbe",
         "multi": true,
         "includeAll": true,
         "allValue": ".*",
@@ -529,6 +529,26 @@
                         "color": "red",
                         "index": 5,
                         "text": "connect_failed"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "connect_refused": {
+                        "color": "red",
+                        "index": 6,
+                        "text": "connect_refused"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "connect_timeout": {
+                        "color": "red",
+                        "index": 7,
+                        "text": "connect_timeout"
                       }
                     }
                   }

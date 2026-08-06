@@ -1,4 +1,4 @@
-// Command prober executes HTTPProbe and DNSProbe runs. Stateless: pulls
+// Command prober executes HTTPProbe, DNSProbe, and TCPProbe runs. Stateless: pulls
 // jobs from synthetics.probes.jobs via a NATS queue group and publishes
 // results to synthetics.probes.results. Each job carries the spec it needs,
 // so there is nothing to hydrate at startup. No Kubernetes API access.

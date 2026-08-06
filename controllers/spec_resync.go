@@ -88,6 +88,17 @@ func (r *SpecResyncer) resync(ctx context.Context) {
 	}
 
 	var k6Tests syntheticsv1alpha1.K6TestList
+	var tcpProbes syntheticsv1alpha1.TCPProbeList
+	if err := r.Client.List(ctx, &tcpProbes); err != nil {
+		r.Log.Error(err, "listing TCPProbes for spec resync")
+	} else {
+		for i := range tcpProbes.Items {
+			if p := &tcpProbes.Items[i]; p.DeletionTimestamp.IsZero() {
+				r.publish(ctx, tcpProbeSpecUpdate(p))
+			}
+		}
+	}
+
 	if err := r.Client.List(ctx, &k6Tests); err != nil {
 		r.Log.Error(err, "listing K6Tests for spec resync")
 	} else {

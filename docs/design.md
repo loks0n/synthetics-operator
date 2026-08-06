@@ -5,7 +5,7 @@
 
 ## 1. Overview
 
-synthetics-operator is an open-source Kubernetes operator for unified synthetic monitoring. It provides a consistent, declarative way to define HTTP checks, DNS probes, SSL certificate monitoring, scripted browser tests, and load tests — all exportable to Prometheus and visualised in Grafana.
+synthetics-operator is an open-source Kubernetes operator for unified synthetic monitoring. It provides a consistent, declarative way to define HTTP, DNS, and TCP probes, SSL certificate monitoring, scripted browser tests, and load tests — all exportable to Prometheus and visualised in Grafana.
 
 The project is deliberately opinionated: Playwright for browser tests, k6 for load tests. This constraint simplifies the operator, sets clear expectations for users, and avoids the complexity of supporting arbitrary runtimes.
 
@@ -13,7 +13,7 @@ The project is deliberately opinionated: Playwright for browser tests, k6 for lo
 
 ### 1.1 Core Goals
 
-- Unified monitoring across HTTP, DNS, SSL, browser flows, and load tests
+- Unified monitoring across HTTP, DNS, TCP, SSL, browser flows, and load tests
 - Declarative CRD-based configuration, native to Kubernetes
 - All results exported to Prometheus — no proprietary data store
 - Importable Grafana dashboards and Alertmanager rules included in the repo
@@ -54,7 +54,7 @@ helm install synthetics-operator \
   --namespace synthetics-system --create-namespace
 ```
 
-Enable the NATS result bus (required for K6Test and PlaywrightTest) and point at the published runner images:
+Enable the NATS bus used for probe jobs/results and CronJob test results, and point at the published runner images:
 
 ```sh
 helm install synthetics-operator \
@@ -73,12 +73,13 @@ For local development, `make dev` spins up a kind cluster with Tilt — see `CON
 
 ## 2. Custom Resource Definitions
 
-The operator defines four CRDs, split into two execution models: lightweight network probes that run in-process within the operator, and script-based tests that execute as Kubernetes CronJobs.
+The operator defines five CRDs, split into two execution models: lightweight network probes dispatched to the prober pool, and script-based tests that execute as Kubernetes CronJobs.
 
 | CRD | Execution Model | Purpose |
 |-----|----------------|---------|
 | `HttpProbe` | In-operator | HTTP assertions + SSL certificate checks |
 | `DnsProbe` | In-operator | DNS resolution checks |
+| `TCPProbe` | In-cluster prober | TCP host/port reachability and connection latency |
 | `PlaywrightTest` | CronJob (Playwright) | Scripted browser flows and multi-step journeys |
 | `K6Test` | CronJob (k6) | Load and performance testing |
 
@@ -89,7 +90,7 @@ All CRDs support the following fields:
 | Field | Description |
 |-------|-------------|
 | `spec.suspend` | Boolean, default false. Pauses the probe without deleting it. In-operator probes are unscheduled; CronJobs set `suspend: true`. Use for maintenance windows. |
-| `spec.depends` | List of probe dependencies. See section 2.6. |
+| `spec.depends` | List of probe dependencies. See section 2.7. |
 | `spec.metricLabels` | Custom Prometheus metric labels. Distinct from Kubernetes `metadata.labels`. See section 3.5. |
 
 ### 2.2 HttpProbe
@@ -174,7 +175,36 @@ Available variables for DNSProbe:
 | `answer_count` | Number of records in the DNS Answer section |
 | `duration_ms` | DNS query round-trip time in milliseconds |
 
-### 2.4 PlaywrightTest
+### 2.4 TCPProbe
+
+TCP reachability checks compatible with Better Stack's generic TCP monitor.
+Success means the prober resolves the host and establishes a TCP connection to
+the configured port before the timeout. The connection is immediately closed;
+the probe does not send bytes, validate a protocol banner, or perform TLS.
+
+```yaml
+apiVersion: synthetics.dev/v1alpha1
+kind: TCPProbe
+metadata:
+  name: mysql-proxy
+spec:
+  interval: 30s
+  timeout: 5s
+  target:
+    host: mysql.default.svc.cluster.local
+    port: 3306
+  assertions:
+    - name: fast-connect
+      expr: "duration_ms < 1000"
+```
+
+Available variables for TCPProbe:
+
+| Variable | Description |
+|----------|-------------|
+| `duration_ms` | DNS resolution plus TCP connection time in milliseconds |
+
+### 2.5 PlaywrightTest
 
 Playwright scripts stored in ConfigMaps and executed on a schedule inside the cluster. Designed for multi-step browser flows, authenticated journeys, and checks that require JavaScript execution. Playwright version is pinned per probe for reproducibility. A `runner` block configures all pod-level concerns.
 
@@ -218,9 +248,9 @@ spec:
         cpu: 500m
 ```
 
-All four CRD types use `interval` (duration string). For PlaywrightTest and K6Test, the operator converts the interval to a CronJob schedule string and applies a per-test minute offset using `probeOffset()` — preventing clustering when multiple tests share the same interval. Minimum interval for CronJob-backed tests is `1m` (cron resolution limit); sub-minute intervals are only supported by HttpProbe and DnsProbe.
+All five CRD types use `interval` (duration string). For PlaywrightTest and K6Test, the operator converts the interval to a CronJob schedule string and applies a per-test minute offset using `probeOffset()` — preventing clustering when multiple tests share the same interval. Minimum interval for CronJob-backed tests is `1m` (cron resolution limit); sub-minute intervals are supported by HTTPProbe, DNSProbe, and TCPProbe.
 
-### 2.5 K6Test
+### 2.6 K6Test
 
 k6 scripts executed on an interval or triggered externally via CI. Supports distributed execution via parallelism — the operator automatically divides VUs across test pods using k6 execution segments, users just set total VUs in the script. A `runner` block configures all pod-level concerns separately from test configuration.
 
@@ -270,7 +300,7 @@ spec:
           - topologyKey: kubernetes.io/hostname   # spread runners across nodes
 ```
 
-### 2.6 depends field
+### 2.7 depends field
 
 All CRDs support a `depends` field listing other probes or tests in the same namespace whose failure should suppress alerts on this one. Dependencies can cross families: a `PlaywrightTest` can depend on an `HTTPProbe`, a `K6Test` can depend on a `DNSProbe`, and so on.
 
@@ -293,7 +323,7 @@ synthetics_probe == 0 unless on(name, namespace, kind) synthetics_probe_suppress
 
 **Validation.** At admission time the webhook verifies each dep's `kind` is valid, the name is DNS-1123, it isn't a self-reference, isn't duplicated, the referenced CR exists in the same namespace, and the transitive graph has no cycle leading back to the owner.
 
-### 2.7 CRD version graduation strategy
+### 2.8 CRD version graduation strategy
 
 Initial release as `v1alpha1`. Graduation path:
 
@@ -309,7 +339,7 @@ No timeline commitment — driven by schema stability, not calendar.
 
 Metrics split into two families, mirroring the CRD split:
 
-- **Probe metrics** (`synthetics_probe_*`) — emitted by HTTPProbe and DNSProbe. Assertions are declarative and evaluated by the operator, so we know *why* a probe failed and surface it on the `result` label.
+- **Probe metrics** (`synthetics_probe_*`) — emitted by HTTPProbe, DNSProbe, and TCPProbe. Assertions are declarative and evaluated by the operator, so we know *why* a probe failed and surface it on the `result` label.
 - **Test metrics** (`synthetics_test_*`) — emitted by K6Test and PlaywrightTest. Pass/fail is determined by the test's own runtime (k6 thresholds, Playwright `expect()`); the operator only sees success/failure, not the per-assertion detail.
 
 The operator exposes a `/metrics` endpoint on port 8080 for Prometheus scraping.
@@ -322,12 +352,12 @@ Every metric in either family carries:
 name, namespace, kind
 ```
 
-- `kind` on probes: `HTTPProbe | DNSProbe`.
+- `kind` on probes: `HTTPProbe | DNSProbe | TCPProbe`.
 - `kind` on tests: `K6Test | PlaywrightTest`.
 
 Plus any custom labels defined in `spec.metricLabels` (Phase 12 — see section 3.5).
 
-### 3.2 Probe family — HTTPProbe and DNSProbe
+### 3.2 Probe family — HTTPProbe, DNSProbe, and TCPProbe
 
 The `result` label on `synthetics_probe` is a closed enum describing what happened on the last run:
 
@@ -336,8 +366,9 @@ The `result` label on `synthetics_probe` is a closed enum describing what happen
 | `ok` | All assertions passed (or there were none) |
 | `config_error` | Spec is invalid — bad URL, unreachable resolver, invalid CA PEM |
 | `dns_failed` | DNS resolution failed (probe target for HTTP; resolver answer for DNSProbe) |
-| `connect_refused` | TCP connect was refused (HTTPProbe only) |
-| `connect_timeout` | TCP connect exceeded the probe timeout (HTTPProbe only) |
+| `connect_refused` | TCP connect was explicitly refused (HTTPProbe or TCPProbe) |
+| `connect_timeout` | TCP connect exceeded the probe timeout (HTTPProbe or TCPProbe) |
+| `connect_failed` | TCP connect failed for another network reason (TCPProbe) |
 | `tls_failed` | TLS handshake or certificate verification failed (HTTPProbe only) |
 | `recv_timeout` | Response body didn't complete within the probe timeout (HTTPProbe only) |
 | `assertion_failed` | Got a response, at least one named assertion didn't pass |
@@ -347,7 +378,7 @@ When `result="assertion_failed"`, the additional `failed_assertion` label carrie
 | Metric | Type | Description |
 |--------|------|-------------|
 | `synthetics_probe` | gauge 0\|1 | 1 when `result="ok"`, 0 otherwise. Carries `result` and (for `assertion_failed`) `failed_assertion` labels. |
-| `synthetics_probe_suppressed` | gauge 1 | Emitted only when a failing probe's transitive dep graph has at least one failing node. Labels `unhealthy_dependency`, `unhealthy_dependency_kind` name the deepest failing dep. See §2.6 for alert-rule usage. |
+| `synthetics_probe_suppressed` | gauge 1 | Emitted only when a failing probe's transitive dep graph has at least one failing node. Labels `unhealthy_dependency`, `unhealthy_dependency_kind` name the deepest failing dep. See §2.7 for alert-rule usage. |
 | `synthetics_probe_duration_ms` | gauge | Total probe duration in milliseconds |
 | `synthetics_probe_last_run_timestamp` | gauge | Unix timestamp of last probe execution |
 | `synthetics_probe_assertion_result` | gauge 0\|1 | Per-assertion pass/fail with `assertion` (name) and `expr` (expression) labels. Emitted for every assertion on every run. |
@@ -373,6 +404,12 @@ When `result="assertion_failed"`, the additional `failed_assertion` label carrie
 | `synthetics_probe_dns_response_authority_count` | gauge | Number of records in the Authority section |
 | `synthetics_probe_dns_response_additional_count` | gauge | Number of records in the Additional section |
 
+**TCPProbe-only**
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `synthetics_probe_tcp_info` | gauge (always 1) | Static target information with `host` and `port` labels |
+
 ### 3.3 Test family — K6Test and PlaywrightTest
 
 The `result` label on `synthetics_test` is a closed enum. Because the operator only sees a pass/fail signal from the test runner over NATS, the set of values is deliberately small:
@@ -387,7 +424,7 @@ Pod-level failures (OOMKilled, ImagePullBackOff, runner crashed before writing o
 | Metric | Type | Description |
 |--------|------|-------------|
 | `synthetics_test` | gauge 0\|1 | 1 when `result="ok"`, 0 otherwise. Carries the `result` label. |
-| `synthetics_test_suppressed` | gauge 1 | Emitted only when a failing test's transitive dep graph has at least one failing node. Labels `unhealthy_dependency`, `unhealthy_dependency_kind` name the deepest failing dep. See §2.6. |
+| `synthetics_test_suppressed` | gauge 1 | Emitted only when a failing test's transitive dep graph has at least one failing node. Labels `unhealthy_dependency`, `unhealthy_dependency_kind` name the deepest failing dep. See §2.7. |
 | `synthetics_test_duration_ms` | gauge | Total test duration in milliseconds |
 | `synthetics_test_last_run_timestamp` | gauge | Unix timestamp of last test execution |
 | `synthetics_test_results_received_total` | counter | Total TestResults received via NATS |
@@ -555,7 +592,7 @@ In Phase 1, `HttpProbe` scheduling is in-process. The reconciler registers each 
 
 From Phase 15 onward, the same offset algorithm is reused with NATS as the transport. The controller publishes jobs to the NATS work queue at the scheduled time and probe workers compete to consume them.
 
-The controller publishes a job to the NATS work queue at the scheduled time for each HttpProbe and DnsProbe. Probe workers compete to consume jobs — NATS delivers each job to exactly one worker. On ACK, the message is removed. On worker crash, NATS redelivers after a timeout.
+The controller publishes a job to the NATS work queue at the scheduled time for each HTTPProbe, DNSProbe, and TCPProbe. Probe workers compete to consume jobs — NATS delivers each job to exactly one worker.
 
 Rather than jitter (which is random and can still cluster), each probe's publish time is derived deterministically from a hash of its `namespace/name`:
 
@@ -1220,7 +1257,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Thresholds in script only | k6 thresholds defined in the script, not duplicated in the CRD. Avoids drift between two sources of truth. Operator parses threshold results from k6 summary output. |
 | No alerting in operator | Operator emits metrics only. Users own Alertmanager rules. Avoids duplicating alerting infrastructure and keeps operator scope focused. |
 | Assertions are stateless | CRD spec assertions evaluate the current run only — no sliding windows, no history, no aggregation. Each assertion is a named expression (`variable op value`) evaluated against the probe result. All assertions run on every probe execution; `synthetics_probe` reflects the overall pass/fail, while `synthetics_probe_assertion_result` carries a per-assertion 0/1 gauge with `assertion` and `expr` labels. Anything requiring multiple results over time (p95 latency, consecutive failure rate) belongs in Prometheus/Alertmanager rules against emitted metrics, not in the CRD schema. |
-| In-operator scheduling | HttpProbe and DnsProbe run as goroutines inside the operator. Sub-minute intervals required; pod-per-run would be wasteful. |
+| Lightweight probe scheduling | HTTPProbe, DNSProbe, and TCPProbe use controller timers plus a horizontally scalable NATS-backed prober pool. Sub-minute intervals are supported without pod-per-run overhead. |
 | CronJobs for scripts | PlaywrightTest and K6Test need isolated runtimes and run at minute-or-longer intervals. CronJobs are the natural fit. |
 | Hash-based probe offset | Each probe's schedule offset is `FNV64(namespace/name) % interval`. Deterministic across restarts, independent per probe — adding or removing a probe does not affect any other. No global state. Jitter was rejected: random offsets can still cluster and change on restart. Midpoint insertion was rejected: requires sorted global state, breaks on restart without persistence, and degrades badly when probes are removed. |
 | NATS as the shared stateful component | CronJob results must go somewhere external to the operator process — a shared stateful component is unavoidable. NATS is the minimal right answer: purpose-built for message routing, ~32Mi idle, no persistence required by default, and keeps every other component stateless. ConfigMaps and an HTTP ingest endpoint were considered; both make either the API server or the operator a scaling bottleneck. See section 1.3. |
@@ -1235,7 +1272,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Operator health metrics | NATS queue depth, reconcile errors, CronJob failures, Job rejections, result stream lag, and cert expiry all instrumented via OTel SDK. Exported as Prometheus on `/metrics` via OTel Prometheus exporter. NATS queue depth is the key saturation signal. |
 | Custom metric labels | `spec.metricLabels` on all CRDs propagates to OTel metric attributes (Prometheus labels). Enables per-team alerting and dashboard filtering without separate namespaces. Deliberately separate from k8s metadata labels so observability labels can be managed independently and cardinality stays explicit. |
 | suspend field | All CRDs support `spec.suspend` to pause probes without deletion. In-operator probes are unscheduled; CronJobs set `suspend: true`. |
-| Consistent interval syntax | All four CRDs use `interval` (duration string). For CronJob-backed tests the operator converts the interval to a CronJob schedule with a per-test offset for even distribution. Sub-minute intervals (e.g. `10s`) only supported by HttpProbe and DnsProbe; minimum for PlaywrightTest and K6Test is `1m`. |
+| Consistent interval syntax | All five CRDs use `interval` (duration string). For CronJob-backed tests the operator converts the interval to a CronJob schedule with a per-test offset for even distribution. Sub-minute intervals are supported by HTTPProbe, DNSProbe, and TCPProbe; minimum for PlaywrightTest and K6Test is `1m`. |
 | OTel SDK, Prometheus export | OTel Go SDK for all instrumentation, exported via OTel Prometheus exporter on `/metrics`. External interface stays Prometheus-compatible; no OTel collector required. |
 | Testing layers | Unit tests for pure logic, envtest for controller/webhook behaviour, kind for full end-to-end. envtest covers ~80% of operator behaviour without needing a full cluster. Scale tests include churn scenarios. |
 | CI cadence | `gofmt`, `go vet`, unit tests, envtest, and Helm lint/render run on every PR. A kind smoke install runs on pushes to `main` and on demand. A nightly kind matrix covers currently-supported bootstrap versions and can expand as the project adds more phases. |

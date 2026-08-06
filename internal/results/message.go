@@ -28,6 +28,7 @@ type Kind string
 const (
 	KindHTTPProbe      Kind = "HTTPProbe"
 	KindDNSProbe       Kind = "DNSProbe"
+	KindTCPProbe       Kind = "TCPProbe"
 	KindK6Test         Kind = "K6Test"
 	KindPlaywrightTest Kind = "PlaywrightTest"
 )
@@ -76,6 +77,15 @@ type DNSProbeSpecPayload struct {
 	Assertions []Assertion `json:"assertions,omitempty"`
 }
 
+// TCPProbeSpecPayload carries everything a prober needs to establish a TCP
+// connection. TCPProbe deliberately performs no application-level exchange.
+type TCPProbeSpecPayload struct {
+	TimeoutMs  int64       `json:"timeoutMs"`
+	Host       string      `json:"host"`
+	Port       int32       `json:"port"`
+	Assertions []Assertion `json:"assertions,omitempty"`
+}
+
 // SpecUpdate is published on synthetics.specs whenever a CR's spec changes
 // or the CR is deleted. Probe-workers and metrics-consumers each maintain a
 // cache of these — that cache is the only way they learn about deps /
@@ -97,6 +107,7 @@ type SpecUpdate struct {
 	// just the spec metadata the metrics consumer needs.
 	HTTPProbe *HTTPProbeSpecPayload `json:"httpProbe,omitempty"`
 	DNSProbe  *DNSProbeSpecPayload  `json:"dnsProbe,omitempty"`
+	TCPProbe  *TCPProbeSpecPayload  `json:"tcpProbe,omitempty"`
 }
 
 // ProbeJob is published by the controller's scheduler on each scheduled
@@ -157,6 +168,10 @@ type ProbeResult struct {
 	DNSAnswerCount      int    `json:"dnsAnswerCount,omitempty"`
 	DNSAuthorityCount   int    `json:"dnsAuthorityCount,omitempty"`
 	DNSAdditionalCount  int    `json:"dnsAdditionalCount,omitempty"`
+
+	// TCP telemetry
+	TCPHost string `json:"tcpHost,omitempty"`
+	TCPPort int32  `json:"tcpPort,omitempty"`
 }
 
 // TestCase is a single case within a PlaywrightTest run, produced from the
