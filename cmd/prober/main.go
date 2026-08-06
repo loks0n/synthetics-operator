@@ -53,7 +53,7 @@ func run(log logr.Logger, natsURL string) error {
 	healthErr := serveHealth(ctx, log.WithName("health"))
 	workerErr := make(chan error, 1)
 
-	worker := &prober.Worker{Log: log, Bus: bus, Publisher: bus}
+	worker := prober.NewWorker(log, bus, bus)
 	go func() { workerErr <- worker.Start(ctx) }()
 
 	select {

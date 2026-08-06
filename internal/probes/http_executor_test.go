@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
 // --- HTTPExecutor tests (unchanged: test the executor in isolation) ---
@@ -26,14 +27,14 @@ func TestHTTPExecutorSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
 			Timeout: metav1.Duration{Duration: time.Second},
 		},
 	})
 
-	if !result.Success() {
+	if !result.success() {
 		t.Fatalf("expected success, got %+v", result)
 	}
 	if result.ConfigError {
@@ -42,7 +43,7 @@ func TestHTTPExecutorSuccess(t *testing.T) {
 }
 
 func TestHTTPExecutorConfigError(t *testing.T) {
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: "://bad-url", Method: http.MethodGet},
 		},
@@ -59,7 +60,7 @@ func TestHTTPExecutorStatusMismatch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
 			Timeout: metav1.Duration{Duration: time.Second},
@@ -67,7 +68,7 @@ func TestHTTPExecutorStatusMismatch(t *testing.T) {
 	})
 
 	// Any HTTP response is a success now (status code > 0)
-	if !result.Success() {
+	if !result.success() {
 		t.Fatal("expected success: any HTTP response is a success")
 	}
 	if result.ConfigError {
@@ -88,13 +89,13 @@ func TestHTTPExecutorTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	result := HTTPExecutor{}.Execute(ctx, &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(ctx, &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
 		},
 	})
 
-	if result.Success() {
+	if result.success() {
 		t.Fatal("expected failure on timeout")
 	}
 	if result.ConfigError {
@@ -109,14 +110,14 @@ func TestHTTPExecutorNetworkError(t *testing.T) {
 	url := server.URL
 	server.Close()
 
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: url, Method: http.MethodGet},
 			Timeout: metav1.Duration{Duration: time.Second},
 		},
 	})
 
-	if result.Success() {
+	if result.success() {
 		t.Fatal("expected failure on connection refused")
 	}
 	if result.ConfigError {
@@ -132,7 +133,7 @@ func TestHTTPExecutorSendsHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 
-	HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{
 				URL:     server.URL,
@@ -160,7 +161,7 @@ func TestHTTPExecutorPOSTSendsBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{
 				URL:    server.URL,
@@ -171,7 +172,7 @@ func TestHTTPExecutorPOSTSendsBody(t *testing.T) {
 		},
 	})
 
-	if !result.Success() {
+	if !result.success() {
 		t.Fatalf("expected success, got %+v", result)
 	}
 	if receivedBody != `{"hello":"world"}` {
@@ -185,7 +186,7 @@ func TestHTTPExecutorTLSInsecureSkipVerify(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
 			Timeout: metav1.Duration{Duration: time.Second},
@@ -193,7 +194,7 @@ func TestHTTPExecutorTLSInsecureSkipVerify(t *testing.T) {
 		},
 	})
 
-	if !result.Success() {
+	if !result.success() {
 		t.Fatalf("expected success with insecureSkipVerify, got %+v", result)
 	}
 }
@@ -204,14 +205,14 @@ func TestHTTPExecutorTLSFailsWithoutConfig(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
 			Timeout: metav1.Duration{Duration: time.Second},
 		},
 	})
 
-	if result.Success() {
+	if result.success() {
 		t.Fatal("expected TLS failure against self-signed cert with no TLS config")
 	}
 	if result.ConfigError {
@@ -231,7 +232,7 @@ func TestHTTPExecutorTLSCustomCA(t *testing.T) {
 	}
 	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})
 
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
 			Timeout: metav1.Duration{Duration: time.Second},
@@ -239,7 +240,7 @@ func TestHTTPExecutorTLSCustomCA(t *testing.T) {
 		},
 	})
 
-	if !result.Success() {
+	if !result.success() {
 		t.Fatalf("expected success with custom CA cert, got %+v", result)
 	}
 }
@@ -250,7 +251,7 @@ func TestHTTPExecutorTLSCertExpiryPopulated(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
 			Timeout: metav1.Duration{Duration: time.Second},
@@ -272,7 +273,7 @@ func TestHTTPExecutorHTTPNoCertExpiry(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
 			Timeout: metav1.Duration{Duration: time.Second},
@@ -290,7 +291,7 @@ func TestHTTPExecutorTLSInvalidCACert(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: server.URL, Method: http.MethodGet},
 			Timeout: metav1.Duration{Duration: time.Second},
@@ -304,7 +305,7 @@ func TestHTTPExecutorTLSInvalidCACert(t *testing.T) {
 }
 
 func TestHTTPExecutorBuildRequestError(t *testing.T) {
-	result := HTTPExecutor{}.Execute(context.Background(), &syntheticsv1alpha1.HTTPProbe{
+	result := HTTPExecutor{}.executeProbe(context.Background(), &syntheticsv1alpha1.HTTPProbe{
 		Spec: syntheticsv1alpha1.HTTPProbeSpec{
 			Request: syntheticsv1alpha1.HTTPRequestSpec{URL: "http://127.0.0.1/", Method: "INVALID METHOD WITH SPACES"},
 		},
@@ -315,78 +316,69 @@ func TestHTTPExecutorBuildRequestError(t *testing.T) {
 	}
 }
 
-// --- assertion evaluation tests against EvalHTTPAssertions ---
+// --- assertion evaluation tests against evalHTTPAssertions ---
 
-func makeHTTPProbe(assertions []syntheticsv1alpha1.Assertion) *syntheticsv1alpha1.HTTPProbe {
-	return &syntheticsv1alpha1.HTTPProbe{
-		Spec: syntheticsv1alpha1.HTTPProbeSpec{
-			Timeout:    metav1.Duration{Duration: time.Second},
-			Assertions: assertions,
-		},
-	}
-}
-
-func TestEvalHTTPAssertions_StatusPass(t *testing.T) {
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "status_ok", Expr: "status_code = 200"}})
-	outcome, failed, _ := EvalHTTPAssertions(Result{StatusCode: 200}, probe.Spec.Assertions)
+func TestEvalHTTPAssertionsStatusPass(t *testing.T) {
+	assertions := []results.Assertion{{Name: "status_ok", Expr: "status_code = 200"}}
+	outcome, failed, _ := evalHTTPAssertions(httpResult{StatusCode: 200}, assertions)
 	if outcome != "ok" || failed != "" {
 		t.Fatalf("expected ok, got outcome=%q failed=%q", outcome, failed)
 	}
 }
 
-func TestEvalHTTPAssertions_StatusFail(t *testing.T) {
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "status_ok", Expr: "status_code = 200"}})
-	outcome, failed, _ := EvalHTTPAssertions(Result{StatusCode: 503}, probe.Spec.Assertions)
+func TestEvalHTTPAssertionsStatusFail(t *testing.T) {
+	assertions := []results.Assertion{{Name: "status_ok", Expr: "status_code = 200"}}
+	outcome, failed, _ := evalHTTPAssertions(httpResult{StatusCode: 503}, assertions)
 	if outcome != "assertion_failed" || failed != "status_ok" {
 		t.Fatalf("expected assertion_failed status_ok, got outcome=%q failed=%q", outcome, failed)
 	}
 }
 
-func TestEvalHTTPAssertions_DurationPass(t *testing.T) {
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "fast", Expr: "duration_ms < 500"}})
-	outcome, _, _ := EvalHTTPAssertions(Result{StatusCode: 200, Duration: 100 * time.Millisecond}, probe.Spec.Assertions)
+func TestEvalHTTPAssertionsDurationPass(t *testing.T) {
+	assertions := []results.Assertion{{Name: "fast", Expr: "duration_ms < 500"}}
+	outcome, _, _ := evalHTTPAssertions(httpResult{StatusCode: 200, Duration: 100 * time.Millisecond}, assertions)
 	if outcome != "ok" {
 		t.Fatalf("expected ok, got %q", outcome)
 	}
 }
 
-func TestEvalHTTPAssertions_DurationFail(t *testing.T) {
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "fast", Expr: "duration_ms < 500"}})
-	outcome, failed, _ := EvalHTTPAssertions(Result{StatusCode: 200, Duration: 600 * time.Millisecond}, probe.Spec.Assertions)
+func TestEvalHTTPAssertionsDurationFail(t *testing.T) {
+	assertions := []results.Assertion{{Name: "fast", Expr: "duration_ms < 500"}}
+	outcome, failed, _ := evalHTTPAssertions(httpResult{StatusCode: 200, Duration: 600 * time.Millisecond}, assertions)
 	if outcome != "assertion_failed" || failed != "fast" {
 		t.Fatalf("expected assertion_failed fast, got outcome=%q failed=%q", outcome, failed)
 	}
 }
 
-func TestEvalHTTPAssertions_SSLExpiryWithCert(t *testing.T) {
+func TestEvalHTTPAssertionsSSLExpiryWithCert(t *testing.T) {
 	expiry := time.Now().Add(30 * 24 * time.Hour)
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"}})
-	outcome, _, _ := EvalHTTPAssertions(Result{StatusCode: 200, CertExpiryTime: &expiry}, probe.Spec.Assertions)
+	assertions := []results.Assertion{{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"}}
+	outcome, _, _ := evalHTTPAssertions(httpResult{StatusCode: 200, CertExpiryTime: &expiry}, assertions)
 	if outcome != "ok" {
 		t.Fatalf("expected ok, got %q", outcome)
 	}
 }
 
-func TestEvalHTTPAssertions_SSLExpiryExpiringSoon(t *testing.T) {
+func TestEvalHTTPAssertionsSSLExpiryExpiringSoon(t *testing.T) {
 	expiry := time.Now().Add(5 * 24 * time.Hour)
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"}})
-	outcome, failed, _ := EvalHTTPAssertions(Result{StatusCode: 200, CertExpiryTime: &expiry}, probe.Spec.Assertions)
+	assertions := []results.Assertion{{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"}}
+	outcome, failed, _ := evalHTTPAssertions(httpResult{StatusCode: 200, CertExpiryTime: &expiry}, assertions)
 	if outcome != "assertion_failed" || failed != "ssl_ok" {
 		t.Fatalf("expected assertion_failed ssl_ok, got outcome=%q failed=%q", outcome, failed)
 	}
 }
 
-func TestEvalHTTPAssertions_SSLExpiryNoCert(t *testing.T) {
-	probe := makeHTTPProbe([]syntheticsv1alpha1.Assertion{{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"}})
-	outcome, _, _ := EvalHTTPAssertions(Result{StatusCode: 200}, probe.Spec.Assertions)
+func TestEvalHTTPAssertionsSSLExpiryNoCert(t *testing.T) {
+	assertions := []results.Assertion{{Name: "ssl_ok", Expr: "ssl_expiry_days >= 14"}}
+	outcome, _, _ := evalHTTPAssertions(httpResult{StatusCode: 200}, assertions)
 	if outcome != "assertion_failed" {
 		t.Fatalf("expected assertion_failed when no cert, got %q", outcome)
 	}
 }
 
-func TestClassifyHTTPTransport_FallbacksToConnectRefused(t *testing.T) {
+func TestClassifyHTTPTransportFallbacksToConnectRefused(t *testing.T) {
 	// Raw error string won't classify as dns/dial/tls — falls through to connect_refused.
-	outcome := ClassifyHTTPTransport(unknownError{})
+	outcome := classifyHTTPTransport(unknownError{})
 	if outcome != "connect_refused" {
 		t.Fatalf("expected connect_refused fallback, got %q", outcome)
 	}

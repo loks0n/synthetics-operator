@@ -9,11 +9,14 @@ import (
 
 	"github.com/miekg/dns"
 
-	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
-// DNSResult holds the outcome of a single DNS probe execution.
-type DNSResult struct {
+var _ Executor = DNSExecutor{}
+
+// dnsResult holds resolver details while DNSExecutor builds the public
+// ProbeResult returned through the Executor interface.
+type dnsResult struct {
 	ConfigError      bool
 	ResolverErr      error
 	Duration         time.Duration
@@ -28,18 +31,57 @@ type DNSResult struct {
 
 // Success reports whether the resolver returned a response. Assertions are
 // evaluated separately.
-func (r DNSResult) Success() bool { return !r.ConfigError && r.ResolverErr == nil }
+func (r dnsResult) success() bool { return !r.ConfigError && r.ResolverErr == nil }
+
+type dnsQuery struct {
+	Name     string
+	Type     string
+	Resolver string
+}
 
 // DNSExecutor runs DNS probes using github.com/miekg/dns.
 type DNSExecutor struct{}
 
-// Execute performs a DNS query for the given probe and returns the result.
-func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSProbe) DNSResult {
+// Execute owns the full DNSProbe job-to-result policy.
+func (e DNSExecutor) Execute(ctx context.Context, job results.ProbeJob) results.ProbeResult {
+	payload := job.Spec.DNSProbe
+	if payload == nil {
+		return configErrorResult(job)
+	}
+
+	runCtx, cancel := runContext(ctx, payload.TimeoutMs)
+	defer cancel()
+
+	raw := e.executeQuery(runCtx, dnsQuery{
+		Name: payload.Name, Type: payload.Type, Resolver: payload.Resolver,
+	})
+	out := probeResult(job)
+	out.DurationMs = raw.Duration.Milliseconds()
+	out.DNSFirstAnswerValue = raw.FirstAnswerValue
+	out.DNSFirstAnswerType = raw.FirstAnswerType
+	out.DNSAnswerCount = raw.AnswerCount
+	out.DNSAuthorityCount = raw.AuthorityCount
+	out.DNSAdditionalCount = raw.AdditionalCount
+
+	switch {
+	case raw.ConfigError:
+		out.Result = "config_error"
+	case raw.ResolverErr != nil:
+		out.Result = "dns_failed"
+	case len(payload.Assertions) > 0:
+		out.Result, out.FailedAssertion, out.AssertionResults = evalDNSAssertions(raw, payload.Assertions)
+	default:
+		out.Result = "ok"
+	}
+	return out
+}
+
+func (e DNSExecutor) executeQuery(ctx context.Context, query dnsQuery) dnsResult {
 	start := time.Now()
 
-	queryName := probe.Spec.Query.Name
+	queryName := query.Name
 	if strings.TrimSpace(queryName) == "" {
-		return DNSResult{
+		return dnsResult{
 			ConfigError: true,
 			Completed:   time.Now(),
 			Duration:    time.Since(start),
@@ -47,13 +89,13 @@ func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSP
 		}
 	}
 
-	queryType := strings.ToUpper(probe.Spec.Query.Type)
+	queryType := strings.ToUpper(query.Type)
 	if queryType == "" {
 		queryType = "A"
 	}
 	dnsType, ok := dns.StringToType[queryType]
 	if !ok {
-		return DNSResult{
+		return dnsResult{
 			ConfigError: true,
 			Completed:   time.Now(),
 			Duration:    time.Since(start),
@@ -61,14 +103,14 @@ func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSP
 		}
 	}
 
-	resolver := probe.Spec.Query.Resolver
+	resolver := query.Resolver
 	if resolver == "" {
 		resolver = systemResolver()
 	}
 
 	host, port, err := net.SplitHostPort(resolver)
 	if err != nil || host == "" || port == "" {
-		return DNSResult{
+		return dnsResult{
 			ConfigError: true,
 			Completed:   time.Now(),
 			Duration:    time.Since(start),
@@ -85,7 +127,7 @@ func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSP
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return DNSResult{
+			return dnsResult{
 				Completed: time.Now(),
 				Duration:  time.Since(start),
 				Message:   "context deadline exceeded before query",
@@ -96,7 +138,7 @@ func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSP
 
 	resp, rtt, err := client.ExchangeContext(ctx, msg, resolver)
 	if err != nil {
-		return DNSResult{
+		return dnsResult{
 			ResolverErr: err,
 			Completed:   time.Now(),
 			Duration:    time.Since(start),
@@ -104,7 +146,7 @@ func (e DNSExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.DNSP
 		}
 	}
 
-	result := DNSResult{
+	result := dnsResult{
 		Completed:       time.Now(),
 		Duration:        rtt,
 		AnswerCount:     len(resp.Answer),

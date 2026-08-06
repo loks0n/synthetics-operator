@@ -87,9 +87,9 @@ type TCPProbeSpecPayload struct {
 }
 
 // SpecUpdate is published on synthetics.specs whenever a CR's spec changes
-// or the CR is deleted. Probe-workers and metrics-consumers each maintain a
-// cache of these — that cache is the only way they learn about deps /
-// metricLabels / executable specs, since they don't watch the k8s API.
+// or the CR is deleted. Metrics consumers cache these to learn about deps and
+// metricLabels without watching the k8s API. The scheduler also embeds the
+// current SpecUpdate in every ProbeJob so probe workers remain stateless.
 //
 // Deleted=true is a tombstone: remove all state for {Kind, Namespace, Name}.
 type SpecUpdate struct {
@@ -135,7 +135,7 @@ type AssertionResult struct {
 
 // ProbeResult is published by probers after each execution. Carries
 // everything the metrics consumer needs to emit the probe's metric family —
-// result class, duration, HTTP/DNS telemetry, per-assertion results.
+// result class, duration, HTTP/DNS/TCP telemetry, per-assertion results.
 //
 // The metrics consumer joins this against its SpecUpdate cache to resolve
 // metricLabels and depends; those are not duplicated here.

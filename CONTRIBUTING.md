@@ -111,7 +111,7 @@ In order of increasing work:
 |---|---|
 | `api/v1alpha1/` | CRD types, webhooks, generated deepcopy |
 | `controllers/` | Reconcilers for each kind, plus `scheduler.go` (in-process probes) |
-| `internal/probes/` | HTTP + DNS executor code, worker pool |
+| `internal/probes/` | Per-kind Probe executors and Scheduler |
 | `internal/metrics/` | Prometheus/OTel store, `synthetics_probe` / `synthetics_test` gauges |
 | `internal/events/` | Transition notifier emitting `ProbeActive` / `ProbeFailed` events |
 | `internal/natsconsumer/` | NATS subscriber feeding test results into the metrics store |

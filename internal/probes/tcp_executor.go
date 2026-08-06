@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
 // TCPDialer is the connection surface TCPExecutor needs. net.Dialer satisfies
@@ -18,8 +18,9 @@ type TCPDialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 }
 
-// TCPResult holds the outcome of one TCP connection attempt.
-type TCPResult struct {
+// tcpResult holds connection details while TCPExecutor builds the public
+// ProbeResult returned through the Executor interface.
+type tcpResult struct {
 	ConfigError bool
 	ConnectErr  error
 	Duration    time.Duration
@@ -27,7 +28,12 @@ type TCPResult struct {
 	Message     string
 }
 
-func (r TCPResult) Success() bool { return !r.ConfigError && r.ConnectErr == nil }
+func (r tcpResult) success() bool { return !r.ConfigError && r.ConnectErr == nil }
+
+type tcpTarget struct {
+	Host string
+	Port int32
+}
 
 // TCPExecutor establishes and immediately closes a TCP connection. It does
 // not send bytes or perform a protocol/TLS handshake.
@@ -35,12 +41,43 @@ type TCPExecutor struct {
 	Dialer TCPDialer
 }
 
-func (e TCPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.TCPProbe) TCPResult {
+var _ Executor = TCPExecutor{}
+
+// Execute owns the full TCPProbe job-to-result policy.
+func (e TCPExecutor) Execute(ctx context.Context, job results.ProbeJob) results.ProbeResult {
+	payload := job.Spec.TCPProbe
+	if payload == nil {
+		return configErrorResult(job)
+	}
+
+	runCtx, cancel := runContext(ctx, payload.TimeoutMs)
+	defer cancel()
+
+	raw := e.connect(runCtx, tcpTarget{Host: payload.Host, Port: payload.Port})
+	out := probeResult(job)
+	out.DurationMs = raw.Duration.Milliseconds()
+	out.TCPHost = payload.Host
+	out.TCPPort = payload.Port
+
+	switch {
+	case raw.ConfigError:
+		out.Result = "config_error"
+	case raw.ConnectErr != nil:
+		out.Result = classifyTCPConnect(raw.ConnectErr)
+	case len(payload.Assertions) > 0:
+		out.Result, out.FailedAssertion, out.AssertionResults = evalTCPAssertions(raw, payload.Assertions)
+	default:
+		out.Result = "ok"
+	}
+	return out
+}
+
+func (e TCPExecutor) connect(ctx context.Context, target tcpTarget) tcpResult {
 	start := time.Now()
-	host := strings.TrimSpace(probe.Spec.Target.Host)
-	port := probe.Spec.Target.Port
+	host := strings.TrimSpace(target.Host)
+	port := target.Port
 	if host == "" || port < 1 || port > 65535 {
-		return TCPResult{
+		return tcpResult{
 			ConfigError: true,
 			Duration:    time.Since(start),
 			Completed:   time.Now(),
@@ -55,7 +92,7 @@ func (e TCPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.TCPP
 	address := net.JoinHostPort(host, strconv.Itoa(int(port)))
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
-		return TCPResult{
+		return tcpResult{
 			ConnectErr: err,
 			Duration:   time.Since(start),
 			Completed:  time.Now(),
@@ -63,15 +100,15 @@ func (e TCPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.TCPP
 		}
 	}
 	_ = conn.Close()
-	return TCPResult{
+	return tcpResult{
 		Duration:  time.Since(start),
 		Completed: time.Now(),
 		Message:   "connected to " + address,
 	}
 }
 
-// ClassifyTCPConnect maps dial failures to the public result vocabulary.
-func ClassifyTCPConnect(err error) string {
+// classifyTCPConnect maps dial failures to the public result vocabulary.
+func classifyTCPConnect(err error) string {
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return "dns_failed"

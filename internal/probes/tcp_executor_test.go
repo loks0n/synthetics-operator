@@ -46,8 +46,8 @@ func TestTCPExecutorConnectsClosesAndSendsNoData(t *testing.T) {
 	}()
 
 	addr := listener.Addr().(*net.TCPAddr)
-	r := (TCPExecutor{}).Execute(t.Context(), tcpProbe(addr.IP.String(), int32(addr.Port)))
-	if !r.Success() {
+	r := (TCPExecutor{}).executeProbe(t.Context(), tcpProbe(addr.IP.String(), int32(addr.Port)))
+	if !r.success() {
 		t.Fatalf("expected success, got %+v", r)
 	}
 	if err := <-serverResult; !errors.Is(err, net.ErrClosed) && err != nil {
@@ -79,8 +79,8 @@ func TestTCPExecutorClassifiesFailures(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := (TCPExecutor{Dialer: errorDialer{err: tc.err}}).Execute(t.Context(), tcpProbe("example.com", 443))
-			if got := ClassifyTCPConnect(r.ConnectErr); got != tc.want {
+			r := (TCPExecutor{Dialer: errorDialer{err: tc.err}}).executeProbe(t.Context(), tcpProbe("example.com", 443))
+			if got := classifyTCPConnect(r.ConnectErr); got != tc.want {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}
 		})
@@ -88,7 +88,7 @@ func TestTCPExecutorClassifiesFailures(t *testing.T) {
 }
 
 func TestTCPExecutorRejectsInvalidTarget(t *testing.T) {
-	r := (TCPExecutor{}).Execute(t.Context(), tcpProbe("", 0))
+	r := (TCPExecutor{}).executeProbe(t.Context(), tcpProbe("", 0))
 	if !r.ConfigError {
 		t.Fatalf("expected config error, got %+v", r)
 	}

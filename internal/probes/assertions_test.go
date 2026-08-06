@@ -3,7 +3,7 @@ package probes
 import (
 	"testing"
 
-	"github.com/loks0n/synthetics-operator/api/v1alpha1"
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
 func TestEvalAssertionAllOperators(t *testing.T) {
@@ -57,7 +57,7 @@ func TestEvalAssertionParseError(t *testing.T) {
 }
 
 func TestEvalAssertionsAllPass(t *testing.T) {
-	assertions := []v1alpha1.Assertion{
+	assertions := []results.Assertion{
 		{Name: "check_a", Expr: "x > 0"},
 		{Name: "check_b", Expr: "x < 200"},
 	}
@@ -74,7 +74,7 @@ func TestEvalAssertionsAllPass(t *testing.T) {
 }
 
 func TestEvalAssertionsFirstFails(t *testing.T) {
-	assertions := []v1alpha1.Assertion{
+	assertions := []results.Assertion{
 		{Name: "first", Expr: "x > 200"},
 		{Name: "second", Expr: "x < 200"},
 	}
@@ -91,7 +91,7 @@ func TestEvalAssertionsFirstFails(t *testing.T) {
 }
 
 func TestEvalAssertionsSecondFails(t *testing.T) {
-	assertions := []v1alpha1.Assertion{
+	assertions := []results.Assertion{
 		{Name: "first", Expr: "x > 0"},
 		{Name: "second", Expr: "x > 200"},
 	}
@@ -110,7 +110,7 @@ func TestEvalAssertionsSecondFails(t *testing.T) {
 func TestEvalAssertionsShortCircuit(t *testing.T) {
 	// Third assertion has an unknown variable; it should never be evaluated
 	// because the second assertion fails first.
-	assertions := []v1alpha1.Assertion{
+	assertions := []results.Assertion{
 		{Name: "first", Expr: "x > 0"},
 		{Name: "second", Expr: "x > 200"},
 		{Name: "third", Expr: "unknown_var = 1"},
