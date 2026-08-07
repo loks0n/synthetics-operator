@@ -102,6 +102,63 @@ metrics:
     interval: 30s
     scrapeTimeout: 10s
     labels: {}
+    # Keep the operator's own `namespace` / `name` labels instead of letting
+    # Prometheus replace them with the scraped pod's. These series describe
+    # probes, not the pod exposing them, so the metric's labels are the
+    # truthful ones. Turning this off renames them to `exported_*` and breaks
+    # the shipped dashboards and alert rules.
+    honorLabels: true
+
+# Heartbeat receiver Deployment.
+#
+# Serves the inbound ping endpoint for the Heartbeat CRD: a job outside the
+# cluster calls its generated URL on every successful run, and the operator
+# reports the heartbeat down when a call stops arriving. Stateless — the token
+# index is rebuilt from the NATS spec stream, so it holds no Kubernetes
+# permissions and scales horizontally.
+#
+# This is the only component exposed to the public internet. It runs as its
+# own Deployment so a request storm against the ping endpoint degrades
+# heartbeat ingestion and nothing else.
+heartbeat:
+  enabled: false
+  image:
+    ref: ""
+    repository: ghcr.io/loks0n/synthetics-operator-heartbeat
+    # Empty tag defaults to the chart AppVersion (stamped from the git tag at release).
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  resources: {}
+  # How long a fresh replica reports unready while it waits for the spec
+  # resync it requested on start. Until the token index is populated the
+  # receiver answers 503 rather than 404, so a retrying client is never told
+  # its perfectly valid token doesn't exist.
+  warmup: 10s
+
+  # The origin heartbeat URLs are rendered against, e.g.
+  # https://heartbeats.example.com. Must match how the receiver is actually
+  # published — the operator writes it into every Heartbeat's status.url and
+  # token Secret, and callers copy it from there. Leave empty and URLs are
+  # not rendered at all.
+  baseUrl: ""
+
+  # Gateway API HTTPRoute publishing the receiver. Set enabled: false and
+  # wire your own Ingress/HTTPRoute/LoadBalancer if you don't run Gateway API.
+  #
+  # Note the routing shape: one hostname, path-prefix match. The token travels
+  # in the path so it stays inside the TLS session. Do not switch this to a
+  # wildcard subdomain per heartbeat — that leaks every token into DNS
+  # queries and TLS SNI, both of which are cleartext.
+  httpRoute:
+    enabled: false
+    # Must be the host component of baseUrl.
+    hostname: ""
+    annotations: {}
+    parentRefs:
+      - name: ""
+        namespace: ""
+        sectionName: https
 
 # NATS transports scheduled probe jobs/results and CronJob-backed test results.
 #

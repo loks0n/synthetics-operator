@@ -1,4 +1,4 @@
-// Command webhook serves admission webhooks for the five CRDs. Stateless;
+// Command webhook serves admission webhooks for the six CRDs. Stateless;
 // reads its serving certificate from the Secret written by the controller.
 // No reconcilers, probe execution, or metrics here.
 package main
@@ -102,6 +102,7 @@ func run(
 		syntheticsv1alpha1.SetupWebhookWithManager,
 		syntheticsv1alpha1.SetupDNSWebhookWithManager,
 		syntheticsv1alpha1.SetupTCPProbeWebhookWithManager,
+		syntheticsv1alpha1.SetupHeartbeatWebhookWithManager,
 		syntheticsv1alpha1.SetupK6TestWebhookWithManager,
 		syntheticsv1alpha1.SetupPlaywrightTestWebhookWithManager,
 	} {

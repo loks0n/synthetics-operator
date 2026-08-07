@@ -18,4 +18,11 @@ spec:
       path: /metrics
       interval: {{ .Values.metrics.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+      # Every series here describes some *other* object — a probe in some
+      # namespace, not the metrics pod that happens to expose it. Without
+      # this, Prometheus overwrites the `namespace` label with the scraped
+      # pod's own namespace and renames the real one to
+      # `exported_namespace`, which silently breaks the namespace variable in
+      # every shipped dashboard and every alert rule that selects on it.
+      honorLabels: {{ .Values.metrics.serviceMonitor.honorLabels }}
 {{- end }}

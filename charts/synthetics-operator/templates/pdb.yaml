@@ -14,6 +14,9 @@ count is usually higher, so this is the conservative reading.
   (dict "name" "webhook" "replicas" (int .Values.webhook.replicaCount))
   (dict "name" "metrics" "replicas" (int .Values.metrics.replicaCount))
   (dict "name" "prober" "replicas" (ternary (int .Values.prober.autoscaling.minReplicaCount) (int .Values.prober.replicaCount) .Values.prober.autoscaling.enabled)) -}}
+{{- if .Values.heartbeat.enabled -}}
+{{- $components = append $components (dict "name" "heartbeat" "replicas" (int .Values.heartbeat.replicaCount)) -}}
+{{- end -}}
 {{- if and .Values.nats.enabled (not .Values.nats.externalUrl) -}}
 {{- $components = append $components (dict "name" "nats" "replicas" (int .Values.nats.replicas)) -}}
 {{- end -}}

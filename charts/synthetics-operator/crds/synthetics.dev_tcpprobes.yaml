@@ -97,6 +97,7 @@ spec:
                       - TCPProbe
                       - K6Test
                       - PlaywrightTest
+                      - Heartbeat
                       type: string
                     name:
                       type: string

@@ -1,5 +1,5 @@
 // Command controller runs the reconciler, scheduler, and transition-event
-// notifier. Watches the five CRDs, publishes spec snapshots + probe jobs to
+// notifier. Watches the six CRDs, publishes spec snapshots + probe jobs to
 // NATS. Does not execute probes or serve /metrics — those live in the
 // prober and metrics binaries.
 package main
@@ -46,6 +46,7 @@ func main() {
 		validatingWebhookConfiguration string
 		mutatingWebhookConfiguration   string
 		natsURL                        string
+		heartbeatBaseURL               string
 		testSidecarImage               string
 		k6RunnerImage                  string
 		playwrightRunnerImage          string
@@ -58,6 +59,7 @@ func main() {
 	flag.StringVar(&validatingWebhookConfiguration, "validating-webhook-configuration", "synthetics-operator-validating-webhook-configuration", "ValidatingWebhookConfiguration name to inject with the CA bundle.")
 	flag.StringVar(&mutatingWebhookConfiguration, "mutating-webhook-configuration", "synthetics-operator-mutating-webhook-configuration", "MutatingWebhookConfiguration name to inject with the CA bundle.")
 	flag.StringVar(&natsURL, "nats-url", "", "NATS server URL (required).")
+	flag.StringVar(&heartbeatBaseURL, "heartbeat-base-url", "", "Externally reachable origin the heartbeat receiver is published on, e.g. https://heartbeats.example.com. Heartbeat URLs are rendered against it.")
 	flag.StringVar(&testSidecarImage, "test-sidecar-image", "", "Image for the test-sidecar container in K6Test/PlaywrightTest jobs.")
 	flag.StringVar(&k6RunnerImage, "k6-runner-image", "", "Image for the k6-runner init container.")
 	flag.StringVar(&playwrightRunnerImage, "playwright-runner-image", "", "Image for the playwright-runner container.")
@@ -66,7 +68,7 @@ func main() {
 	ctrl.SetLogger(logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	log := ctrl.Log.WithName("controller")
 
-	if err := run(scheme, log, enableLeaderElection, webhookNamespace, webhookSecretName, webhookServiceName, validatingWebhookConfiguration, mutatingWebhookConfiguration, natsURL, testSidecarImage, k6RunnerImage, playwrightRunnerImage); err != nil {
+	if err := run(scheme, log, enableLeaderElection, webhookNamespace, webhookSecretName, webhookServiceName, validatingWebhookConfiguration, mutatingWebhookConfiguration, natsURL, heartbeatBaseURL, testSidecarImage, k6RunnerImage, playwrightRunnerImage); err != nil {
 		log.Error(err, "exiting")
 		os.Exit(1)
 	}
@@ -78,7 +80,7 @@ func run(
 	enableLeaderElection bool,
 	webhookNamespace, webhookSecretName, webhookServiceName,
 	validatingWebhookConfiguration, mutatingWebhookConfiguration,
-	natsURL, testSidecarImage, k6RunnerImage, playwrightRunnerImage string,
+	natsURL, heartbeatBaseURL, testSidecarImage, k6RunnerImage, playwrightRunnerImage string,
 ) error {
 	if natsURL == "" {
 		return errors.New("--nats-url is required")
@@ -143,13 +145,31 @@ func run(
 	}
 
 	scheduler := internalprobes.NewScheduler(log.WithName("scheduler"), bus)
-	if err := mgr.Add(&controllers.SpecResyncer{
+
+	heartbeats := &controllers.HeartbeatReconciler{
 		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
 		Publisher: bus,
-		Interval:  time.Minute,
-		Log:       log.WithName("spec-resync"),
+		Clock:     time.Now,
+		BaseURL:   heartbeatBaseURL,
+	}
+
+	if err := mgr.Add(&controllers.SpecResyncer{
+		Client:      mgr.GetClient(),
+		Publisher:   bus,
+		Interval:    time.Minute,
+		Log:         log.WithName("spec-resync"),
+		Requests:    bus,
+		TokenReader: heartbeats,
 	}); err != nil {
 		return fmt.Errorf("adding spec resyncer: %w", err)
+	}
+	if err := mgr.Add(&controllers.HeartbeatPingWriter{
+		Client: mgr.GetClient(),
+		Bus:    bus,
+		Log:    log.WithName("heartbeat-pings"),
+	}); err != nil {
+		return fmt.Errorf("adding heartbeat ping writer: %w", err)
 	}
 	if err := mgr.Add(scheduler); err != nil {
 		return fmt.Errorf("adding scheduler: %w", err)
@@ -183,6 +203,10 @@ func run(
 		Clock:     time.Now,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("creating TCPProbe controller: %w", err)
+	}
+
+	if err := heartbeats.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("creating Heartbeat controller: %w", err)
 	}
 
 	if err := (&controllers.K6TestReconciler{

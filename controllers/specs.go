@@ -102,6 +102,38 @@ func tcpProbeSpecUpdate(p *syntheticsv1alpha1.TCPProbe) results.SpecUpdate {
 	}
 }
 
+// heartbeatSpecUpdate builds a SpecUpdate message from a Heartbeat. The token
+// is passed in rather than read off the CR because it lives in a Secret.
+//
+// IntervalMs stays zero: a Heartbeat is never scheduled, and setting it would
+// register the CR with the probe scheduler. Period and Grace ride on the
+// payload instead, where only the metrics consumer reads them.
+//
+// LastPingUnix replays the CR's status onto the stream so a metrics consumer
+// that just started knows when this heartbeat was last seen. Without it, a
+// restart would report every heartbeat as pending until its next ping.
+func heartbeatSpecUpdate(h *syntheticsv1alpha1.Heartbeat, token string) results.SpecUpdate {
+	payload := results.HeartbeatSpecPayload{
+		Token:      token,
+		PeriodMs:   h.Spec.Period.Milliseconds(),
+		GraceMs:    h.Spec.Grace.Milliseconds(),
+		LastResult: h.Status.LastResult,
+	}
+	if h.Status.LastPingTime != nil {
+		payload.LastPingUnix = h.Status.LastPingTime.Unix()
+	}
+	return results.SpecUpdate{
+		Kind:         results.KindHeartbeat,
+		Name:         h.Name,
+		Namespace:    h.Namespace,
+		Generation:   h.Generation,
+		Suspend:      h.Spec.Suspend,
+		Depends:      toDependsRefs(h.Spec.Depends),
+		MetricLabels: h.Spec.MetricLabels,
+		Heartbeat:    &payload,
+	}
+}
+
 // k6TestSpecUpdate builds a SpecUpdate for a K6Test. No executable payload —
 // test execution is owned by the CronJob; the message exists so the metrics
 // consumer learns about depends + metricLabels.

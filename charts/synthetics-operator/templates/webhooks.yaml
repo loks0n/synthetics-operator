@@ -48,6 +48,21 @@ webhooks:
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
         resources: ["tcpprobes"]
+  - name: mheartbeat.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "synthetics-operator.webhookServiceName" . }}
+        path: /mutate-synthetics-dev-v1alpha1-heartbeat
+    rules:
+      - apiGroups: ["synthetics.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["heartbeats"]
   - name: mk6test.kb.io
     admissionReviewVersions:
       - v1
@@ -129,6 +144,21 @@ webhooks:
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
         resources: ["tcpprobes"]
+  - name: vheartbeat.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "synthetics-operator.webhookServiceName" . }}
+        path: /validate-synthetics-dev-v1alpha1-heartbeat
+    rules:
+      - apiGroups: ["synthetics.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["heartbeats"]
   - name: vk6test.kb.io
     admissionReviewVersions:
       - v1

@@ -36,6 +36,12 @@ const (
 	ResultRecvTimeout     Result = "recv_timeout"
 	ResultAssertionFailed Result = "assertion_failed"
 	ResultTestFailed      Result = "test_failed"
+	// Heartbeat-only outcomes. A heartbeat never fails an assertion or a
+	// connect — it either arrived, arrived reporting failure, or didn't
+	// arrive at all.
+	ResultPending  Result = "pending"
+	ResultMissed   Result = "missed"
+	ResultReported Result = "reported_failure"
 )
 
 // successValue is the 0|1 value emitted on synthetics_probe and synthetics_test.
@@ -113,6 +119,15 @@ type instruments struct {
 	dnsAuthorityCountGauge   apimetric.Float64ObservableGauge
 	dnsAdditionalCountGauge  apimetric.Float64ObservableGauge
 	tcpInfoGauge             apimetric.Float64ObservableGauge
+	// Heartbeat family
+	heartbeatGauge           apimetric.Float64ObservableGauge
+	heartbeatResultInfo      apimetric.Float64ObservableGauge
+	heartbeatSuppressedGauge apimetric.Float64ObservableGauge
+	heartbeatLastReceived    apimetric.Float64ObservableGauge
+	heartbeatPeriodSeconds   apimetric.Float64ObservableGauge
+	heartbeatGraceSeconds    apimetric.Float64ObservableGauge
+	heartbeatExitCodeGauge   apimetric.Float64ObservableGauge
+	heartbeatReceivedTotal   apimetric.Int64Counter
 	// Test family — K6Test, PlaywrightTest
 	testGauge                apimetric.Float64ObservableGauge
 	testResultInfo           apimetric.Float64ObservableGauge
@@ -152,9 +167,14 @@ type dependsKey = crKey
 // sibling maps written by reconcilers on spec change, read by the observe
 // callback.
 type Store struct {
+	// Now is the clock used to judge heartbeat freshness at scrape time.
+	// Injectable so tests can advance past a deadline without sleeping.
+	Now func() time.Time
+
 	mu                sync.RWMutex
 	probes            map[crKey]ProbeState
 	tests             map[crKey]TestState
+	heartbeats        map[crKey]HeartbeatState
 	depends           map[crKey][]syntheticsv1alpha1.DependencyRef
 	metricLabels      map[crKey]map[string]string
 	registry          *promclient.Registry
@@ -187,8 +207,10 @@ func NewStore() (*Store, error) {
 	}
 
 	store := &Store{
+		Now:          time.Now,
 		probes:       map[crKey]ProbeState{},
 		tests:        map[crKey]TestState{},
+		heartbeats:   map[crKey]HeartbeatState{},
 		depends:      map[crKey][]syntheticsv1alpha1.DependencyRef{},
 		metricLabels: map[crKey]map[string]string{},
 		registry:     registry,
@@ -309,6 +331,40 @@ func newInstruments(meter apimetric.Meter) (instruments, error) {
 		return instr, err
 	}
 
+	// Heartbeat family
+	if instr.heartbeatGauge, err = meter.Float64ObservableGauge("synthetics_heartbeat",
+		apimetric.WithDescription("Heartbeat healthy (1) / unhealthy (0), evaluated at scrape time against period + grace. For why, join against synthetics_heartbeat_result_info.")); err != nil {
+		return instr, err
+	}
+	if instr.heartbeatResultInfo, err = meter.Float64ObservableGauge("synthetics_heartbeat_result_info",
+		apimetric.WithDescription("Info gauge (always 1) carrying the current result label: ok, pending, missed, or reported_failure.")); err != nil {
+		return instr, err
+	}
+	if instr.heartbeatSuppressedGauge, err = meter.Float64ObservableGauge("synthetics_heartbeat_suppressed",
+		apimetric.WithDescription("1 when an unhealthy heartbeat is suppressed because a transitive dependency is failing. Labels name the deepest unhealthy dep.")); err != nil {
+		return instr, err
+	}
+	if instr.heartbeatLastReceived, err = meter.Float64ObservableGauge("synthetics_heartbeat_last_received_timestamp",
+		apimetric.WithDescription("Unix timestamp of the last ping received; 0 if none has ever arrived.")); err != nil {
+		return instr, err
+	}
+	if instr.heartbeatPeriodSeconds, err = meter.Float64ObservableGauge("synthetics_heartbeat_expected_period_seconds",
+		apimetric.WithDescription("Configured spec.period in seconds. Exposed so alert rules can be written against the contract rather than hard-coding it.")); err != nil {
+		return instr, err
+	}
+	if instr.heartbeatGraceSeconds, err = meter.Float64ObservableGauge("synthetics_heartbeat_grace_seconds",
+		apimetric.WithDescription("Configured spec.grace in seconds.")); err != nil {
+		return instr, err
+	}
+	if instr.heartbeatExitCodeGauge, err = meter.Float64ObservableGauge("synthetics_heartbeat_last_exit_code",
+		apimetric.WithDescription("Exit code reported on the last ping; 0 when none was supplied.")); err != nil {
+		return instr, err
+	}
+	if instr.heartbeatReceivedTotal, err = meter.Int64Counter("synthetics_heartbeat_received_total",
+		apimetric.WithDescription("Total heartbeat pings received, by outcome.")); err != nil {
+		return instr, err
+	}
+
 	// Counters
 	if instr.resultsReceivedTotal, err = meter.Int64Counter("synthetics_test_results_received_total",
 		apimetric.WithDescription("Total test results received via NATS")); err != nil {
@@ -332,6 +388,10 @@ func (s *Store) registerCallback(meter apimetric.Meter) error {
 		for key, state := range s.tests {
 			s.observeTest(observer, key.name, state, instr)
 		}
+		now := s.clock()
+		for key, state := range s.heartbeats {
+			s.observeHeartbeat(observer, key.name, state, instr, now)
+		}
 		return nil
 	},
 		// Probe family instruments
@@ -342,6 +402,10 @@ func (s *Store) registerCallback(meter apimetric.Meter) error {
 		instr.dnsResponseMsGauge, instr.dnsFirstAnswerValueGauge, instr.dnsFirstAnswerTypeGauge,
 		instr.dnsAnswerCountGauge, instr.dnsAuthorityCountGauge, instr.dnsAdditionalCountGauge,
 		instr.tcpInfoGauge,
+		// Heartbeat family instruments
+		instr.heartbeatGauge, instr.heartbeatResultInfo, instr.heartbeatSuppressedGauge,
+		instr.heartbeatLastReceived, instr.heartbeatPeriodSeconds, instr.heartbeatGraceSeconds,
+		instr.heartbeatExitCodeGauge,
 		// Test family instruments
 		instr.testGauge, instr.testResultInfo, instr.testSuppressedGauge,
 		instr.testDurationGauge, instr.testLastRunGauge,
@@ -589,6 +653,7 @@ func (s *Store) Delete(kind string, name types.NamespacedName) {
 	key := crKey{kind: kind, name: name}
 	delete(s.probes, key)
 	delete(s.tests, key)
+	delete(s.heartbeats, key)
 }
 
 // SetDepends records the dependency list for a probe or test. The reconciler
@@ -705,6 +770,9 @@ func (s *Store) isFailingLocked(kind string, name types.NamespacedName) bool {
 	case string(syntheticsv1alpha1.DependencyKindK6Test), string(syntheticsv1alpha1.DependencyKindPlaywrightTest):
 		state, ok := s.tests[crKey{kind: kind, name: name}]
 		return ok && state.Result != ResultOK
+	case string(syntheticsv1alpha1.DependencyKindHeartbeat):
+		state, ok := s.heartbeats[crKey{kind: kind, name: name}]
+		return ok && state.evaluate(s.clock()) != ResultOK
 	}
 	return false
 }

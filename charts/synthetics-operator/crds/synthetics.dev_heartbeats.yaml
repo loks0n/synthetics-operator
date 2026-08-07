@@ -4,24 +4,30 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: httpprobes.synthetics.dev
+  name: heartbeats.synthetics.dev
 spec:
   group: synthetics.dev
   names:
-    kind: HTTPProbe
-    listKind: HTTPProbeList
-    plural: httpprobes
+    kind: Heartbeat
+    listKind: HeartbeatList
+    plural: heartbeats
     shortNames:
-    - hp
-    singular: httpprobe
+    - hb
+    singular: heartbeat
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.request.url
-      name: URL
+    - jsonPath: .spec.period
+      name: Period
       type: string
-    - jsonPath: .spec.interval
-      name: Interval
+    - jsonPath: .spec.grace
+      name: Grace
+      type: string
+    - jsonPath: .status.lastPingTime
+      name: Last Ping
+      type: date
+    - jsonPath: .status.lastResult
+      name: Last Result
       type: string
     - jsonPath: .spec.suspend
       name: Suspend
@@ -32,6 +38,12 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: |-
+          Named "Last Result", not "Result": this is what the most recent ping said,
+          not whether the heartbeat is currently healthy. A heartbeat whose last ping
+          succeeded an hour ago still reads "ok" here while its metric has long since
+          gone to `missed`. Freshness is evaluated at scrape time and deliberately
+          has no CR field — see synthetics_heartbeat.
         properties:
           apiVersion:
             description: |-
@@ -51,33 +63,20 @@ spec:
           metadata:
             type: object
           spec:
+            description: |-
+              HeartbeatSpec configures an inbound liveness check: a job somewhere outside
+              the cluster pings a generated URL on every successful run, and the operator
+              reports the heartbeat down once a ping fails to arrive in time.
+
+              This inverts every other kind in this API. The operator does not reach out
+              to a target on a schedule; it waits. There is therefore no timeout, no
+              assertion language, and no prober involvement — Period and Grace are the
+              whole health contract.
             properties:
-              assertions:
-                items:
-                  description: "Assertion is a named pass/fail check evaluated against
-                    a probe result.\nThe Expr field uses a simple expression language:\n\n\tvariable
-                    op value\n\nOperators: =, !=, <, <=, >, >=\nValue must be a numeric
-                    literal.\n\nHTTP variables:  status_code, duration_ms, ssl_expiry_days\nDNS
-                    variables:   answer_count, duration_ms\nTCP variables:   duration_ms"
-                  properties:
-                    expr:
-                      description: Expr is the expression to evaluate, e.g. "status_code
-                        = 200".
-                      type: string
-                    name:
-                      description: |-
-                        Name identifies the assertion and is used as the "reason" label on the
-                        probe_success metric when this assertion fails.
-                      type: string
-                  required:
-                  - expr
-                  - name
-                  type: object
-                type: array
               depends:
                 description: |-
                   Depends lists other probes or tests in the same namespace whose failure
-                  should suppress alerts on this probe. See DependencyRef.
+                  should suppress alerts on this heartbeat. See DependencyRef.
                 items:
                   description: |-
                     DependencyRef points to another synthetics.dev CR in the same namespace.
@@ -103,83 +102,45 @@ spec:
                   - name
                   type: object
                 type: array
-              interval:
+              grace:
+                description: |-
+                  Grace is extra slack allowed on top of Period before the heartbeat is
+                  reported down. A job that runs every minute but occasionally takes two
+                  wants period 1m, grace 3m. Defaults to Period.
                 type: string
               metricLabels:
                 additionalProperties:
                   type: string
                 description: |-
                   MetricLabels are user-supplied key/value pairs appended to every
-                  Prometheus metric the operator emits for this probe. Use for team,
-                  environment, or tier filtering. Avoid high-cardinality values (user
-                  IDs, timestamps, request IDs) — each unique value creates a new
-                  Prometheus time-series.
+                  Prometheus metric the operator emits for this heartbeat.
                 type: object
-              request:
+              period:
+                description: Period is how often a ping is expected. Required.
+                type: string
+              suspend:
+                description: |-
+                  Suspend stops evaluating freshness without deleting the Heartbeat or
+                  rotating its token. Pings that arrive while suspended are accepted and
+                  acknowledged, but emit no metrics. Use for planned maintenance.
+                type: boolean
+              tokenSecretRef:
+                description: |-
+                  TokenSecretRef adopts an existing token instead of generating one. The
+                  referenced Secret must already exist in the same namespace and is left
+                  untouched by the operator — you own its lifecycle and rotation. Leave
+                  empty to have the operator mint a token into a Secret it owns.
                 properties:
-                  body:
+                  key:
+                    default: token
                     type: string
-                  headers:
-                    additionalProperties:
-                      type: string
-                    type: object
-                  headersFrom:
-                    description: |-
-                      HeadersFrom sets request headers from Kubernetes Secrets in the probe's
-                      namespace, for credentials that must not appear as literals in the CR
-                      (API keys, tokens). Resolved by the controller when the spec snapshot is
-                      published; on conflict with Headers, HeadersFrom wins.
-                    items:
-                      description: HeaderFromSource names one request header sourced
-                        from a Secret key.
-                      properties:
-                        name:
-                          description: Name is the HTTP header to set.
-                          type: string
-                        secretKeyRef:
-                          description: SecretKeyRef selects the Secret key holding
-                            the header value.
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                          required:
-                          - key
-                          - name
-                          type: object
-                      required:
-                      - name
-                      - secretKeyRef
-                      type: object
-                    type: array
-                  method:
-                    type: string
-                  url:
+                  name:
                     type: string
                 required:
-                - url
-                type: object
-              suspend:
-                type: boolean
-              timeout:
-                type: string
-              tls:
-                description: TLSConfig controls TLS verification for the probe request.
-                properties:
-                  caCert:
-                    description: |-
-                      CACert is a PEM-encoded CA certificate to trust in addition to the
-                      system roots. Use for internal PKI or self-signed CA certificates.
-                    type: string
-                  insecureSkipVerify:
-                    description: |-
-                      InsecureSkipVerify disables server certificate verification. Use for
-                      self-signed certificates in dev/test environments.
-                    type: boolean
+                - name
                 type: object
             required:
-            - request
+            - period
             type: object
           status:
             properties:
@@ -239,29 +200,33 @@ spec:
                   - type
                   type: object
                 type: array
-              lastFailureTime:
+              lastPingTime:
+                description: |-
+                  LastPingTime is the arrival time of the most recent ping. Persisted here
+                  so a metrics-consumer restart reseeds from the API server rather than
+                  reporting every heartbeat as pending until its next ping — which for a
+                  daily backup job would mean a day of false alerts.
                 format: date-time
                 type: string
-              lastRunTime:
-                format: date-time
-                type: string
-              lastSuccessTime:
-                format: date-time
+              lastResult:
+                description: |-
+                  LastResult is the outcome the most recent ping reported: ok for a plain
+                  ping or exit code 0, failed for /fail or a non-zero exit code.
                 type: string
               observedGeneration:
                 format: int64
                 type: integer
-              summary:
-                properties:
-                  configError:
-                    type: boolean
-                  message:
-                    type: string
-                  statusCode:
-                    type: integer
-                  success:
-                    type: boolean
-                type: object
+              tokenSecretName:
+                description: |-
+                  TokenSecretName names the Secret holding the token, whether the operator
+                  generated it or spec.tokenSecretRef supplied it.
+                type: string
+              url:
+                description: |-
+                  URL is the full endpoint the monitored job should ping. Readable by
+                  anyone with get access to this Heartbeat; the same value is also written
+                  to the token Secret for jobs that should not need CRD permissions.
+                type: string
             type: object
         type: object
     served: true
