@@ -38,9 +38,15 @@ Plus a fleet-level **Overview** — failing probes, upstream-attributed suppress
 
 ![Synthetics / Overview dashboard — fleet stats, currently failing, certs expiring](docs/images/overview-dashboard.png)
 
+Heartbeats invert the direction — the job checks in, and a missing check-in is the failure. The **Heartbeats** dashboard is fleet-first, since these tend to arrive in the hundreds:
+
+![Synthetics / Heartbeats dashboard — fleet table with per-heartbeat result, how overdue each one is against its own period + grace, and an availability ribbon](docs/images/heartbeat-dashboard.png)
+
+All four states are visible above: `ok`, `missed` (deadline passed with no ping), `reported_failure` (checked in on time to say the job failed), and `pending` (never pinged).
+
 ## Features
 
-- **Unified** — HTTP, DNS, TCP, TLS, Playwright, k6 under one API
+- **Unified** — HTTP, DNS, TCP, TLS, Playwright, k6, and inbound heartbeats under one API
 - **Opinionated** — curated runtimes (Playwright for browser, k6 for load); no arbitrary scripts
 - **Prometheus-native** — `/metrics` endpoint, importable Grafana dashboards, shipped PrometheusRule + Grafana alert sets
 - **Self-contained** — runs entirely in-cluster, no data egress, no SaaS component
@@ -59,7 +65,7 @@ helm install synthetics-operator \
   --set nats.enabled=true
 ```
 
-Every image (controller, webhook, prober, metrics, test-sidecar, k6-runner, playwright-runner) defaults to the chart's AppVersion — no image pinning flags needed for a straight install. Override individually with `--set controller.image.ref=…` etc. if you need custom builds.
+Every image (controller, webhook, prober, metrics, heartbeat, test-sidecar, k6-runner, playwright-runner) defaults to the chart's AppVersion — no image pinning flags needed for a straight install. Override individually with `--set controller.image.ref=…` etc. if you need custom builds.
 
 Helm does not update CRDs that already exist. Before upgrading an existing installation to a release that adds TCPProbe, apply the release's CRDs, then upgrade the chart:
 
@@ -79,6 +85,21 @@ The prober scales horizontally off the NATS queue group. Raise `prober.replicaCo
 
 The default trigger is 70% CPU; `prober.autoscaling.triggers` is passed to the `ScaledObject` verbatim, so any KEDA scaler works. KEDA itself is not installed by this chart.
 
+### Heartbeats
+
+`Heartbeat` is the one kind that needs inbound traffic, so its receiver is off by default. Enable it, tell the operator what origin to render URLs against, and publish it:
+
+```sh
+--set heartbeat.enabled=true \
+--set heartbeat.baseUrl=https://heartbeats.example.com \
+--set heartbeat.httpRoute.enabled=true \
+--set heartbeat.httpRoute.hostname=heartbeats.example.com \
+--set heartbeat.httpRoute.parentRefs[0].name=<gateway> \
+--set heartbeat.httpRoute.parentRefs[0].namespace=<gateway-namespace>
+```
+
+That's one A record and one ordinary certificate — the per-heartbeat token travels in the URL path, not in a wildcard subdomain, so it never appears in a DNS query or in TLS SNI. Without Gateway API, leave `httpRoute.enabled=false` and point your own Ingress at the `synthetics-operator-heartbeat` Service on port 8080.
+
 ## CRDs
 
 | Kind | Runs via | For |
@@ -88,6 +109,7 @@ The default trigger is 70% CPU; `prober.autoscaling.triggers` is passed to the `
 | `TCPProbe` | in-cluster prober | TCP host/port reachability and connection latency |
 | `PlaywrightTest` | Kubernetes CronJob | Scripted browser flows (multi-step journeys) |
 | `K6Test` | Kubernetes CronJob | Load and performance testing |
+| `Heartbeat` | nothing — inbound | Liveness of jobs the operator can't reach: cron, backups, workers |
 
 Ready-to-apply specs in [`examples/`](examples/). Full schema, assertion grammar, and dependency semantics in [`docs/design.md`](docs/design.md).
 
@@ -103,6 +125,8 @@ Six Grafana dashboards ship in [`dashboards/`](dashboards/). Drop them into a Co
 - **Synthetics / TCP** — per-TCPProbe: availability, endpoint, connection duration, assertions
 - **Synthetics / Playwright** — per-test status, per-case pass/fail ribbons, durations
 - **Synthetics / K6** — per-test status, duration trend
+
+Heartbeats have no dashboard yet; `synthetics_heartbeat == 0` with the `result` label off `synthetics_heartbeat_result_info` covers the alerting case today.
 
 The Overview's table rows data-link straight into the right per-kind dashboard with the probe name pre-selected.
 

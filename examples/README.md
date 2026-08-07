@@ -12,6 +12,14 @@ Drop-in manifests for the CRDs the operator manages. Each one is meant to be a m
 | [`dnsprobe-mx.yaml`](dnsprobe-mx.yaml) | MX-record probe for mail routing |
 | [`tcpprobe-basic.yaml`](tcpprobe-basic.yaml) | TCP host/port availability and connection-duration assertion |
 
+## Heartbeats
+
+| File | Demonstrates |
+|---|---|
+| [`heartbeat-basic.yaml`](heartbeat-basic.yaml) | Inbound liveness for a nightly backup, with the CronJob that pings it |
+
+Heartbeats run the other way round from probes: the job checks in, and a missing check-in is the failure. They need `heartbeat.enabled=true` and a reachable `heartbeat.baseUrl` in the chart — see design doc §2.5.
+
 ## Tests
 
 | File | Demonstrates |

@@ -1,0 +1,58 @@
+# Inbound liveness for a job the operator can't reach. Nothing is dispatched;
+# the operator waits for the job to check in and reports it down when a
+# check-in stops arriving.
+apiVersion: synthetics.dev/v1alpha1
+kind: Heartbeat
+metadata:
+  name: db-nightly-backup
+spec:
+  # Expect a ping once a day, and allow it to be up to five hours late before
+  # calling it down — a backup that starts on time can still run long.
+  period: 24h
+  grace: 5h
+  metricLabels:
+    team: infra
+---
+# The job that pings it. The operator mints a token on first reconcile and
+# writes both it and the assembled URL into `<heartbeat-name>-heartbeat`, so
+# the CronJob mounts one key and needs no RBAC on the Heartbeat itself.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-nightly-backup
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:17-alpine
+              env:
+                - name: HEARTBEAT_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: db-nightly-backup-heartbeat
+                      key: url
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -o pipefail
+                  output=$(pg_dump "$DATABASE_URL" | gzip > /backup/db.sql.gz 2>&1)
+                  # Report the exit code either way: 0 checks in as healthy,
+                  # anything else marks the heartbeat failed immediately
+                  # rather than waiting for the window to lapse. The body is
+                  # captured as job output and logged with the ping.
+                  curl -fsS --retry 3 --max-time 10 \
+                    -d "$output" "$HEARTBEAT_URL/$?" || true
+---
+# To read the URL by hand:
+#   kubectl get heartbeat db-nightly-backup -o jsonpath='{.status.url}'
+#
+# The three request shapes match Better Stack, so an existing cron job only
+# needs its hostname swapped:
+#   curl "$HEARTBEAT_URL"          # the run succeeded
+#   curl "$HEARTBEAT_URL/fail"     # the run failed
+#   curl "$HEARTBEAT_URL/$?"       # the run finished with that exit code
