@@ -1,4 +1,4 @@
-// Command prober executes HTTPProbe and DNSProbe runs. Stateless: pulls
+// Command prober executes HTTPProbe, DNSProbe, and TCPProbe runs. Stateless: pulls
 // jobs from synthetics.probes.jobs via a NATS queue group and publishes
 // results to synthetics.probes.results. Each job carries the spec it needs,
 // so there is nothing to hydrate at startup. No Kubernetes API access.
@@ -53,7 +53,7 @@ func run(log logr.Logger, natsURL string) error {
 	healthErr := serveHealth(ctx, log.WithName("health"))
 	workerErr := make(chan error, 1)
 
-	worker := &prober.Worker{Log: log, Bus: bus, Publisher: bus}
+	worker := prober.NewWorker(log, bus, bus)
 	go func() { workerErr <- worker.Start(ctx) }()
 
 	select {

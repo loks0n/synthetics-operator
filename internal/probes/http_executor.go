@@ -1,7 +1,7 @@
-// Package probes implements HTTP and DNS probe execution plus the
+// Package probes implements HTTP, DNS, and TCP probe execution plus the
 // in-process scheduler. The scheduler publishes probe jobs to NATS; the
-// executors themselves are pure logic shared with the prober
-// deployment.
+// per-kind executors form the complete job-to-result interface used by the
+// prober deployment.
 package probes
 
 import (
@@ -18,15 +18,8 @@ import (
 	"strings"
 	"time"
 
-	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
+	"github.com/loks0n/synthetics-operator/internal/results"
 )
-
-// Executor runs a single HTTP probe and returns the result. Declared as an
-// interface so the prober package can call against the abstraction
-// without importing the concrete transport-specific details.
-type Executor interface {
-	Execute(context.Context, *syntheticsv1alpha1.HTTPProbe) Result
-}
 
 // HTTPExecutor satisfies Executor at compile time.
 var _ Executor = HTTPExecutor{}
@@ -36,10 +29,9 @@ type HTTPExecutor struct {
 	Client *http.Client
 }
 
-// Result holds the outcome of a single HTTP probe execution. Callers
-// inspect the ConfigError / TransportErr / StatusCode fields to decide
-// what Result enum value to emit.
-type Result struct {
+// httpResult holds transport details while HTTPExecutor builds the public
+// ProbeResult returned through the Executor interface.
+type httpResult struct {
 	ConfigError       bool
 	TransportErr      error
 	StatusCode        int
@@ -57,13 +49,63 @@ type Result struct {
 
 // Success reports whether the HTTP request completed end-to-end. Assertion
 // outcomes are evaluated separately.
-func (r Result) Success() bool { return !r.ConfigError && r.TransportErr == nil }
+func (r httpResult) success() bool { return !r.ConfigError && r.TransportErr == nil }
 
-func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTTPProbe) Result {
+type httpRequest struct {
+	URL     string
+	Method  string
+	Headers map[string]string
+	Body    string
+	TLS     *results.TLSConfig
+}
+
+// Execute owns the full HTTPProbe job-to-result policy.
+func (e HTTPExecutor) Execute(ctx context.Context, job results.ProbeJob) results.ProbeResult {
+	payload := job.Spec.HTTPProbe
+	if payload == nil {
+		return configErrorResult(job)
+	}
+
+	runCtx, cancel := runContext(ctx, payload.TimeoutMs)
+	defer cancel()
+
+	raw := e.executeRequest(runCtx, httpRequest{
+		URL: payload.URL, Method: payload.Method, Headers: payload.Headers,
+		Body: payload.Body, TLS: payload.TLS,
+	})
+	out := probeResult(job)
+	out.DurationMs = raw.Duration.Milliseconds()
+	out.URL = payload.URL
+	out.Method = strings.ToUpper(payload.Method)
+	out.HTTPStatusCode = raw.StatusCode
+	out.HTTPVersion = raw.HTTPVersion
+	out.HTTPPhaseDNSMs = raw.PhaseDNSMs
+	out.HTTPPhaseConnectMs = raw.PhaseConnectMs
+	out.HTTPPhaseTLSMs = raw.PhaseTLSMs
+	out.HTTPPhaseProcessingMs = raw.PhaseProcessingMs
+	out.HTTPPhaseTransferMs = raw.PhaseTransferMs
+	if raw.CertExpiryTime != nil {
+		out.TLSCertExpiryUnix = raw.CertExpiryTime.Unix()
+	}
+
+	switch {
+	case raw.ConfigError:
+		out.Result = "config_error"
+	case raw.TransportErr != nil:
+		out.Result = classifyHTTPTransport(raw.TransportErr)
+	case len(payload.Assertions) > 0:
+		out.Result, out.FailedAssertion, out.AssertionResults = evalHTTPAssertions(raw, payload.Assertions)
+	default:
+		out.Result = "ok"
+	}
+	return out
+}
+
+func (e HTTPExecutor) executeRequest(ctx context.Context, request httpRequest) httpResult {
 	start := time.Now()
-	parsedURL, err := url.Parse(probe.Spec.Request.URL)
+	parsedURL, err := url.Parse(request.URL)
 	if err != nil || parsedURL == nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
-		return Result{
+		return httpResult{
 			ConfigError: true,
 			Completed:   time.Now(),
 			Duration:    time.Since(start),
@@ -72,20 +114,20 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 	}
 
 	var bodyReader io.Reader
-	if probe.Spec.Request.Body != "" {
-		bodyReader = strings.NewReader(probe.Spec.Request.Body)
+	if request.Body != "" {
+		bodyReader = strings.NewReader(request.Body)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(probe.Spec.Request.Method), probe.Spec.Request.URL, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(request.Method), request.URL, bodyReader)
 	if err != nil {
-		return Result{
+		return httpResult{
 			ConfigError: true,
 			Completed:   time.Now(),
 			Duration:    time.Since(start),
 			Message:     fmt.Sprintf("build request: %v", err),
 		}
 	}
-	for key, val := range probe.Spec.Request.Headers {
+	for key, val := range request.Headers {
 		req.Header.Set(key, val)
 	}
 
@@ -109,10 +151,10 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 
 	httpClient := e.Client
-	if probe.Spec.TLS != nil {
-		tlsClient, tlsErr := e.buildTLSClient(probe)
+	if request.TLS != nil {
+		tlsClient, tlsErr := e.buildTLSClient(request.TLS)
 		if tlsErr != nil {
-			return Result{
+			return httpResult{
 				ConfigError: true,
 				Completed:   time.Now(),
 				Duration:    time.Since(start),
@@ -127,7 +169,7 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return Result{
+		return httpResult{
 			TransportErr: err,
 			Completed:    time.Now(),
 			Duration:     time.Since(start),
@@ -154,7 +196,7 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 		certExpiry = &t
 	}
 
-	return Result{
+	return httpResult{
 		StatusCode:        resp.StatusCode,
 		HTTPVersion:       parseHTTPVersion(resp.Proto),
 		Completed:         time.Now(),
@@ -169,13 +211,13 @@ func (e HTTPExecutor) Execute(ctx context.Context, probe *syntheticsv1alpha1.HTT
 	}
 }
 
-func (e HTTPExecutor) buildTLSClient(probe *syntheticsv1alpha1.HTTPProbe) (*http.Client, error) {
+func (e HTTPExecutor) buildTLSClient(config *results.TLSConfig) (*http.Client, error) {
 	tlsCfg := &tls.Config{
-		InsecureSkipVerify: probe.Spec.TLS.InsecureSkipVerify,
+		InsecureSkipVerify: config.InsecureSkipVerify,
 	}
-	if probe.Spec.TLS.CACert != "" {
+	if config.CACert != "" {
 		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM([]byte(probe.Spec.TLS.CACert)) {
+		if !pool.AppendCertsFromPEM([]byte(config.CACert)) {
 			return nil, errors.New("tls.caCert contains no valid PEM certificates")
 		}
 		tlsCfg.RootCAs = pool
@@ -191,10 +233,9 @@ func newTransport() *http.Transport {
 	return t
 }
 
-// ClassifyHTTPTransport maps an http.Client.Do error to a result-class
-// string (matching metrics.Result values). Called by probers after
-// Execute when TransportErr is non-nil.
-func ClassifyHTTPTransport(err error) string {
+// classifyHTTPTransport maps an http.Client.Do error to the public result
+// vocabulary.
+func classifyHTTPTransport(err error) string {
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return "dns_failed"

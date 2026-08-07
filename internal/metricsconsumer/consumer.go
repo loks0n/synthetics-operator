@@ -54,7 +54,7 @@ func (c *Consumer) onSpec(_ context.Context, msg results.SpecUpdate) {
 	name := types.NamespacedName{Namespace: msg.Namespace, Name: msg.Name}
 	kind := string(msg.Kind)
 	if msg.Deleted {
-		c.Store.Delete(name)
+		c.Store.Delete(kind, name)
 		c.Store.ClearDepends(kind, name)
 		c.Store.ClearMetricLabels(kind, name)
 		return
@@ -85,6 +85,8 @@ func (c *Consumer) onProbeResult(_ context.Context, msg results.ProbeResult) {
 		DNSAnswerCount:        float64(msg.DNSAnswerCount),
 		DNSAuthorityCount:     float64(msg.DNSAuthorityCount),
 		DNSAdditionalCount:    float64(msg.DNSAdditionalCount),
+		TCPHost:               msg.TCPHost,
+		TCPPort:               msg.TCPPort,
 	}
 	if msg.TLSCertExpiryUnix > 0 {
 		state.TLSCertExpiry = float64(msg.TLSCertExpiryUnix)

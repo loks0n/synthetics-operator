@@ -1,5 +1,5 @@
 // Command controller runs the reconciler, scheduler, and transition-event
-// notifier. Watches the four CRDs, publishes spec snapshots + probe jobs to
+// notifier. Watches the five CRDs, publishes spec snapshots + probe jobs to
 // NATS. Does not execute probes or serve /metrics — those live in the
 // prober and metrics binaries.
 package main
@@ -173,6 +173,16 @@ func run(
 		Clock:     time.Now,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("creating DNSProbe controller: %w", err)
+	}
+
+	if err := (&controllers.TCPProbeReconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Scheduler: scheduler,
+		Publisher: bus,
+		Clock:     time.Now,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("creating TCPProbe controller: %w", err)
 	}
 
 	if err := (&controllers.K6TestReconciler{

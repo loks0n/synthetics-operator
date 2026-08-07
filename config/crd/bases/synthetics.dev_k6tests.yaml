@@ -71,6 +71,7 @@ spec:
                       enum:
                       - HTTPProbe
                       - DNSProbe
+                      - TCPProbe
                       - K6Test
                       - PlaywrightTest
                       type: string

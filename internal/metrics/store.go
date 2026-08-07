@@ -31,6 +31,7 @@ const (
 	ResultDNSFailed       Result = "dns_failed"
 	ResultConnectRefused  Result = "connect_refused"
 	ResultConnectTimeout  Result = "connect_timeout"
+	ResultConnectFailed   Result = "connect_failed"
 	ResultTLSFailed       Result = "tls_failed"
 	ResultRecvTimeout     Result = "recv_timeout"
 	ResultAssertionFailed Result = "assertion_failed"
@@ -52,9 +53,9 @@ type AssertionResult struct {
 	Result float64 // 1 = pass, 0 = fail
 }
 
-// ProbeState holds the last-run state of an HTTPProbe or DNSProbe.
+// ProbeState holds the last-run state of an HTTPProbe, DNSProbe, or TCPProbe.
 type ProbeState struct {
-	Kind                 string // "HTTPProbe" | "DNSProbe"
+	Kind                 string // "HTTPProbe" | "DNSProbe" | "TCPProbe"
 	Result               Result
 	FailedAssertion      string // populated only when Result == ResultAssertionFailed
 	DurationMilliseconds float64
@@ -77,6 +78,9 @@ type ProbeState struct {
 	DNSAnswerCount      float64
 	DNSAuthorityCount   float64
 	DNSAdditionalCount  float64
+	// TCP-specific fields
+	TCPHost string
+	TCPPort int32
 }
 
 // TestState holds the last-run state of a K6Test or PlaywrightTest.
@@ -90,7 +94,7 @@ type TestState struct {
 }
 
 type instruments struct {
-	// Probe family — HTTPProbe, DNSProbe
+	// Probe family — HTTPProbe, DNSProbe, TCPProbe
 	probeGauge               apimetric.Float64ObservableGauge
 	probeResultInfo          apimetric.Float64ObservableGauge
 	probeSuppressedGauge     apimetric.Float64ObservableGauge
@@ -108,6 +112,7 @@ type instruments struct {
 	dnsAnswerCountGauge      apimetric.Float64ObservableGauge
 	dnsAuthorityCountGauge   apimetric.Float64ObservableGauge
 	dnsAdditionalCountGauge  apimetric.Float64ObservableGauge
+	tcpInfoGauge             apimetric.Float64ObservableGauge
 	// Test family — K6Test, PlaywrightTest
 	testGauge                apimetric.Float64ObservableGauge
 	testResultInfo           apimetric.Float64ObservableGauge
@@ -148,8 +153,8 @@ type dependsKey = crKey
 // callback.
 type Store struct {
 	mu                sync.RWMutex
-	probes            map[types.NamespacedName]ProbeState
-	tests             map[types.NamespacedName]TestState
+	probes            map[crKey]ProbeState
+	tests             map[crKey]TestState
 	depends           map[crKey][]syntheticsv1alpha1.DependencyRef
 	metricLabels      map[crKey]map[string]string
 	registry          *promclient.Registry
@@ -182,8 +187,8 @@ func NewStore() (*Store, error) {
 	}
 
 	store := &Store{
-		probes:       map[types.NamespacedName]ProbeState{},
-		tests:        map[types.NamespacedName]TestState{},
+		probes:       map[crKey]ProbeState{},
+		tests:        map[crKey]TestState{},
 		depends:      map[crKey][]syntheticsv1alpha1.DependencyRef{},
 		metricLabels: map[crKey]map[string]string{},
 		registry:     registry,
@@ -259,6 +264,10 @@ func newInstruments(meter apimetric.Meter) (instruments, error) {
 	if instr.dnsAdditionalCountGauge, err = meter.Float64ObservableGauge("synthetics_probe_dns_response_additional_count"); err != nil {
 		return instr, err
 	}
+	if instr.tcpInfoGauge, err = meter.Float64ObservableGauge("synthetics_probe_tcp_info",
+		apimetric.WithDescription("Static TCPProbe target configuration; value is always 1")); err != nil {
+		return instr, err
+	}
 
 	// Test family
 	if instr.testGauge, err = meter.Float64ObservableGauge("synthetics_test",
@@ -317,11 +326,11 @@ func (s *Store) registerCallback(meter apimetric.Meter) error {
 	_, err := meter.RegisterCallback(func(_ context.Context, observer apimetric.Observer) error {
 		s.mu.RLock()
 		defer s.mu.RUnlock()
-		for name, state := range s.probes {
-			s.observeProbe(observer, name, state, instr)
+		for key, state := range s.probes {
+			s.observeProbe(observer, key.name, state, instr)
 		}
-		for name, state := range s.tests {
-			s.observeTest(observer, name, state, instr)
+		for key, state := range s.tests {
+			s.observeTest(observer, key.name, state, instr)
 		}
 		return nil
 	},
@@ -332,6 +341,7 @@ func (s *Store) registerCallback(meter apimetric.Meter) error {
 		instr.httpPhaseDurationGauge, instr.httpInfoGauge, instr.assertionResultGauge,
 		instr.dnsResponseMsGauge, instr.dnsFirstAnswerValueGauge, instr.dnsFirstAnswerTypeGauge,
 		instr.dnsAnswerCountGauge, instr.dnsAuthorityCountGauge, instr.dnsAdditionalCountGauge,
+		instr.tcpInfoGauge,
 		// Test family instruments
 		instr.testGauge, instr.testResultInfo, instr.testSuppressedGauge,
 		instr.testDurationGauge, instr.testLastRunGauge,
@@ -385,7 +395,17 @@ func (s *Store) observeProbe(observer apimetric.Observer, name types.NamespacedN
 		s.observeHTTP(observer, attrs, state, instr)
 	case "DNSProbe":
 		s.observeDNS(observer, attrs, state, instr)
+	case "TCPProbe":
+		s.observeTCP(observer, attrs, state, instr)
 	}
+}
+
+func (s *Store) observeTCP(observer apimetric.Observer, attrs []attribute.KeyValue, state ProbeState, instr instruments) {
+	observer.ObserveFloat64(instr.tcpInfoGauge, 1, apimetric.WithAttributes(
+		append(attrs,
+			attribute.String("host", state.TCPHost),
+			attribute.Int64("port", int64(state.TCPPort)),
+		)...))
 }
 
 func (s *Store) observeHTTP(observer apimetric.Observer, attrs []attribute.KeyValue, state ProbeState, instr instruments) {
@@ -528,8 +548,9 @@ func (s *Store) RecordParseFailure(ctx context.Context) {
 // changes from the previous stored state.
 func (s *Store) Upsert(name types.NamespacedName, state ProbeState) {
 	s.mu.Lock()
-	prev, had := s.probes[name]
-	s.probes[name] = state
+	key := crKey{kind: state.Kind, name: name}
+	prev, had := s.probes[key]
+	s.probes[key] = state
 	cb := s.OnProbeTransition
 	s.mu.Unlock()
 	var prevResult Result
@@ -546,8 +567,9 @@ func (s *Store) Upsert(name types.NamespacedName, state ProbeState) {
 // the previous stored state.
 func (s *Store) UpsertTest(name types.NamespacedName, state TestState) {
 	s.mu.Lock()
-	prev, had := s.tests[name]
-	s.tests[name] = state
+	key := crKey{kind: state.Kind, name: name}
+	prev, had := s.tests[key]
+	s.tests[key] = state
 	cb := s.OnTestTransition
 	s.mu.Unlock()
 	var prevResult Result
@@ -559,14 +581,14 @@ func (s *Store) UpsertTest(name types.NamespacedName, state TestState) {
 	}
 }
 
-// Delete removes a probe or test from the store by name. Safe to call when
-// the name doesn't exist in either map. Does not touch the depends map —
-// call ClearDepends separately; reconcilers typically call both.
-func (s *Store) Delete(name types.NamespacedName) {
+// Delete removes exactly one probe or test identity. Does not touch depends
+// or metricLabels; callers clear those sibling maps separately.
+func (s *Store) Delete(kind string, name types.NamespacedName) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.probes, name)
-	delete(s.tests, name)
+	key := crKey{kind: kind, name: name}
+	delete(s.probes, key)
+	delete(s.tests, key)
 }
 
 // SetDepends records the dependency list for a probe or test. The reconciler
@@ -677,31 +699,29 @@ func (s *Store) walkDepsLocked(namespace string, deps []syntheticsv1alpha1.Depen
 
 func (s *Store) isFailingLocked(kind string, name types.NamespacedName) bool {
 	switch kind {
-	case string(syntheticsv1alpha1.DependencyKindHTTPProbe), string(syntheticsv1alpha1.DependencyKindDNSProbe):
-		state, ok := s.probes[name]
+	case string(syntheticsv1alpha1.DependencyKindHTTPProbe), string(syntheticsv1alpha1.DependencyKindDNSProbe), string(syntheticsv1alpha1.DependencyKindTCPProbe):
+		state, ok := s.probes[crKey{kind: kind, name: name}]
 		return ok && state.Result != ResultOK
 	case string(syntheticsv1alpha1.DependencyKindK6Test), string(syntheticsv1alpha1.DependencyKindPlaywrightTest):
-		state, ok := s.tests[name]
+		state, ok := s.tests[crKey{kind: kind, name: name}]
 		return ok && state.Result != ResultOK
 	}
 	return false
 }
 
-// Snapshot returns the last-run state for a probe. Returns (zero, false) if
-// the name isn't a probe — including if it's a test, which Snapshot does not
-// surface.
-func (s *Store) Snapshot(name types.NamespacedName) (ProbeState, bool) {
+// Snapshot returns the last-run state for an exact probe identity.
+func (s *Store) Snapshot(kind string, name types.NamespacedName) (ProbeState, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	state, ok := s.probes[name]
+	state, ok := s.probes[crKey{kind: kind, name: name}]
 	return state, ok
 }
 
 // SnapshotTest returns the last-run state for a test.
-func (s *Store) SnapshotTest(name types.NamespacedName) (TestState, bool) {
+func (s *Store) SnapshotTest(kind string, name types.NamespacedName) (TestState, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	state, ok := s.tests[name]
+	state, ok := s.tests[crKey{kind: kind, name: name}]
 	return state, ok
 }
 

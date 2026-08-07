@@ -1,298 +1,485 @@
 ---
 apiVersion: v1
 data:
-  synthetics-overview.json: "{\n  \"annotations\": {\"list\": []},\n  \"editable\"\
-    : true,\n  \"fiscalYearStartMonth\": 0,\n  \"graphTooltip\": 1,\n  \"refresh\"\
-    : \"30s\",\n  \"schemaVersion\": 39,\n  \"tags\": [\"synthetics\"],\n  \"templating\"\
-    : {\n    \"list\": [\n      {\n        \"name\": \"namespace\",\n        \"label\"\
-    : \"Namespace\",\n        \"type\": \"query\",\n        \"datasource\": {\"type\"\
-    : \"prometheus\", \"uid\": \"prometheus\"},\n        \"query\": {\"query\": \"\
-    label_values(synthetics_probe_last_run_timestamp, namespace)\", \"refId\": \"\
-    A\"},\n        \"refresh\": 2,\n        \"multi\": true,\n        \"includeAll\"\
-    : true,\n        \"allValue\": \".*\",\n        \"current\": {\"text\": \"All\"\
-    , \"value\": \"$__all\"},\n        \"sort\": 1\n      },\n      {\n        \"\
-    name\": \"kind\",\n        \"label\": \"Kind\",\n        \"type\": \"custom\"\
-    ,\n        \"query\": \"HTTPProbe, DNSProbe\",\n        \"multi\": true,\n   \
-    \     \"includeAll\": true,\n        \"allValue\": \".*\",\n        \"current\"\
-    : {\"text\": \"All\", \"value\": \"$__all\"}\n      }\n    ]\n  },\n  \"time\"\
-    : {\"from\": \"now-6h\", \"to\": \"now\"},\n  \"timepicker\": {\"refresh_intervals\"\
-    : [\"10s\", \"30s\", \"1m\", \"5m\"]},\n  \"timezone\": \"browser\",\n  \"title\"\
-    : \"Synthetics / Overview\",\n  \"uid\": \"synthetics-overview\",\n  \"version\"\
-    : 1,\n  \"panels\": [\n    {\n      \"id\": 1,\n      \"title\": \"Passing\",\n\
-    \      \"description\": \"Probes whose last run succeeded.\",\n      \"type\"\
-    : \"stat\",\n      \"datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"\
-    },\n      \"gridPos\": {\"h\": 5, \"w\": 5, \"x\": 0, \"y\": 0},\n      \"targets\"\
-    : [{\n        \"refId\": \"A\",\n        \"expr\": \"count(synthetics_probe{namespace=~\\\
-    \"$namespace\\\", kind=~\\\"$kind\\\"} == 1) OR on() vector(0)\"\n      }],\n\
-    \      \"options\": {\n        \"colorMode\": \"background\",\n        \"graphMode\"\
-    : \"area\",\n        \"justifyMode\": \"center\",\n        \"textMode\": \"value_and_name\"\
-    ,\n        \"reduceOptions\": {\"calcs\": [\"lastNotNull\"]}\n      },\n     \
-    \ \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"short\",\n\
-    \          \"color\": {\"mode\": \"fixed\", \"fixedColor\": \"green\"},\n    \
-    \      \"displayName\": \"PASS\"\n        }\n      }\n    },\n    {\n      \"\
-    id\": 2,\n      \"title\": \"Failing\",\n      \"description\": \"Probes whose\
-    \ last run failed (assertion or transport).\",\n      \"type\": \"stat\",\n  \
-    \    \"datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n  \
-    \    \"gridPos\": {\"h\": 5, \"w\": 5, \"x\": 5, \"y\": 0},\n      \"targets\"\
-    : [{\n        \"refId\": \"A\",\n        \"expr\": \"count(synthetics_probe{namespace=~\\\
-    \"$namespace\\\", kind=~\\\"$kind\\\"} == 0) OR on() vector(0)\"\n      }],\n\
-    \      \"options\": {\n        \"colorMode\": \"background\",\n        \"graphMode\"\
-    : \"area\",\n        \"justifyMode\": \"center\",\n        \"textMode\": \"value_and_name\"\
-    ,\n        \"reduceOptions\": {\"calcs\": [\"lastNotNull\"]}\n      },\n     \
-    \ \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"short\",\n\
-    \          \"color\": {\"mode\": \"thresholds\"},\n          \"thresholds\": {\"\
-    mode\": \"absolute\", \"steps\": [\n            {\"color\": \"green\", \"value\"\
-    : null},\n            {\"color\": \"red\", \"value\": 1}\n          ]},\n    \
-    \      \"displayName\": \"FAIL\"\n        }\n      }\n    },\n    {\n      \"\
-    id\": 3,\n      \"title\": \"Suppressed\",\n      \"description\": \"Failing probes\
-    \ attributed to an unhealthy dependency.\",\n      \"type\": \"stat\",\n     \
-    \ \"datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n     \
-    \ \"gridPos\": {\"h\": 5, \"w\": 5, \"x\": 10, \"y\": 0},\n      \"targets\":\
-    \ [{\n        \"refId\": \"A\",\n        \"expr\": \"count(synthetics_probe_suppressed{namespace=~\\\
-    \"$namespace\\\", kind=~\\\"$kind\\\"} == 1) OR on() vector(0)\"\n      }],\n\
-    \      \"options\": {\n        \"colorMode\": \"background\",\n        \"graphMode\"\
-    : \"area\",\n        \"justifyMode\": \"center\",\n        \"textMode\": \"value_and_name\"\
-    ,\n        \"reduceOptions\": {\"calcs\": [\"lastNotNull\"]}\n      },\n     \
-    \ \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"short\",\n\
-    \          \"color\": {\"mode\": \"thresholds\"},\n          \"thresholds\": {\"\
-    mode\": \"absolute\", \"steps\": [\n            {\"color\": \"blue\", \"value\"\
-    : null},\n            {\"color\": \"orange\", \"value\": 1}\n          ]},\n \
-    \         \"displayName\": \"UPSTREAM\"\n        }\n      }\n    },\n    {\n \
-    \     \"id\": 4,\n      \"title\": \"Pass rate (window)\",\n      \"description\"\
-    : \"Fraction of probe runs returning OK in the dashboard time range.\",\n    \
-    \  \"type\": \"stat\",\n      \"datasource\": {\"type\": \"prometheus\", \"uid\"\
-    : \"prometheus\"},\n      \"gridPos\": {\"h\": 5, \"w\": 9, \"x\": 15, \"y\":\
-    \ 0},\n      \"targets\": [{\n        \"refId\": \"A\",\n        \"expr\": \"\
-    avg(avg_over_time(synthetics_probe{namespace=~\\\"$namespace\\\", kind=~\\\"$kind\\\
-    \"}[$__range]))\"\n      }],\n      \"options\": {\n        \"colorMode\": \"\
-    background\",\n        \"graphMode\": \"area\",\n        \"justifyMode\": \"center\"\
-    ,\n        \"textMode\": \"value\",\n        \"reduceOptions\": {\"calcs\": [\"\
-    lastNotNull\"]}\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n\
-    \          \"unit\": \"percentunit\",\n          \"min\": 0,\n          \"max\"\
-    : 1,\n          \"decimals\": 2,\n          \"color\": {\"mode\": \"thresholds\"\
-    },\n          \"thresholds\": {\"mode\": \"absolute\", \"steps\": [\n        \
-    \    {\"color\": \"red\", \"value\": null},\n            {\"color\": \"orange\"\
-    , \"value\": 0.95},\n            {\"color\": \"yellow\", \"value\": 0.99},\n \
-    \           {\"color\": \"green\", \"value\": 0.999}\n          ]}\n        }\n\
-    \      }\n    },\n    {\n      \"id\": 5,\n      \"title\": \"Currently failing\"\
-    ,\n      \"description\": \"Probes whose last run failed. Click a name to jump\
-    \ to the Probes dashboard for full history.\",\n      \"type\": \"table\",\n \
-    \     \"datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n \
-    \     \"gridPos\": {\"h\": 10, \"w\": 14, \"x\": 0, \"y\": 5},\n      \"targets\"\
-    : [\n        {\n          \"refId\": \"A\",\n          \"expr\": \"(synthetics_probe_duration_ms{namespace=~\\\
-    \"$namespace\\\", kind=~\\\"$kind\\\"} + on (name, namespace, kind) group_left\
-    \ (result, failed_assertion) synthetics_probe_result_info{namespace=~\\\"$namespace\\\
-    \", kind=~\\\"$kind\\\"}) and on (name, namespace, kind) (synthetics_probe{namespace=~\\\
-    \"$namespace\\\", kind=~\\\"$kind\\\"} == 0)\",\n          \"format\": \"table\"\
-    ,\n          \"instant\": true\n        },\n        {\n          \"refId\": \"\
-    B\",\n          \"expr\": \"((time() - synthetics_probe_last_run_timestamp{namespace=~\\\
+  synthetics-overview.json: "{\n  \"annotations\": {\n    \"list\": []\n  },\n  \"\
+    editable\": true,\n  \"fiscalYearStartMonth\": 0,\n  \"graphTooltip\": 1,\n  \"\
+    refresh\": \"30s\",\n  \"schemaVersion\": 39,\n  \"tags\": [\n    \"synthetics\"\
+    \n  ],\n  \"templating\": {\n    \"list\": [\n      {\n        \"name\": \"namespace\"\
+    ,\n        \"label\": \"Namespace\",\n        \"type\": \"query\",\n        \"\
+    datasource\": {\n          \"type\": \"prometheus\",\n          \"uid\": \"prometheus\"\
+    \n        },\n        \"query\": {\n          \"query\": \"label_values({__name__=~\\\
+    \"synthetics_probe_last_run_timestamp|synthetics_test_last_run_timestamp\\\"},\
+    \ namespace)\",\n          \"refId\": \"A\"\n        },\n        \"refresh\":\
+    \ 2,\n        \"multi\": true,\n        \"includeAll\": true,\n        \"allValue\"\
+    : \".*\",\n        \"current\": {\n          \"text\": \"All\",\n          \"\
+    value\": \"$__all\"\n        },\n        \"sort\": 1\n      },\n      {\n    \
+    \    \"name\": \"kind\",\n        \"label\": \"Kind\",\n        \"type\": \"custom\"\
+    ,\n        \"query\": \"HTTPProbe, DNSProbe, TCPProbe\",\n        \"multi\": true,\n\
+    \        \"includeAll\": true,\n        \"allValue\": \".*\",\n        \"current\"\
+    : {\n          \"text\": \"All\",\n          \"value\": \"$__all\"\n        }\n\
+    \      }\n    ]\n  },\n  \"time\": {\n    \"from\": \"now-6h\",\n    \"to\": \"\
+    now\"\n  },\n  \"timepicker\": {\n    \"refresh_intervals\": [\n      \"10s\"\
+    ,\n      \"30s\",\n      \"1m\",\n      \"5m\"\n    ]\n  },\n  \"timezone\": \"\
+    browser\",\n  \"title\": \"Synthetics / Overview\",\n  \"uid\": \"synthetics-overview\"\
+    ,\n  \"version\": 1,\n  \"panels\": [\n    {\n      \"id\": 1,\n      \"title\"\
+    : \"Passing\",\n      \"description\": \"Probes whose last run succeeded.\",\n\
+    \      \"type\": \"stat\",\n      \"datasource\": {\n        \"type\": \"prometheus\"\
+    ,\n        \"uid\": \"prometheus\"\n      },\n      \"gridPos\": {\n        \"\
+    h\": 5,\n        \"w\": 5,\n        \"x\": 0,\n        \"y\": 0\n      },\n  \
+    \    \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\"\
+    : \"count((synthetics_probe{namespace=~\\\"$namespace\\\", kind=~\\\"$kind\\\"\
+    } or synthetics_test{namespace=~\\\"$namespace\\\", kind=~\\\"$kind\\\"}) == 1)\
+    \ OR on() vector(0)\"\n        }\n      ],\n      \"options\": {\n        \"colorMode\"\
+    : \"background\",\n        \"graphMode\": \"area\",\n        \"justifyMode\":\
+    \ \"center\",\n        \"textMode\": \"value_and_name\",\n        \"reduceOptions\"\
+    : {\n          \"calcs\": [\n            \"lastNotNull\"\n          ]\n      \
+    \  }\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"\
+    unit\": \"short\",\n          \"color\": {\n            \"mode\": \"fixed\",\n\
+    \            \"fixedColor\": \"green\"\n          },\n          \"displayName\"\
+    : \"PASS\"\n        }\n      }\n    },\n    {\n      \"id\": 2,\n      \"title\"\
+    : \"Failing\",\n      \"description\": \"Probes whose last run failed (assertion\
+    \ or transport).\",\n      \"type\": \"stat\",\n      \"datasource\": {\n    \
+    \    \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n  \
+    \    \"gridPos\": {\n        \"h\": 5,\n        \"w\": 5,\n        \"x\": 5,\n\
+    \        \"y\": 0\n      },\n      \"targets\": [\n        {\n          \"refId\"\
+    : \"A\",\n          \"expr\": \"count((synthetics_probe{namespace=~\\\"$namespace\\\
+    \", kind=~\\\"$kind\\\"} or synthetics_test{namespace=~\\\"$namespace\\\", kind=~\\\
+    \"$kind\\\"}) == 0) OR on() vector(0)\"\n        }\n      ],\n      \"options\"\
+    : {\n        \"colorMode\": \"background\",\n        \"graphMode\": \"area\",\n\
+    \        \"justifyMode\": \"center\",\n        \"textMode\": \"value_and_name\"\
+    ,\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ]\n        }\n      },\n      \"fieldConfig\": {\n        \"defaults\"\
+    : {\n          \"unit\": \"short\",\n          \"color\": {\n            \"mode\"\
+    : \"thresholds\"\n          },\n          \"thresholds\": {\n            \"mode\"\
+    : \"absolute\",\n            \"steps\": [\n              {\n                \"\
+    color\": \"green\",\n                \"value\": null\n              },\n     \
+    \         {\n                \"color\": \"red\",\n                \"value\": 1\n\
+    \              }\n            ]\n          },\n          \"displayName\": \"FAIL\"\
+    \n        }\n      }\n    },\n    {\n      \"id\": 3,\n      \"title\": \"Suppressed\"\
+    ,\n      \"description\": \"Failing probes attributed to an unhealthy dependency.\"\
+    ,\n      \"type\": \"stat\",\n      \"datasource\": {\n        \"type\": \"prometheus\"\
+    ,\n        \"uid\": \"prometheus\"\n      },\n      \"gridPos\": {\n        \"\
+    h\": 5,\n        \"w\": 5,\n        \"x\": 10,\n        \"y\": 0\n      },\n \
+    \     \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\"\
+    : \"count(synthetics_probe_suppressed{namespace=~\\\"$namespace\\\", kind=~\\\"\
+    $kind\\\"} == 1) OR on() vector(0)\"\n        }\n      ],\n      \"options\":\
+    \ {\n        \"colorMode\": \"background\",\n        \"graphMode\": \"area\",\n\
+    \        \"justifyMode\": \"center\",\n        \"textMode\": \"value_and_name\"\
+    ,\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ]\n        }\n      },\n      \"fieldConfig\": {\n        \"defaults\"\
+    : {\n          \"unit\": \"short\",\n          \"color\": {\n            \"mode\"\
+    : \"thresholds\"\n          },\n          \"thresholds\": {\n            \"mode\"\
+    : \"absolute\",\n            \"steps\": [\n              {\n                \"\
+    color\": \"blue\",\n                \"value\": null\n              },\n      \
+    \        {\n                \"color\": \"orange\",\n                \"value\"\
+    : 1\n              }\n            ]\n          },\n          \"displayName\":\
+    \ \"UPSTREAM\"\n        }\n      }\n    },\n    {\n      \"id\": 4,\n      \"\
+    title\": \"Pass rate (window)\",\n      \"description\": \"Fraction of probe runs\
+    \ returning OK in the dashboard time range.\",\n      \"type\": \"stat\",\n  \
+    \    \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"\
+    prometheus\"\n      },\n      \"gridPos\": {\n        \"h\": 5,\n        \"w\"\
+    : 9,\n        \"x\": 15,\n        \"y\": 0\n      },\n      \"targets\": [\n \
+    \       {\n          \"refId\": \"A\",\n          \"expr\": \"avg(avg_over_time((synthetics_probe{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} or synthetics_test{namespace=~\\\"$namespace\\\
+    \", kind=~\\\"$kind\\\"})[$__range:]))\"\n        }\n      ],\n      \"options\"\
+    : {\n        \"colorMode\": \"background\",\n        \"graphMode\": \"area\",\n\
+    \        \"justifyMode\": \"center\",\n        \"textMode\": \"value\",\n    \
+    \    \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ]\n        }\n      },\n      \"fieldConfig\": {\n        \"defaults\"\
+    : {\n          \"unit\": \"percentunit\",\n          \"min\": 0,\n          \"\
+    max\": 1,\n          \"decimals\": 2,\n          \"color\": {\n            \"\
+    mode\": \"thresholds\"\n          },\n          \"thresholds\": {\n          \
+    \  \"mode\": \"absolute\",\n            \"steps\": [\n              {\n      \
+    \          \"color\": \"red\",\n                \"value\": null\n            \
+    \  },\n              {\n                \"color\": \"orange\",\n             \
+    \   \"value\": 0.95\n              },\n              {\n                \"color\"\
+    : \"yellow\",\n                \"value\": 0.99\n              },\n           \
+    \   {\n                \"color\": \"green\",\n                \"value\": 0.999\n\
+    \              }\n            ]\n          }\n        }\n      }\n    },\n   \
+    \ {\n      \"id\": 5,\n      \"title\": \"Currently failing\",\n      \"description\"\
+    : \"Probes whose last run failed. Click a name to jump to the Probes dashboard\
+    \ for full history.\",\n      \"type\": \"table\",\n      \"datasource\": {\n\
+    \        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n\
+    \      \"gridPos\": {\n        \"h\": 10,\n        \"w\": 14,\n        \"x\":\
+    \ 0,\n        \"y\": 5\n      },\n      \"targets\": [\n        {\n          \"\
+    refId\": \"A\",\n          \"expr\": \"max by (name, kind, namespace, url) (((synthetics_probe_duration_ms{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} or synthetics_test_duration_ms{namespace=~\\\
     \"$namespace\\\", kind=~\\\"$kind\\\"}) + on (name, namespace, kind) group_left\
-    \ (result, failed_assertion) synthetics_probe_result_info{namespace=~\\\"$namespace\\\
-    \", kind=~\\\"$kind\\\"}) and on (name, namespace, kind) (synthetics_probe{namespace=~\\\
-    \"$namespace\\\", kind=~\\\"$kind\\\"} == 0)\",\n          \"format\": \"table\"\
+    \ (result, failed_assertion) (synthetics_probe_result_info{namespace=~\\\"$namespace\\\
+    \", kind=~\\\"$kind\\\"} or synthetics_test_result_info{namespace=~\\\"$namespace\\\
+    \", kind=~\\\"$kind\\\"})) and on (name, namespace, kind) ((synthetics_probe{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} or synthetics_test{namespace=~\\\"$namespace\\\
+    \", kind=~\\\"$kind\\\"}) == 0))\",\n          \"format\": \"table\",\n      \
+    \    \"instant\": true\n        },\n        {\n          \"refId\": \"B\",\n \
+    \         \"expr\": \"max by (name, kind, namespace, url) (((time() - (synthetics_probe_last_run_timestamp{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} or synthetics_test_last_run_timestamp{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"})) + on (name, namespace, kind) group_left\
+    \ (result, failed_assertion) (synthetics_probe_result_info{namespace=~\\\"$namespace\\\
+    \", kind=~\\\"$kind\\\"} or synthetics_test_result_info{namespace=~\\\"$namespace\\\
+    \", kind=~\\\"$kind\\\"})) and on (name, namespace, kind) ((synthetics_probe{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} or synthetics_test{namespace=~\\\"$namespace\\\
+    \", kind=~\\\"$kind\\\"}) == 0))\",\n          \"format\": \"table\",\n      \
+    \    \"instant\": true\n        }\n      ],\n      \"transformations\": [\n  \
+    \      {\n          \"id\": \"merge\",\n          \"options\": {}\n        },\n\
+    \        {\n          \"id\": \"filterFieldsByName\",\n          \"options\":\
+    \ {\n            \"include\": {\n              \"names\": [\n                \"\
+    name\",\n                \"kind\",\n                \"namespace\",\n         \
+    \       \"result\",\n                \"failed_assertion\",\n                \"\
+    url\",\n                \"Value #A\",\n                \"Value #B\"\n        \
+    \      ]\n            }\n          }\n        },\n        {\n          \"id\"\
+    : \"organize\",\n          \"options\": {\n            \"renameByName\": {\n \
+    \             \"Value #A\": \"duration_ms\",\n              \"Value #B\": \"age_s\"\
+    \n            },\n            \"indexByName\": {\n              \"name\": 0,\n\
+    \              \"kind\": 1,\n              \"namespace\": 2,\n              \"\
+    result\": 3,\n              \"failed_assertion\": 4,\n              \"duration_ms\"\
+    : 5,\n              \"age_s\": 6,\n              \"url\": 7\n            }\n \
+    \         }\n        }\n      ],\n      \"options\": {\n        \"showHeader\"\
+    : true,\n        \"sortBy\": [\n          {\n            \"displayName\": \"age_s\"\
+    ,\n            \"desc\": false\n          }\n        ]\n      },\n      \"fieldConfig\"\
+    : {\n        \"defaults\": {\n          \"custom\": {\n            \"align\":\
+    \ \"left\",\n            \"cellOptions\": {\n              \"type\": \"auto\"\n\
+    \            }\n          },\n          \"links\": [\n            {\n        \
+    \      \"title\": \"Open probe\",\n              \"url\": \"/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}\"\
+    \n            }\n          ]\n        },\n        \"overrides\": [\n         \
+    \ {\n            \"matcher\": {\n              \"id\": \"byName\",\n         \
+    \     \"options\": \"duration_ms\"\n            },\n            \"properties\"\
+    : [\n              {\n                \"id\": \"unit\",\n                \"value\"\
+    : \"ms\"\n              },\n              {\n                \"id\": \"custom.cellOptions\"\
+    ,\n                \"value\": {\n                  \"type\": \"color-text\"\n\
+    \                }\n              },\n              {\n                \"id\"\
+    : \"thresholds\",\n                \"value\": {\n                  \"mode\": \"\
+    absolute\",\n                  \"steps\": [\n                    {\n         \
+    \             \"color\": \"green\",\n                      \"value\": null\n \
+    \                   },\n                    {\n                      \"color\"\
+    : \"yellow\",\n                      \"value\": 1000\n                    },\n\
+    \                    {\n                      \"color\": \"red\",\n          \
+    \            \"value\": 5000\n                    }\n                  ]\n   \
+    \             }\n              }\n            ]\n          },\n          {\n \
+    \           \"matcher\": {\n              \"id\": \"byName\",\n              \"\
+    options\": \"age_s\"\n            },\n            \"properties\": [\n        \
+    \      {\n                \"id\": \"unit\",\n                \"value\": \"s\"\n\
+    \              },\n              {\n                \"id\": \"custom.cellOptions\"\
+    ,\n                \"value\": {\n                  \"type\": \"color-text\"\n\
+    \                }\n              },\n              {\n                \"id\"\
+    : \"thresholds\",\n                \"value\": {\n                  \"mode\": \"\
+    absolute\",\n                  \"steps\": [\n                    {\n         \
+    \             \"color\": \"green\",\n                      \"value\": null\n \
+    \                   },\n                    {\n                      \"color\"\
+    : \"yellow\",\n                      \"value\": 120\n                    },\n\
+    \                    {\n                      \"color\": \"red\",\n          \
+    \            \"value\": 600\n                    }\n                  ]\n    \
+    \            }\n              }\n            ]\n          },\n          {\n  \
+    \          \"matcher\": {\n              \"id\": \"byName\",\n              \"\
+    options\": \"result\"\n            },\n            \"properties\": [\n       \
+    \       {\n                \"id\": \"custom.cellOptions\",\n                \"\
+    value\": {\n                  \"type\": \"color-background\",\n              \
+    \    \"mode\": \"basic\"\n                }\n              },\n              {\n\
+    \                \"id\": \"mappings\",\n                \"value\": [\n       \
+    \           {\n                    \"type\": \"value\",\n                    \"\
+    options\": {\n                      \"ok\": {\n                        \"color\"\
+    : \"green\",\n                        \"index\": 0,\n                        \"\
+    text\": \"ok\"\n                      }\n                    }\n             \
+    \     },\n                  {\n                    \"type\": \"value\",\n    \
+    \                \"options\": {\n                      \"assertion_failed\": {\n\
+    \                        \"color\": \"red\",\n                        \"index\"\
+    : 1,\n                        \"text\": \"assertion_failed\"\n               \
+    \       }\n                    }\n                  },\n                  {\n\
+    \                    \"type\": \"value\",\n                    \"options\": {\n\
+    \                      \"timeout\": {\n                        \"color\": \"red\"\
+    ,\n                        \"index\": 2,\n                        \"text\": \"\
+    timeout\"\n                      }\n                    }\n                  },\n\
+    \                  {\n                    \"type\": \"value\",\n             \
+    \       \"options\": {\n                      \"dns_failed\": {\n            \
+    \            \"color\": \"red\",\n                        \"index\": 3,\n    \
+    \                    \"text\": \"dns_failed\"\n                      }\n     \
+    \               }\n                  },\n                  {\n               \
+    \     \"type\": \"value\",\n                    \"options\": {\n             \
+    \         \"tls_failed\": {\n                        \"color\": \"red\",\n   \
+    \                     \"index\": 4,\n                        \"text\": \"tls_failed\"\
+    \n                      }\n                    }\n                  },\n     \
+    \             {\n                    \"type\": \"value\",\n                  \
+    \  \"options\": {\n                      \"connect_failed\": {\n             \
+    \           \"color\": \"red\",\n                        \"index\": 5,\n     \
+    \                   \"text\": \"connect_failed\"\n                      }\n  \
+    \                  }\n                  },\n                  {\n            \
+    \        \"type\": \"value\",\n                    \"options\": {\n          \
+    \            \"connect_refused\": {\n                        \"color\": \"red\"\
+    ,\n                        \"index\": 6,\n                        \"text\": \"\
+    connect_refused\"\n                      }\n                    }\n          \
+    \        },\n                  {\n                    \"type\": \"value\",\n \
+    \                   \"options\": {\n                      \"connect_timeout\"\
+    : {\n                        \"color\": \"red\",\n                        \"index\"\
+    : 7,\n                        \"text\": \"connect_timeout\"\n                \
+    \      }\n                    }\n                  }\n                ]\n    \
+    \          }\n            ]\n          }\n        ]\n      }\n    },\n    {\n\
+    \      \"id\": 6,\n      \"title\": \"Certificates expiring soon\",\n      \"\
+    description\": \"HTTPS probes whose TLS certificate expires within the highlighted\
+    \ thresholds.\",\n      \"type\": \"table\",\n      \"datasource\": {\n      \
+    \  \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n    \
+    \  \"gridPos\": {\n        \"h\": 10,\n        \"w\": 10,\n        \"x\": 14,\n\
+    \        \"y\": 5\n      },\n      \"targets\": [\n        {\n          \"refId\"\
+    : \"A\",\n          \"expr\": \"(synthetics_probe_tls_cert_expiry_timestamp_seconds{namespace=~\\\
+    \"$namespace\\\"} - time()) / 86400\",\n          \"format\": \"table\",\n   \
+    \       \"instant\": true\n        }\n      ],\n      \"transformations\": [\n\
+    \        {\n          \"id\": \"filterFieldsByName\",\n          \"options\":\
+    \ {\n            \"include\": {\n              \"names\": [\n                \"\
+    name\",\n                \"namespace\",\n                \"url\",\n          \
+    \      \"Value\"\n              ]\n            }\n          }\n        },\n  \
+    \      {\n          \"id\": \"organize\",\n          \"options\": {\n        \
+    \    \"renameByName\": {\n              \"Value\": \"days_remaining\"\n      \
+    \      }\n          }\n        }\n      ],\n      \"options\": {\n        \"showHeader\"\
+    : true,\n        \"sortBy\": [\n          {\n            \"displayName\": \"days_remaining\"\
+    ,\n            \"desc\": false\n          }\n        ]\n      },\n      \"fieldConfig\"\
+    : {\n        \"defaults\": {\n          \"custom\": {\n            \"align\":\
+    \ \"left\"\n          },\n          \"links\": [\n            {\n            \
+    \  \"title\": \"Open probe\",\n              \"url\": \"/d/synthetics-HTTPProbe?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}\"\
+    \n            }\n          ]\n        },\n        \"overrides\": [\n         \
+    \ {\n            \"matcher\": {\n              \"id\": \"byName\",\n         \
+    \     \"options\": \"days_remaining\"\n            },\n            \"properties\"\
+    : [\n              {\n                \"id\": \"unit\",\n                \"value\"\
+    : \"d\"\n              },\n              {\n                \"id\": \"decimals\"\
+    ,\n                \"value\": 1\n              },\n              {\n         \
+    \       \"id\": \"custom.cellOptions\",\n                \"value\": {\n      \
+    \            \"type\": \"color-background\",\n                  \"mode\": \"basic\"\
+    \n                }\n              },\n              {\n                \"id\"\
+    : \"thresholds\",\n                \"value\": {\n                  \"mode\": \"\
+    absolute\",\n                  \"steps\": [\n                    {\n         \
+    \             \"color\": \"red\",\n                      \"value\": null\n   \
+    \                 },\n                    {\n                      \"color\":\
+    \ \"orange\",\n                      \"value\": 7\n                    },\n  \
+    \                  {\n                      \"color\": \"yellow\",\n         \
+    \             \"value\": 30\n                    },\n                    {\n \
+    \                     \"color\": \"green\",\n                      \"value\":\
+    \ 90\n                    }\n                  ]\n                }\n        \
+    \      }\n            ]\n          }\n        ]\n      }\n    },\n    {\n    \
+    \  \"id\": 7,\n      \"title\": \"Fleet health over time\",\n      \"description\"\
+    : \"Count of probes currently passing / failing / suppressed over the dashboard\
+    \ window. Scales independently of probe count.\",\n      \"type\": \"timeseries\"\
+    ,\n      \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\"\
+    : \"prometheus\"\n      },\n      \"gridPos\": {\n        \"h\": 9,\n        \"\
+    w\": 24,\n        \"x\": 0,\n        \"y\": 15\n      },\n      \"targets\": [\n\
+    \        {\n          \"refId\": \"A\",\n          \"expr\": \"count((synthetics_probe{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} or synthetics_test{namespace=~\\\"$namespace\\\
+    \", kind=~\\\"$kind\\\"}) == 1) OR on() vector(0)\",\n          \"legendFormat\"\
+    : \"passing\"\n        },\n        {\n          \"refId\": \"B\",\n          \"\
+    expr\": \"count((synthetics_probe{namespace=~\\\"$namespace\\\", kind=~\\\"$kind\\\
+    \"} or synthetics_test{namespace=~\\\"$namespace\\\", kind=~\\\"$kind\\\"}) ==\
+    \ 0) OR on() vector(0)\",\n          \"legendFormat\": \"failing\"\n        },\n\
+    \        {\n          \"refId\": \"C\",\n          \"expr\": \"count(synthetics_probe_suppressed{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} == 1) OR on() vector(0)\",\n          \"\
+    legendFormat\": \"suppressed\"\n        }\n      ],\n      \"fieldConfig\": {\n\
+    \        \"defaults\": {\n          \"unit\": \"short\",\n          \"min\": 0,\n\
+    \          \"custom\": {\n            \"fillOpacity\": 25,\n            \"lineInterpolation\"\
+    : \"stepAfter\",\n            \"showPoints\": \"never\",\n            \"stacking\"\
+    : {\n              \"mode\": \"normal\",\n              \"group\": \"A\"\n   \
+    \         }\n          }\n        },\n        \"overrides\": [\n          {\n\
+    \            \"matcher\": {\n              \"id\": \"byName\",\n             \
+    \ \"options\": \"passing\"\n            },\n            \"properties\": [\n  \
+    \            {\n                \"id\": \"color\",\n                \"value\"\
+    : {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\"\
+    : \"green\"\n                }\n              }\n            ]\n          },\n\
+    \          {\n            \"matcher\": {\n              \"id\": \"byName\",\n\
+    \              \"options\": \"failing\"\n            },\n            \"properties\"\
+    : [\n              {\n                \"id\": \"color\",\n                \"value\"\
+    : {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\"\
+    : \"red\"\n                }\n              }\n            ]\n          },\n \
+    \         {\n            \"matcher\": {\n              \"id\": \"byName\",\n \
+    \             \"options\": \"suppressed\"\n            },\n            \"properties\"\
+    : [\n              {\n                \"id\": \"color\",\n                \"value\"\
+    : {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\"\
+    : \"orange\"\n                }\n              }\n            ]\n          }\n\
+    \        ]\n      },\n      \"options\": {\n        \"legend\": {\n          \"\
+    displayMode\": \"table\",\n          \"placement\": \"right\",\n          \"calcs\"\
+    : [\n            \"lastNotNull\",\n            \"max\",\n            \"min\"\n\
+    \          ]\n        }\n      }\n    },\n    {\n      \"id\": 10,\n      \"title\"\
+    : \"Probe state \\u2014 current\",\n      \"description\": \"All probes, sorted\
+    \ by most-recent failures. Click a name to open the Probes dashboard for that\
+    \ probe's full timeline.\",\n      \"type\": \"table\",\n      \"datasource\"\
+    : {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n    \
+    \  },\n      \"gridPos\": {\n        \"h\": 14,\n        \"w\": 24,\n        \"\
+    x\": 0,\n        \"y\": 24\n      },\n      \"targets\": [\n        {\n      \
+    \    \"refId\": \"A\",\n          \"expr\": \"max by (name, kind, namespace, url)\
+    \ ((synthetics_probe{namespace=~\\\"$namespace\\\", kind=~\\\"$kind\\\"} or synthetics_test{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"}))\",\n          \"format\": \"table\",\n\
+    \          \"instant\": true\n        },\n        {\n          \"refId\": \"B\"\
+    ,\n          \"expr\": \"max by (name, kind, namespace, url) (avg_over_time((synthetics_probe{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} or synthetics_test{namespace=~\\\"$namespace\\\
+    \", kind=~\\\"$kind\\\"})[1h:]))\",\n          \"format\": \"table\",\n      \
+    \    \"instant\": true\n        },\n        {\n          \"refId\": \"C\",\n \
+    \         \"expr\": \"max by (name, kind, namespace, url) ((synthetics_probe_duration_ms{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} or synthetics_test_duration_ms{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"}))\",\n          \"format\": \"table\",\n\
+    \          \"instant\": true\n        },\n        {\n          \"refId\": \"D\"\
+    ,\n          \"expr\": \"max by (name, kind, namespace, url) (time() - (synthetics_probe_last_run_timestamp{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} or synthetics_test_last_run_timestamp{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"}))\",\n          \"format\": \"table\",\n\
+    \          \"instant\": true\n        }\n      ],\n      \"transformations\":\
+    \ [\n        {\n          \"id\": \"merge\",\n          \"options\": {}\n    \
+    \    },\n        {\n          \"id\": \"filterFieldsByName\",\n          \"options\"\
+    : {\n            \"include\": {\n              \"names\": [\n                \"\
+    name\",\n                \"kind\",\n                \"namespace\",\n         \
+    \       \"url\",\n                \"Value #A\",\n                \"Value #B\"\
+    ,\n                \"Value #C\",\n                \"Value #D\"\n             \
+    \ ]\n            }\n          }\n        },\n        {\n          \"id\": \"organize\"\
+    ,\n          \"options\": {\n            \"renameByName\": {\n              \"\
+    Value #A\": \"state\",\n              \"Value #B\": \"pass_rate_1h\",\n      \
+    \        \"Value #C\": \"duration_ms\",\n              \"Value #D\": \"age_s\"\
+    \n            },\n            \"indexByName\": {\n              \"name\": 0,\n\
+    \              \"kind\": 1,\n              \"namespace\": 2,\n              \"\
+    state\": 3,\n              \"pass_rate_1h\": 4,\n              \"duration_ms\"\
+    : 5,\n              \"age_s\": 6,\n              \"url\": 7\n            }\n \
+    \         }\n        }\n      ],\n      \"options\": {\n        \"showHeader\"\
+    : true,\n        \"footer\": {\n          \"show\": false\n        },\n      \
+    \  \"sortBy\": [\n          {\n            \"displayName\": \"state\",\n     \
+    \       \"desc\": false\n          },\n          {\n            \"displayName\"\
+    : \"age_s\",\n            \"desc\": false\n          }\n        ]\n      },\n\
+    \      \"fieldConfig\": {\n        \"defaults\": {\n          \"custom\": {\n\
+    \            \"align\": \"left\",\n            \"cellOptions\": {\n          \
+    \    \"type\": \"auto\"\n            }\n          },\n          \"links\": [\n\
+    \            {\n              \"title\": \"Open probe\",\n              \"url\"\
+    : \"/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}\"\
+    \n            }\n          ]\n        },\n        \"overrides\": [\n         \
+    \ {\n            \"matcher\": {\n              \"id\": \"byName\",\n         \
+    \     \"options\": \"state\"\n            },\n            \"properties\": [\n\
+    \              {\n                \"id\": \"custom.cellOptions\",\n          \
+    \      \"value\": {\n                  \"type\": \"color-background\",\n     \
+    \             \"mode\": \"basic\"\n                }\n              },\n     \
+    \         {\n                \"id\": \"mappings\",\n                \"value\"\
+    : [\n                  {\n                    \"type\": \"value\",\n         \
+    \           \"options\": {\n                      \"0\": {\n                 \
+    \       \"color\": \"red\",\n                        \"text\": \"FAIL\",\n   \
+    \                     \"index\": 0\n                      }\n                \
+    \    }\n                  },\n                  {\n                    \"type\"\
+    : \"value\",\n                    \"options\": {\n                      \"1\"\
+    : {\n                        \"color\": \"green\",\n                        \"\
+    text\": \"PASS\",\n                        \"index\": 1\n                    \
+    \  }\n                    }\n                  }\n                ]\n        \
+    \      }\n            ]\n          },\n          {\n            \"matcher\": {\n\
+    \              \"id\": \"byName\",\n              \"options\": \"pass_rate_1h\"\
+    \n            },\n            \"properties\": [\n              {\n           \
+    \     \"id\": \"unit\",\n                \"value\": \"percentunit\"\n        \
+    \      },\n              {\n                \"id\": \"decimals\",\n          \
+    \      \"value\": 2\n              },\n              {\n                \"id\"\
+    : \"min\",\n                \"value\": 0\n              },\n              {\n\
+    \                \"id\": \"max\",\n                \"value\": 1\n            \
+    \  },\n              {\n                \"id\": \"custom.cellOptions\",\n    \
+    \            \"value\": {\n                  \"type\": \"color-background\",\n\
+    \                  \"mode\": \"continuous-RdYlGr\"\n                }\n      \
+    \        }\n            ]\n          },\n          {\n            \"matcher\"\
+    : {\n              \"id\": \"byName\",\n              \"options\": \"duration_ms\"\
+    \n            },\n            \"properties\": [\n              {\n           \
+    \     \"id\": \"unit\",\n                \"value\": \"ms\"\n              },\n\
+    \              {\n                \"id\": \"custom.cellOptions\",\n          \
+    \      \"value\": {\n                  \"type\": \"color-text\"\n            \
+    \    }\n              },\n              {\n                \"id\": \"thresholds\"\
+    ,\n                \"value\": {\n                  \"mode\": \"absolute\",\n \
+    \                 \"steps\": [\n                    {\n                      \"\
+    color\": \"green\",\n                      \"value\": null\n                 \
+    \   },\n                    {\n                      \"color\": \"yellow\",\n\
+    \                      \"value\": 1000\n                    },\n             \
+    \       {\n                      \"color\": \"red\",\n                      \"\
+    value\": 5000\n                    }\n                  ]\n                }\n\
+    \              }\n            ]\n          },\n          {\n            \"matcher\"\
+    : {\n              \"id\": \"byName\",\n              \"options\": \"age_s\"\n\
+    \            },\n            \"properties\": [\n              {\n            \
+    \    \"id\": \"unit\",\n                \"value\": \"s\"\n              },\n \
+    \             {\n                \"id\": \"custom.cellOptions\",\n           \
+    \     \"value\": {\n                  \"type\": \"color-text\"\n             \
+    \   }\n              },\n              {\n                \"id\": \"thresholds\"\
+    ,\n                \"value\": {\n                  \"mode\": \"absolute\",\n \
+    \                 \"steps\": [\n                    {\n                      \"\
+    color\": \"green\",\n                      \"value\": null\n                 \
+    \   },\n                    {\n                      \"color\": \"yellow\",\n\
+    \                      \"value\": 120\n                    },\n              \
+    \      {\n                      \"color\": \"red\",\n                      \"\
+    value\": 600\n                    }\n                  ]\n                }\n\
+    \              }\n            ]\n          }\n        ]\n      }\n    },\n   \
+    \ {\n      \"id\": 8,\n      \"title\": \"Duration by kind (avg)\",\n      \"\
+    description\": \"Average probe duration grouped by CRD kind.\",\n      \"type\"\
+    : \"timeseries\",\n      \"datasource\": {\n        \"type\": \"prometheus\",\n\
+    \        \"uid\": \"prometheus\"\n      },\n      \"gridPos\": {\n        \"h\"\
+    : 9,\n        \"w\": 12,\n        \"x\": 0,\n        \"y\": 38\n      },\n   \
+    \   \"targets\": [\n        {\n          \"refId\": \"A\",\n          \"expr\"\
+    : \"avg by (kind) ((synthetics_probe_duration_ms{namespace=~\\\"$namespace\\\"\
+    , kind=~\\\"$kind\\\"} or synthetics_test_duration_ms{namespace=~\\\"$namespace\\\
+    \", kind=~\\\"$kind\\\"}))\",\n          \"legendFormat\": \"{{kind}}\"\n    \
+    \    }\n      ],\n      \"fieldConfig\": {\n        \"defaults\": {\n        \
+    \  \"unit\": \"ms\",\n          \"custom\": {\n            \"fillOpacity\": 10,\n\
+    \            \"lineInterpolation\": \"smooth\",\n            \"showPoints\": \"\
+    never\"\n          },\n          \"color\": {\n            \"mode\": \"palette-classic\"\
+    \n          }\n        }\n      },\n      \"options\": {\n        \"legend\":\
+    \ {\n          \"displayMode\": \"table\",\n          \"placement\": \"right\"\
+    ,\n          \"calcs\": [\n            \"mean\",\n            \"max\"\n      \
+    \    ]\n        }\n      }\n    },\n    {\n      \"id\": 9,\n      \"title\":\
+    \ \"Result breakdown\",\n      \"description\": \"Probes bucketed by current result\
+    \ label.\",\n      \"type\": \"piechart\",\n      \"datasource\": {\n        \"\
+    type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n      },\n      \"gridPos\"\
+    : {\n        \"h\": 9,\n        \"w\": 12,\n        \"x\": 12,\n        \"y\"\
+    : 38\n      },\n      \"targets\": [\n        {\n          \"refId\": \"A\",\n\
+    \          \"expr\": \"count by (result) ((synthetics_probe_result_info{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} or synthetics_test_result_info{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"}))\",\n          \"legendFormat\": \"{{result}}\"\
+    \n        }\n      ],\n      \"options\": {\n        \"pieType\": \"donut\",\n\
+    \        \"legend\": {\n          \"displayMode\": \"table\",\n          \"placement\"\
+    : \"right\",\n          \"values\": [\n            \"value\",\n            \"\
+    percent\"\n          ]\n        },\n        \"displayLabels\": [\n          \"\
+    name\"\n        ]\n      },\n      \"fieldConfig\": {\n        \"defaults\": {\n\
+    \          \"mappings\": [\n            {\n              \"type\": \"value\",\n\
+    \              \"options\": {\n                \"ok\": {\n                  \"\
+    color\": \"green\",\n                  \"index\": 0\n                }\n     \
+    \         }\n            },\n            {\n              \"type\": \"value\"\
+    ,\n              \"options\": {\n                \"assertion_failed\": {\n   \
+    \               \"color\": \"red\",\n                  \"index\": 1\n        \
+    \        }\n              }\n            },\n            {\n              \"type\"\
+    : \"value\",\n              \"options\": {\n                \"timeout\": {\n \
+    \                 \"color\": \"red\",\n                  \"index\": 2\n      \
+    \          }\n              }\n            },\n            {\n              \"\
+    type\": \"value\",\n              \"options\": {\n                \"dns_failed\"\
+    : {\n                  \"color\": \"dark-red\",\n                  \"index\":\
+    \ 3\n                }\n              }\n            },\n            {\n     \
+    \         \"type\": \"value\",\n              \"options\": {\n               \
+    \ \"tls_failed\": {\n                  \"color\": \"dark-red\",\n            \
+    \      \"index\": 4\n                }\n              }\n            },\n    \
+    \        {\n              \"type\": \"value\",\n              \"options\": {\n\
+    \                \"connect_failed\": {\n                  \"color\": \"dark-red\"\
+    ,\n                  \"index\": 5\n                }\n              }\n      \
+    \      }\n          ]\n        }\n      }\n    },\n    {\n      \"id\": 11,\n\
+    \      \"title\": \"Suppressions\",\n      \"description\": \"Failing probes whose\
+    \ failure is attributed to an unhealthy upstream dependency. `unhealthy_dependency`\
+    \ names the root cause.\",\n      \"type\": \"table\",\n      \"datasource\":\
+    \ {\n        \"type\": \"prometheus\",\n        \"uid\": \"prometheus\"\n    \
+    \  },\n      \"gridPos\": {\n        \"h\": 9,\n        \"w\": 24,\n        \"\
+    x\": 0,\n        \"y\": 47\n      },\n      \"targets\": [\n        {\n      \
+    \    \"refId\": \"A\",\n          \"expr\": \"synthetics_probe_suppressed{namespace=~\\\
+    \"$namespace\\\", kind=~\\\"$kind\\\"} == 1\",\n          \"format\": \"table\"\
     ,\n          \"instant\": true\n        }\n      ],\n      \"transformations\"\
-    : [\n        {\"id\": \"merge\", \"options\": {}},\n        {\"id\": \"filterFieldsByName\"\
-    , \"options\": {\"include\": {\"names\": [\n          \"name\", \"kind\", \"namespace\"\
-    , \"result\", \"failed_assertion\", \"url\",\n          \"Value #A\", \"Value\
-    \ #B\"\n        ]}}},\n        {\"id\": \"organize\", \"options\": {\n       \
-    \   \"renameByName\": {\n            \"Value #A\": \"duration_ms\",\n        \
-    \    \"Value #B\": \"age_s\"\n          },\n          \"indexByName\": {\n   \
-    \         \"name\": 0, \"kind\": 1, \"namespace\": 2, \"result\": 3, \"failed_assertion\"\
-    : 4,\n            \"duration_ms\": 5, \"age_s\": 6, \"url\": 7\n          }\n\
-    \        }}\n      ],\n      \"options\": {\"showHeader\": true, \"sortBy\": [{\"\
-    displayName\": \"age_s\", \"desc\": false}]},\n      \"fieldConfig\": {\n    \
-    \    \"defaults\": {\n          \"custom\": {\"align\": \"left\", \"cellOptions\"\
-    : {\"type\": \"auto\"}},\n          \"links\": [{\n            \"title\": \"Open\
-    \ probe\",\n            \"url\": \"/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}\"\
-    \n          }]\n        },\n        \"overrides\": [\n          {\"matcher\":\
-    \ {\"id\": \"byName\", \"options\": \"duration_ms\"}, \"properties\": [\n    \
-    \        {\"id\": \"unit\", \"value\": \"ms\"},\n            {\"id\": \"custom.cellOptions\"\
-    , \"value\": {\"type\": \"color-text\"}},\n            {\"id\": \"thresholds\"\
-    , \"value\": {\"mode\": \"absolute\", \"steps\": [\n              {\"color\":\
-    \ \"green\", \"value\": null},\n              {\"color\": \"yellow\", \"value\"\
-    : 1000},\n              {\"color\": \"red\", \"value\": 5000}\n            ]}}\n\
-    \          ]},\n          {\"matcher\": {\"id\": \"byName\", \"options\": \"age_s\"\
-    }, \"properties\": [\n            {\"id\": \"unit\", \"value\": \"s\"},\n    \
-    \        {\"id\": \"custom.cellOptions\", \"value\": {\"type\": \"color-text\"\
-    }},\n            {\"id\": \"thresholds\", \"value\": {\"mode\": \"absolute\",\
-    \ \"steps\": [\n              {\"color\": \"green\", \"value\": null},\n     \
-    \         {\"color\": \"yellow\", \"value\": 120},\n              {\"color\":\
-    \ \"red\", \"value\": 600}\n            ]}}\n          ]},\n          {\"matcher\"\
-    : {\"id\": \"byName\", \"options\": \"result\"}, \"properties\": [\n         \
-    \   {\"id\": \"custom.cellOptions\", \"value\": {\"type\": \"color-background\"\
-    , \"mode\": \"basic\"}},\n            {\"id\": \"mappings\", \"value\": [\n  \
-    \            {\"type\": \"value\", \"options\": {\"ok\": {\"color\": \"green\"\
-    , \"index\": 0, \"text\": \"ok\"}}},\n              {\"type\": \"value\", \"options\"\
-    : {\"assertion_failed\": {\"color\": \"red\", \"index\": 1, \"text\": \"assertion_failed\"\
-    }}},\n              {\"type\": \"value\", \"options\": {\"timeout\": {\"color\"\
-    : \"red\", \"index\": 2, \"text\": \"timeout\"}}},\n              {\"type\": \"\
-    value\", \"options\": {\"dns_failed\": {\"color\": \"red\", \"index\": 3, \"text\"\
-    : \"dns_failed\"}}},\n              {\"type\": \"value\", \"options\": {\"tls_failed\"\
-    : {\"color\": \"red\", \"index\": 4, \"text\": \"tls_failed\"}}},\n          \
-    \    {\"type\": \"value\", \"options\": {\"connect_failed\": {\"color\": \"red\"\
-    , \"index\": 5, \"text\": \"connect_failed\"}}}\n            ]}\n          ]}\n\
-    \        ]\n      }\n    },\n    {\n      \"id\": 6,\n      \"title\": \"Certificates\
-    \ expiring soon\",\n      \"description\": \"HTTPS probes whose TLS certificate\
-    \ expires within the highlighted thresholds.\",\n      \"type\": \"table\",\n\
-    \      \"datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n\
-    \      \"gridPos\": {\"h\": 10, \"w\": 10, \"x\": 14, \"y\": 5},\n      \"targets\"\
-    : [{\n        \"refId\": \"A\",\n        \"expr\": \"(synthetics_probe_tls_cert_expiry_timestamp_seconds{namespace=~\\\
-    \"$namespace\\\"} - time()) / 86400\",\n        \"format\": \"table\",\n     \
-    \   \"instant\": true\n      }],\n      \"transformations\": [\n        {\"id\"\
-    : \"filterFieldsByName\", \"options\": {\"include\": {\"names\": [\"name\", \"\
-    namespace\", \"url\", \"Value\"]}}},\n        {\"id\": \"organize\", \"options\"\
-    : {\"renameByName\": {\"Value\": \"days_remaining\"}}}\n      ],\n      \"options\"\
-    : {\"showHeader\": true, \"sortBy\": [{\"displayName\": \"days_remaining\", \"\
-    desc\": false}]},\n      \"fieldConfig\": {\n        \"defaults\": {\n       \
-    \   \"custom\": {\"align\": \"left\"},\n          \"links\": [{\n            \"\
-    title\": \"Open probe\",\n            \"url\": \"/d/synthetics-HTTPProbe?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}\"\
-    \n          }]\n        },\n        \"overrides\": [\n          {\"matcher\":\
-    \ {\"id\": \"byName\", \"options\": \"days_remaining\"}, \"properties\": [\n \
-    \           {\"id\": \"unit\", \"value\": \"d\"},\n            {\"id\": \"decimals\"\
-    , \"value\": 1},\n            {\"id\": \"custom.cellOptions\", \"value\": {\"\
-    type\": \"color-background\", \"mode\": \"basic\"}},\n            {\"id\": \"\
-    thresholds\", \"value\": {\"mode\": \"absolute\", \"steps\": [\n             \
-    \ {\"color\": \"red\", \"value\": null},\n              {\"color\": \"orange\"\
-    , \"value\": 7},\n              {\"color\": \"yellow\", \"value\": 30},\n    \
-    \          {\"color\": \"green\", \"value\": 90}\n            ]}}\n          ]}\n\
-    \        ]\n      }\n    },\n    {\n      \"id\": 7,\n      \"title\": \"Fleet\
-    \ health over time\",\n      \"description\": \"Count of probes currently passing\
-    \ / failing / suppressed over the dashboard window. Scales independently of probe\
-    \ count.\",\n      \"type\": \"timeseries\",\n      \"datasource\": {\"type\"\
-    : \"prometheus\", \"uid\": \"prometheus\"},\n      \"gridPos\": {\"h\": 9, \"\
-    w\": 24, \"x\": 0, \"y\": 15},\n      \"targets\": [\n        {\n          \"\
-    refId\": \"A\",\n          \"expr\": \"count(synthetics_probe{namespace=~\\\"\
-    $namespace\\\", kind=~\\\"$kind\\\"} == 1) OR on() vector(0)\",\n          \"\
-    legendFormat\": \"passing\"\n        },\n        {\n          \"refId\": \"B\"\
-    ,\n          \"expr\": \"count(synthetics_probe{namespace=~\\\"$namespace\\\"\
-    , kind=~\\\"$kind\\\"} == 0) OR on() vector(0)\",\n          \"legendFormat\"\
-    : \"failing\"\n        },\n        {\n          \"refId\": \"C\",\n          \"\
-    expr\": \"count(synthetics_probe_suppressed{namespace=~\\\"$namespace\\\", kind=~\\\
-    \"$kind\\\"} == 1) OR on() vector(0)\",\n          \"legendFormat\": \"suppressed\"\
-    \n        }\n      ],\n      \"fieldConfig\": {\n        \"defaults\": {\n   \
-    \       \"unit\": \"short\",\n          \"min\": 0,\n          \"custom\": {\n\
-    \            \"fillOpacity\": 25,\n            \"lineInterpolation\": \"stepAfter\"\
-    ,\n            \"showPoints\": \"never\",\n            \"stacking\": {\"mode\"\
-    : \"normal\", \"group\": \"A\"}\n          }\n        },\n        \"overrides\"\
-    : [\n          {\"matcher\": {\"id\": \"byName\", \"options\": \"passing\"}, \"\
-    properties\": [{\"id\": \"color\", \"value\": {\"mode\": \"fixed\", \"fixedColor\"\
-    : \"green\"}}]},\n          {\"matcher\": {\"id\": \"byName\", \"options\": \"\
-    failing\"}, \"properties\": [{\"id\": \"color\", \"value\": {\"mode\": \"fixed\"\
-    , \"fixedColor\": \"red\"}}]},\n          {\"matcher\": {\"id\": \"byName\", \"\
-    options\": \"suppressed\"}, \"properties\": [{\"id\": \"color\", \"value\": {\"\
-    mode\": \"fixed\", \"fixedColor\": \"orange\"}}]}\n        ]\n      },\n     \
-    \ \"options\": {\"legend\": {\"displayMode\": \"table\", \"placement\": \"right\"\
-    , \"calcs\": [\"lastNotNull\", \"max\", \"min\"]}}\n    },\n    {\n      \"id\"\
-    : 10,\n      \"title\": \"Probe state \u2014 current\",\n      \"description\"\
-    : \"All probes, sorted by most-recent failures. Click a name to open the Probes\
-    \ dashboard for that probe's full timeline.\",\n      \"type\": \"table\",\n \
-    \     \"datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n \
-    \     \"gridPos\": {\"h\": 14, \"w\": 24, \"x\": 0, \"y\": 24},\n      \"targets\"\
-    : [\n        {\"refId\": \"A\", \"expr\": \"synthetics_probe{namespace=~\\\"$namespace\\\
-    \", kind=~\\\"$kind\\\"}\", \"format\": \"table\", \"instant\": true},\n     \
-    \   {\"refId\": \"B\", \"expr\": \"avg_over_time(synthetics_probe{namespace=~\\\
-    \"$namespace\\\", kind=~\\\"$kind\\\"}[1h])\", \"format\": \"table\", \"instant\"\
-    : true},\n        {\"refId\": \"C\", \"expr\": \"synthetics_probe_duration_ms{namespace=~\\\
-    \"$namespace\\\", kind=~\\\"$kind\\\"}\", \"format\": \"table\", \"instant\":\
-    \ true},\n        {\"refId\": \"D\", \"expr\": \"time() - synthetics_probe_last_run_timestamp{namespace=~\\\
-    \"$namespace\\\", kind=~\\\"$kind\\\"}\", \"format\": \"table\", \"instant\":\
-    \ true}\n      ],\n      \"transformations\": [\n        {\"id\": \"merge\", \"\
-    options\": {}},\n        {\"id\": \"filterFieldsByName\", \"options\": {\"include\"\
-    : {\"names\": [\n          \"name\", \"kind\", \"namespace\", \"url\",\n     \
-    \     \"Value #A\", \"Value #B\", \"Value #C\", \"Value #D\"\n        ]}}},\n\
-    \        {\"id\": \"organize\", \"options\": {\n          \"renameByName\": {\n\
-    \            \"Value #A\": \"state\",\n            \"Value #B\": \"pass_rate_1h\"\
-    ,\n            \"Value #C\": \"duration_ms\",\n            \"Value #D\": \"age_s\"\
-    \n          },\n          \"indexByName\": {\n            \"name\": 0, \"kind\"\
-    : 1, \"namespace\": 2, \"state\": 3,\n            \"pass_rate_1h\": 4, \"duration_ms\"\
-    : 5, \"age_s\": 6, \"url\": 7\n          }\n        }}\n      ],\n      \"options\"\
-    : {\n        \"showHeader\": true,\n        \"footer\": {\"show\": false},\n \
-    \       \"sortBy\": [{\"displayName\": \"state\", \"desc\": false}, {\"displayName\"\
-    : \"age_s\", \"desc\": false}]\n      },\n      \"fieldConfig\": {\n        \"\
-    defaults\": {\n          \"custom\": {\"align\": \"left\", \"cellOptions\": {\"\
-    type\": \"auto\"}},\n          \"links\": [{\n            \"title\": \"Open probe\"\
-    ,\n            \"url\": \"/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}\"\
-    \n          }]\n        },\n        \"overrides\": [\n          {\"matcher\":\
-    \ {\"id\": \"byName\", \"options\": \"state\"}, \"properties\": [\n          \
-    \  {\"id\": \"custom.cellOptions\", \"value\": {\"type\": \"color-background\"\
-    , \"mode\": \"basic\"}},\n            {\"id\": \"mappings\", \"value\": [\n  \
-    \            {\"type\": \"value\", \"options\": {\"0\": {\"color\": \"red\", \"\
-    text\": \"FAIL\", \"index\": 0}}},\n              {\"type\": \"value\", \"options\"\
-    : {\"1\": {\"color\": \"green\", \"text\": \"PASS\", \"index\": 1}}}\n       \
-    \     ]}\n          ]},\n          {\"matcher\": {\"id\": \"byName\", \"options\"\
-    : \"pass_rate_1h\"}, \"properties\": [\n            {\"id\": \"unit\", \"value\"\
-    : \"percentunit\"},\n            {\"id\": \"decimals\", \"value\": 2},\n     \
-    \       {\"id\": \"min\", \"value\": 0},\n            {\"id\": \"max\", \"value\"\
-    : 1},\n            {\"id\": \"custom.cellOptions\", \"value\": {\"type\": \"color-background\"\
-    , \"mode\": \"continuous-RdYlGr\"}}\n          ]},\n          {\"matcher\": {\"\
-    id\": \"byName\", \"options\": \"duration_ms\"}, \"properties\": [\n         \
-    \   {\"id\": \"unit\", \"value\": \"ms\"},\n            {\"id\": \"custom.cellOptions\"\
-    , \"value\": {\"type\": \"color-text\"}},\n            {\"id\": \"thresholds\"\
-    , \"value\": {\"mode\": \"absolute\", \"steps\": [\n              {\"color\":\
-    \ \"green\", \"value\": null},\n              {\"color\": \"yellow\", \"value\"\
-    : 1000},\n              {\"color\": \"red\", \"value\": 5000}\n            ]}}\n\
-    \          ]},\n          {\"matcher\": {\"id\": \"byName\", \"options\": \"age_s\"\
-    }, \"properties\": [\n            {\"id\": \"unit\", \"value\": \"s\"},\n    \
-    \        {\"id\": \"custom.cellOptions\", \"value\": {\"type\": \"color-text\"\
-    }},\n            {\"id\": \"thresholds\", \"value\": {\"mode\": \"absolute\",\
-    \ \"steps\": [\n              {\"color\": \"green\", \"value\": null},\n     \
-    \         {\"color\": \"yellow\", \"value\": 120},\n              {\"color\":\
-    \ \"red\", \"value\": 600}\n            ]}}\n          ]}\n        ]\n      }\n\
-    \    },\n    {\n      \"id\": 8,\n      \"title\": \"Duration by kind (avg)\"\
-    ,\n      \"description\": \"Average probe duration grouped by CRD kind.\",\n \
-    \     \"type\": \"timeseries\",\n      \"datasource\": {\"type\": \"prometheus\"\
-    , \"uid\": \"prometheus\"},\n      \"gridPos\": {\"h\": 9, \"w\": 12, \"x\": 0,\
-    \ \"y\": 38},\n      \"targets\": [{\n        \"refId\": \"A\",\n        \"expr\"\
-    : \"avg by (kind) (synthetics_probe_duration_ms{namespace=~\\\"$namespace\\\"\
-    , kind=~\\\"$kind\\\"})\",\n        \"legendFormat\": \"{{kind}}\"\n      }],\n\
-    \      \"fieldConfig\": {\n        \"defaults\": {\n          \"unit\": \"ms\"\
-    ,\n          \"custom\": {\"fillOpacity\": 10, \"lineInterpolation\": \"smooth\"\
-    , \"showPoints\": \"never\"},\n          \"color\": {\"mode\": \"palette-classic\"\
-    }\n        }\n      },\n      \"options\": {\"legend\": {\"displayMode\": \"table\"\
-    , \"placement\": \"right\", \"calcs\": [\"mean\", \"max\"]}}\n    },\n    {\n\
-    \      \"id\": 9,\n      \"title\": \"Result breakdown\",\n      \"description\"\
-    : \"Probes bucketed by current result label.\",\n      \"type\": \"piechart\"\
-    ,\n      \"datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n\
-    \      \"gridPos\": {\"h\": 9, \"w\": 12, \"x\": 12, \"y\": 38},\n      \"targets\"\
-    : [{\n        \"refId\": \"A\",\n        \"expr\": \"count by (result) (synthetics_probe_result_info{namespace=~\\\
-    \"$namespace\\\", kind=~\\\"$kind\\\"})\",\n        \"legendFormat\": \"{{result}}\"\
-    \n      }],\n      \"options\": {\n        \"pieType\": \"donut\",\n        \"\
-    legend\": {\"displayMode\": \"table\", \"placement\": \"right\", \"values\": [\"\
-    value\", \"percent\"]},\n        \"displayLabels\": [\"name\"]\n      },\n   \
-    \   \"fieldConfig\": {\n        \"defaults\": {\n          \"mappings\": [\n \
-    \           {\"type\": \"value\", \"options\": {\"ok\": {\"color\": \"green\"\
-    , \"index\": 0}}},\n            {\"type\": \"value\", \"options\": {\"assertion_failed\"\
-    : {\"color\": \"red\", \"index\": 1}}},\n            {\"type\": \"value\", \"\
-    options\": {\"timeout\": {\"color\": \"red\", \"index\": 2}}},\n            {\"\
-    type\": \"value\", \"options\": {\"dns_failed\": {\"color\": \"dark-red\", \"\
-    index\": 3}}},\n            {\"type\": \"value\", \"options\": {\"tls_failed\"\
-    : {\"color\": \"dark-red\", \"index\": 4}}},\n            {\"type\": \"value\"\
-    , \"options\": {\"connect_failed\": {\"color\": \"dark-red\", \"index\": 5}}}\n\
-    \          ]\n        }\n      }\n    },\n    {\n      \"id\": 11,\n      \"title\"\
-    : \"Suppressions\",\n      \"description\": \"Failing probes whose failure is\
-    \ attributed to an unhealthy upstream dependency. `unhealthy_dependency` names\
-    \ the root cause.\",\n      \"type\": \"table\",\n      \"datasource\": {\"type\"\
-    : \"prometheus\", \"uid\": \"prometheus\"},\n      \"gridPos\": {\"h\": 9, \"\
-    w\": 24, \"x\": 0, \"y\": 47},\n      \"targets\": [{\n        \"refId\": \"A\"\
-    ,\n        \"expr\": \"synthetics_probe_suppressed{namespace=~\\\"$namespace\\\
-    \", kind=~\\\"$kind\\\"} == 1\",\n        \"format\": \"table\",\n        \"instant\"\
-    : true\n      }],\n      \"transformations\": [\n        {\"id\": \"filterFieldsByName\"\
-    , \"options\": {\"include\": {\"names\": [\"name\", \"kind\", \"namespace\", \"\
-    unhealthy_dependency\", \"unhealthy_dependency_kind\"]}}},\n        {\"id\": \"\
-    organize\", \"options\": {\"indexByName\": {\"name\": 0, \"kind\": 1, \"namespace\"\
-    : 2, \"unhealthy_dependency\": 3, \"unhealthy_dependency_kind\": 4}}}\n      ],\n\
-    \      \"options\": {\"showHeader\": true, \"sortBy\": [{\"displayName\": \"name\"\
-    , \"desc\": false}]},\n      \"fieldConfig\": {\n        \"defaults\": {\n   \
-    \       \"custom\": {\"align\": \"left\"},\n          \"noValue\": \"No suppressed\
-    \ probes \u2014 every failing probe is being attributed directly, not to an upstream.\"\
-    ,\n          \"links\": [{\n            \"title\": \"Open probe\",\n         \
-    \   \"url\": \"/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}\"\
-    \n          }]\n        },\n        \"overrides\": [\n          {\"matcher\":\
-    \ {\"id\": \"byName\", \"options\": \"unhealthy_dependency\"}, \"properties\"\
-    : [\n            {\"id\": \"custom.cellOptions\", \"value\": {\"type\": \"color-background\"\
-    , \"mode\": \"basic\"}},\n            {\"id\": \"color\", \"value\": {\"mode\"\
-    : \"fixed\", \"fixedColor\": \"orange\"}}\n          ]}\n        ]\n      }\n\
-    \    }\n  ]\n}\n"
+    : [\n        {\n          \"id\": \"filterFieldsByName\",\n          \"options\"\
+    : {\n            \"include\": {\n              \"names\": [\n                \"\
+    name\",\n                \"kind\",\n                \"namespace\",\n         \
+    \       \"unhealthy_dependency\",\n                \"unhealthy_dependency_kind\"\
+    \n              ]\n            }\n          }\n        },\n        {\n       \
+    \   \"id\": \"organize\",\n          \"options\": {\n            \"indexByName\"\
+    : {\n              \"name\": 0,\n              \"kind\": 1,\n              \"\
+    namespace\": 2,\n              \"unhealthy_dependency\": 3,\n              \"\
+    unhealthy_dependency_kind\": 4\n            }\n          }\n        }\n      ],\n\
+    \      \"options\": {\n        \"showHeader\": true,\n        \"sortBy\": [\n\
+    \          {\n            \"displayName\": \"name\",\n            \"desc\": false\n\
+    \          }\n        ]\n      },\n      \"fieldConfig\": {\n        \"defaults\"\
+    : {\n          \"custom\": {\n            \"align\": \"left\"\n          },\n\
+    \          \"noValue\": \"No suppressed probes \\u2014 every failing probe is\
+    \ being attributed directly, not to an upstream.\",\n          \"links\": [\n\
+    \            {\n              \"title\": \"Open probe\",\n              \"url\"\
+    : \"/d/synthetics-${__data.fields.kind}?${__url_time_range}&var-namespace=${__data.fields.namespace}&var-probe=${__data.fields.name}\"\
+    \n            }\n          ]\n        },\n        \"overrides\": [\n         \
+    \ {\n            \"matcher\": {\n              \"id\": \"byName\",\n         \
+    \     \"options\": \"unhealthy_dependency\"\n            },\n            \"properties\"\
+    : [\n              {\n                \"id\": \"custom.cellOptions\",\n      \
+    \          \"value\": {\n                  \"type\": \"color-background\",\n \
+    \                 \"mode\": \"basic\"\n                }\n              },\n \
+    \             {\n                \"id\": \"color\",\n                \"value\"\
+    : {\n                  \"mode\": \"fixed\",\n                  \"fixedColor\"\
+    : \"orange\"\n                }\n              }\n            ]\n          }\n\
+    \        ]\n      }\n    }\n  ]\n}\n"
 kind: ConfigMap
 metadata:
   creationTimestamp: null
@@ -656,6 +843,110 @@ metadata:
   labels:
     grafana_dashboard: '1'
   name: synthetics-dns-dashboard
+  namespace: monitoring
+
+---
+apiVersion: v1
+data:
+  synthetics-tcp.json: "{\n  \"annotations\": {\"list\": []},\n  \"editable\": true,\n\
+    \  \"fiscalYearStartMonth\": 0,\n  \"graphTooltip\": 1,\n  \"refresh\": \"30s\"\
+    ,\n  \"schemaVersion\": 39,\n  \"tags\": [\"synthetics\", \"tcp\"],\n  \"templating\"\
+    : {\n    \"list\": [\n      {\n        \"name\": \"namespace\",\n        \"label\"\
+    : \"Namespace\",\n        \"type\": \"query\",\n        \"datasource\": {\"type\"\
+    : \"prometheus\", \"uid\": \"prometheus\"},\n        \"query\": {\"query\": \"\
+    label_values(synthetics_probe_last_run_timestamp{kind=\\\"TCPProbe\\\"}, namespace)\"\
+    , \"refId\": \"A\"},\n        \"refresh\": 2,\n        \"sort\": 1\n      },\n\
+    \      {\n        \"name\": \"probe\",\n        \"label\": \"TCPProbe\",\n   \
+    \     \"type\": \"query\",\n        \"datasource\": {\"type\": \"prometheus\"\
+    , \"uid\": \"prometheus\"},\n        \"query\": {\"query\": \"label_values(synthetics_probe_last_run_timestamp{namespace=\\\
+    \"$namespace\\\", kind=\\\"TCPProbe\\\"}, name)\", \"refId\": \"A\"},\n      \
+    \  \"refresh\": 2,\n        \"sort\": 1\n      }\n    ]\n  },\n  \"time\": {\"\
+    from\": \"now-6h\", \"to\": \"now\"},\n  \"timepicker\": {\"refresh_intervals\"\
+    : [\"10s\", \"30s\", \"1m\", \"5m\"]},\n  \"timezone\": \"browser\",\n  \"title\"\
+    : \"Synthetics / TCP\",\n  \"uid\": \"synthetics-TCPProbe\",\n  \"version\": 1,\n\
+    \  \"panels\": [\n    {\n      \"id\": 1,\n      \"title\": \"Current status\"\
+    ,\n      \"type\": \"stat\",\n      \"datasource\": {\"type\": \"prometheus\"\
+    , \"uid\": \"prometheus\"},\n      \"gridPos\": {\"h\": 5, \"w\": 5, \"x\": 0,\
+    \ \"y\": 0},\n      \"targets\": [{\"refId\": \"A\", \"expr\": \"max(synthetics_probe{namespace=\\\
+    \"$namespace\\\", kind=\\\"TCPProbe\\\", name=\\\"$probe\\\"})\"}],\n      \"\
+    options\": {\"colorMode\": \"background\", \"graphMode\": \"none\", \"textMode\"\
+    : \"value_and_name\", \"reduceOptions\": {\"calcs\": [\"lastNotNull\"]}},\n  \
+    \    \"fieldConfig\": {\"defaults\": {\"mappings\": [{\"type\": \"value\", \"\
+    options\": {\"0\": {\"color\": \"red\", \"text\": \"DOWN\"}, \"1\": {\"color\"\
+    : \"green\", \"text\": \"UP\"}}}], \"thresholds\": {\"mode\": \"absolute\", \"\
+    steps\": [{\"color\": \"red\", \"value\": null}, {\"color\": \"green\", \"value\"\
+    : 1}]}}}\n    },\n    {\n      \"id\": 2,\n      \"title\": \"Result\",\n    \
+    \  \"type\": \"table\",\n      \"datasource\": {\"type\": \"prometheus\", \"uid\"\
+    : \"prometheus\"},\n      \"gridPos\": {\"h\": 5, \"w\": 5, \"x\": 5, \"y\": 0},\n\
+    \      \"targets\": [{\"refId\": \"A\", \"expr\": \"synthetics_probe_result_info{namespace=\\\
+    \"$namespace\\\", kind=\\\"TCPProbe\\\", name=\\\"$probe\\\"}\", \"format\": \"\
+    table\", \"instant\": true}],\n      \"transformations\": [{\"id\": \"filterFieldsByName\"\
+    , \"options\": {\"include\": {\"names\": [\"result\", \"failed_assertion\"]}}}],\n\
+    \      \"options\": {\"showHeader\": true}\n    },\n    {\n      \"id\": 3,\n\
+    \      \"title\": \"Last run age\",\n      \"type\": \"stat\",\n      \"datasource\"\
+    : {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n      \"gridPos\": {\"\
+    h\": 5, \"w\": 5, \"x\": 10, \"y\": 0},\n      \"targets\": [{\"refId\": \"A\"\
+    , \"expr\": \"time() - max(synthetics_probe_last_run_timestamp{namespace=\\\"\
+    $namespace\\\", kind=\\\"TCPProbe\\\", name=\\\"$probe\\\"})\"}],\n      \"options\"\
+    : {\"colorMode\": \"value\", \"graphMode\": \"none\", \"reduceOptions\": {\"calcs\"\
+    : [\"lastNotNull\"]}},\n      \"fieldConfig\": {\"defaults\": {\"unit\": \"s\"\
+    }}\n    },\n    {\n      \"id\": 4,\n      \"title\": \"Connection duration\"\
+    ,\n      \"type\": \"stat\",\n      \"datasource\": {\"type\": \"prometheus\"\
+    , \"uid\": \"prometheus\"},\n      \"gridPos\": {\"h\": 5, \"w\": 4, \"x\": 15,\
+    \ \"y\": 0},\n      \"targets\": [{\"refId\": \"A\", \"expr\": \"max(synthetics_probe_duration_ms{namespace=\\\
+    \"$namespace\\\", kind=\\\"TCPProbe\\\", name=\\\"$probe\\\"})\"}],\n      \"\
+    options\": {\"colorMode\": \"value\", \"graphMode\": \"area\", \"reduceOptions\"\
+    : {\"calcs\": [\"lastNotNull\"]}},\n      \"fieldConfig\": {\"defaults\": {\"\
+    unit\": \"ms\"}}\n    },\n    {\n      \"id\": 5,\n      \"title\": \"Target\"\
+    ,\n      \"type\": \"table\",\n      \"datasource\": {\"type\": \"prometheus\"\
+    , \"uid\": \"prometheus\"},\n      \"gridPos\": {\"h\": 5, \"w\": 5, \"x\": 19,\
+    \ \"y\": 0},\n      \"targets\": [{\"refId\": \"A\", \"expr\": \"synthetics_probe_tcp_info{namespace=\\\
+    \"$namespace\\\", kind=\\\"TCPProbe\\\", name=\\\"$probe\\\"}\", \"format\": \"\
+    table\", \"instant\": true}],\n      \"transformations\": [{\"id\": \"filterFieldsByName\"\
+    , \"options\": {\"include\": {\"names\": [\"host\", \"port\"]}}}],\n      \"options\"\
+    : {\"showHeader\": true}\n    },\n    {\n      \"id\": 6,\n      \"title\": \"\
+    Availability\",\n      \"type\": \"state-timeline\",\n      \"datasource\": {\"\
+    type\": \"prometheus\", \"uid\": \"prometheus\"},\n      \"gridPos\": {\"h\":\
+    \ 8, \"w\": 24, \"x\": 0, \"y\": 5},\n      \"targets\": [{\"refId\": \"A\", \"\
+    expr\": \"min by () (min_over_time(synthetics_probe{namespace=\\\"$namespace\\\
+    \", kind=\\\"TCPProbe\\\", name=\\\"$probe\\\"}[$__interval]))\", \"legendFormat\"\
+    : \"$probe\", \"interval\": \"$__interval\"}],\n      \"options\": {\"mergeValues\"\
+    : true, \"showValue\": \"always\", \"rowHeight\": 0.7},\n      \"fieldConfig\"\
+    : {\"defaults\": {\"mappings\": [{\"type\": \"value\", \"options\": {\"0\": {\"\
+    color\": \"red\", \"text\": \"DOWN\"}, \"1\": {\"color\": \"green\", \"text\"\
+    : \"UP\"}}}], \"color\": {\"mode\": \"thresholds\"}, \"thresholds\": {\"mode\"\
+    : \"absolute\", \"steps\": [{\"color\": \"red\", \"value\": null}, {\"color\"\
+    : \"green\", \"value\": 1}]}}}\n    },\n    {\n      \"id\": 7,\n      \"title\"\
+    : \"Connection duration over time\",\n      \"type\": \"timeseries\",\n      \"\
+    datasource\": {\"type\": \"prometheus\", \"uid\": \"prometheus\"},\n      \"gridPos\"\
+    : {\"h\": 9, \"w\": 12, \"x\": 0, \"y\": 13},\n      \"targets\": [\n        {\"\
+    refId\": \"A\", \"expr\": \"synthetics_probe_duration_ms{namespace=\\\"$namespace\\\
+    \", kind=\\\"TCPProbe\\\", name=\\\"$probe\\\"}\", \"legendFormat\": \"now\"},\n\
+    \        {\"refId\": \"B\", \"expr\": \"synthetics_probe_duration_ms{namespace=\\\
+    \"$namespace\\\", kind=\\\"TCPProbe\\\", name=\\\"$probe\\\"} offset 1w\", \"\
+    legendFormat\": \"1w ago\"}\n      ],\n      \"fieldConfig\": {\"defaults\": {\"\
+    unit\": \"ms\", \"custom\": {\"drawStyle\": \"line\", \"lineInterpolation\": \"\
+    smooth\", \"lineWidth\": 2, \"fillOpacity\": 12, \"showPoints\": \"never\"}}},\n\
+    \      \"options\": {\"legend\": {\"displayMode\": \"list\", \"placement\": \"\
+    bottom\"}}\n    },\n    {\n      \"id\": 8,\n      \"title\": \"Assertions\",\n\
+    \      \"type\": \"state-timeline\",\n      \"datasource\": {\"type\": \"prometheus\"\
+    , \"uid\": \"prometheus\"},\n      \"gridPos\": {\"h\": 9, \"w\": 12, \"x\": 12,\
+    \ \"y\": 13},\n      \"targets\": [{\"refId\": \"A\", \"expr\": \"min by (assertion,\
+    \ expr) (min_over_time(synthetics_probe_assertion_result{namespace=\\\"$namespace\\\
+    \", kind=\\\"TCPProbe\\\", name=\\\"$probe\\\"}[$__interval]))\", \"legendFormat\"\
+    : \"{{assertion}} \u2014 {{expr}}\", \"interval\": \"$__interval\"}],\n      \"\
+    options\": {\"mergeValues\": true, \"showValue\": \"always\", \"rowHeight\": 0.7},\n\
+    \      \"fieldConfig\": {\"defaults\": {\"mappings\": [{\"type\": \"value\", \"\
+    options\": {\"0\": {\"color\": \"red\", \"text\": \"FAIL\"}, \"1\": {\"color\"\
+    : \"green\", \"text\": \"PASS\"}}}], \"color\": {\"mode\": \"thresholds\"}, \"\
+    thresholds\": {\"mode\": \"absolute\", \"steps\": [{\"color\": \"red\", \"value\"\
+    : null}, {\"color\": \"green\", \"value\": 1}]}}}\n    }\n  ]\n}\n"
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  labels:
+    grafana_dashboard: '1'
+  name: synthetics-tcp-dashboard
   namespace: monitoring
 
 ---

@@ -41,7 +41,7 @@ func New(c client.Client, recorder record.EventRecorder) *Notifier {
 	return &Notifier{client: c, recorder: recorder}
 }
 
-// OnProbeTransition emits an event against the HTTPProbe or DNSProbe whose
+// OnProbeTransition emits an event against the HTTPProbe, DNSProbe, or TCPProbe whose
 // Result flipped. Silent on missing CRs (already deleted) or unknown kinds.
 func (n *Notifier) OnProbeTransition(name types.NamespacedName, kind string, prev, next internalmetrics.Result) {
 	var obj client.Object
@@ -50,6 +50,8 @@ func (n *Notifier) OnProbeTransition(name types.NamespacedName, kind string, pre
 		obj = &syntheticsv1alpha1.HTTPProbe{}
 	case "DNSProbe":
 		obj = &syntheticsv1alpha1.DNSProbe{}
+	case "TCPProbe":
+		obj = &syntheticsv1alpha1.TCPProbe{}
 	default:
 		return
 	}

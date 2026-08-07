@@ -27,9 +27,14 @@ type Scheduler struct {
 	logger    logr.Logger
 	publisher JobPublisher
 	mu        sync.Mutex
-	probes    map[types.NamespacedName]*scheduledProbe
+	probes    map[probeKey]*scheduledProbe
 	started   bool
 	startCtx  context.Context
+}
+
+type probeKey struct {
+	kind results.Kind
+	name types.NamespacedName
 }
 
 type scheduledProbe struct {
@@ -42,7 +47,7 @@ func NewScheduler(logger logr.Logger, publisher JobPublisher) *Scheduler {
 	return &Scheduler{
 		logger:    logger,
 		publisher: publisher,
-		probes:    make(map[types.NamespacedName]*scheduledProbe),
+		probes:    make(map[probeKey]*scheduledProbe),
 	}
 }
 
@@ -57,7 +62,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	for _, scheduled := range s.probes {
 		close(scheduled.stop)
 	}
-	s.probes = map[types.NamespacedName]*scheduledProbe{}
+	s.probes = map[probeKey]*scheduledProbe{}
 	s.mu.Unlock()
 
 	return nil
@@ -67,7 +72,11 @@ func (s *Scheduler) Start(ctx context.Context) error {
 // same key resets the timer. Called by reconcilers whenever a probe's spec
 // changes; both the spec and its interval may change across calls. The spec
 // is held so every published job can carry it.
-func (s *Scheduler) Register(key types.NamespacedName, spec results.SpecUpdate) {
+func (s *Scheduler) Register(spec results.SpecUpdate) {
+	key := probeKey{
+		kind: spec.Kind,
+		name: types.NamespacedName{Namespace: spec.Namespace, Name: spec.Name},
+	}
 	interval := time.Duration(spec.IntervalMs) * time.Millisecond
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -90,7 +99,8 @@ func (s *Scheduler) Register(key types.NamespacedName, spec results.SpecUpdate) 
 }
 
 // Unregister stops the scheduled probe if present.
-func (s *Scheduler) Unregister(key types.NamespacedName) {
+func (s *Scheduler) Unregister(kind results.Kind, name types.NamespacedName) {
+	key := probeKey{kind: kind, name: name}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if scheduled, ok := s.probes[key]; ok {
@@ -99,8 +109,8 @@ func (s *Scheduler) Unregister(key types.NamespacedName) {
 	}
 }
 
-func (s *Scheduler) runLoop(ctx context.Context, key types.NamespacedName, scheduled *scheduledProbe) {
-	offset := ProbeOffset(key.Namespace, key.Name, scheduled.interval)
+func (s *Scheduler) runLoop(ctx context.Context, key probeKey, scheduled *scheduledProbe) {
+	offset := ProbeOffsetForKind(key.kind, key.name.Namespace, key.name.Name, scheduled.interval)
 	timer := time.NewTimer(initialDelay(time.Now(), scheduled.interval, offset))
 	defer timer.Stop()
 
@@ -114,19 +124,31 @@ func (s *Scheduler) runLoop(ctx context.Context, key types.NamespacedName, sched
 				ScheduledAt: now,
 			}
 			if err := s.publisher.PublishProbeJob(ctx, msg); err != nil {
-				s.logger.Error(err, "publish probe job", "kind", scheduled.spec.Kind, "namespace", key.Namespace, "name", key.Name)
+				s.logger.Error(err, "publish probe job", "kind", scheduled.spec.Kind, "namespace", key.name.Namespace, "name", key.name.Name)
 			}
 			timer.Reset(scheduled.interval)
 		}
 	}
 }
 
+// ProbeOffset retains the stable namespace/name offset used by CronJob-backed
+// tests.
 func ProbeOffset(namespace, name string, interval time.Duration) time.Duration {
+	return probeOffsetHash(namespace+"/"+name, interval)
+}
+
+// ProbeOffsetForKind includes the probe kind so same-named lightweight probes
+// do not share an execution offset.
+func ProbeOffsetForKind(kind results.Kind, namespace, name string, interval time.Duration) time.Duration {
+	return probeOffsetHash(string(kind)+"/"+namespace+"/"+name, interval)
+}
+
+func probeOffsetHash(identity string, interval time.Duration) time.Duration {
 	if interval <= 0 {
 		return 0
 	}
 	h := fnv.New64a()
-	_, _ = h.Write([]byte(namespace + "/" + name))
+	_, _ = h.Write([]byte(identity))
 	sum := int64(h.Sum64() & uint64(math.MaxInt64))
 	return time.Duration(sum % interval.Nanoseconds())
 }

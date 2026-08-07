@@ -29,6 +29,7 @@ generate:
 	$(TOOLS_BIN)/controller-gen crd paths="./api/..." output:crd:artifacts:config=config/crd/bases
 	cp config/crd/bases/synthetics.dev_httpprobes.yaml charts/synthetics-operator/crds/synthetics.dev_httpprobes.yaml
 	cp config/crd/bases/synthetics.dev_dnsprobes.yaml charts/synthetics-operator/crds/synthetics.dev_dnsprobes.yaml
+	cp config/crd/bases/synthetics.dev_tcpprobes.yaml charts/synthetics-operator/crds/synthetics.dev_tcpprobes.yaml
 	cp config/crd/bases/synthetics.dev_k6tests.yaml charts/synthetics-operator/crds/synthetics.dev_k6tests.yaml
 	cp config/crd/bases/synthetics.dev_playwrighttests.yaml charts/synthetics-operator/crds/synthetics.dev_playwrighttests.yaml
 
@@ -87,7 +88,7 @@ docker-build-playwright-runner-local:
 	@docker build -t ko.local/synthetics-playwright-runner ./images/playwright-runner
 
 dashboard-configmaps: ## Regenerate hack/dashboard-configmaps.yaml from dashboards/*.json
-	@for entry in "synthetics-overview-dashboard:synthetics-overview.json" "synthetics-http-dashboard:synthetics-http.json" "synthetics-dns-dashboard:synthetics-dns.json" "synthetics-playwright-dashboard:synthetics-playwright.json" "synthetics-k6-dashboard:synthetics-k6.json"; do \
+	@for entry in "synthetics-overview-dashboard:synthetics-overview.json" "synthetics-http-dashboard:synthetics-http.json" "synthetics-dns-dashboard:synthetics-dns.json" "synthetics-tcp-dashboard:synthetics-tcp.json" "synthetics-playwright-dashboard:synthetics-playwright.json" "synthetics-k6-dashboard:synthetics-k6.json"; do \
 		name=$$(echo $$entry | cut -d: -f1); \
 		file=$$(echo $$entry | cut -d: -f2); \
 		echo "---"; \

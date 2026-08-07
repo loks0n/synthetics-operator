@@ -1,6 +1,6 @@
 # synthetics-operator
 
-Declarative synthetic monitoring for Kubernetes. Define HTTP checks, DNS probes, Playwright browser flows, and k6 load tests as CRDs; get Prometheus metrics and Grafana dashboards without wiring any of it yourself.
+Declarative synthetic monitoring for Kubernetes. Define HTTP, DNS, and TCP probes, Playwright browser flows, and k6 load tests as CRDs; get Prometheus metrics and Grafana dashboards without wiring any of it yourself.
 
 A self-hosted alternative to BetterStack / Datadog Synthetics — in-cluster, no SaaS, no per-seat pricing, no proprietary query language.
 
@@ -40,7 +40,7 @@ Plus a fleet-level **Overview** — failing probes, upstream-attributed suppress
 
 ## Features
 
-- **Unified** — HTTP, DNS, TLS, Playwright, k6 under one API
+- **Unified** — HTTP, DNS, TCP, TLS, Playwright, k6 under one API
 - **Opinionated** — curated runtimes (Playwright for browser, k6 for load); no arbitrary scripts
 - **Prometheus-native** — `/metrics` endpoint, importable Grafana dashboards, shipped PrometheusRule + Grafana alert sets
 - **Self-contained** — runs entirely in-cluster, no data egress, no SaaS component
@@ -61,6 +61,13 @@ helm install synthetics-operator \
 
 Every image (controller, webhook, prober, metrics, test-sidecar, k6-runner, playwright-runner) defaults to the chart's AppVersion — no image pinning flags needed for a straight install. Override individually with `--set controller.image.ref=…` etc. if you need custom builds.
 
+Helm does not update CRDs that already exist. Before upgrading an existing installation to a release that adds TCPProbe, apply the release's CRDs, then upgrade the chart:
+
+```sh
+helm show crds oci://ghcr.io/loks0n/charts/synthetics-operator --version <release> | kubectl apply -f -
+helm upgrade synthetics-operator oci://ghcr.io/loks0n/charts/synthetics-operator --version <release> -n synthetics-system
+```
+
 `nats.enabled=true` spins up NATS alongside the operator — one server by default, or a clustered StatefulSet at `--set nats.replicas=3`. Neither uses JetStream, so results in flight when a server dies are lost; for durable delivery, point `nats.externalUrl` at an external NATS cluster you manage.
 
 The prober scales horizontally off the NATS queue group. Raise `prober.replicaCount`, or hand the count to [KEDA](https://keda.sh):
@@ -78,6 +85,7 @@ The default trigger is 70% CPU; `prober.autoscaling.triggers` is passed to the `
 |---|---|---|
 | `HTTPProbe` | in-cluster prober | HTTP checks, assertions, TLS expiry |
 | `DNSProbe` | in-cluster prober | DNS resolution, answer inspection |
+| `TCPProbe` | in-cluster prober | TCP host/port reachability and connection latency |
 | `PlaywrightTest` | Kubernetes CronJob | Scripted browser flows (multi-step journeys) |
 | `K6Test` | Kubernetes CronJob | Load and performance testing |
 
@@ -87,11 +95,12 @@ Ready-to-apply specs in [`examples/`](examples/). Full schema, assertion grammar
 
 ### Dashboards
 
-Five Grafana dashboards ship in [`dashboards/`](dashboards/). Drop them into a ConfigMap with the `grafana_dashboard=1` label and Grafana's sidecar picks them up:
+Six Grafana dashboards ship in [`dashboards/`](dashboards/). Drop them into a ConfigMap with the `grafana_dashboard=1` label and Grafana's sidecar picks them up:
 
 - **Synthetics / Overview** — fleet state, cert expiry, suppressions
 - **Synthetics / HTTP** — per-HTTPProbe: phase breakdown, assertions, TLS, status codes
 - **Synthetics / DNS** — per-DNSProbe: response time, answer drift
+- **Synthetics / TCP** — per-TCPProbe: availability, endpoint, connection duration, assertions
 - **Synthetics / Playwright** — per-test status, per-case pass/fail ribbons, durations
 - **Synthetics / K6** — per-test status, duration trend
 

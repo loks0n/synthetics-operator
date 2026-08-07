@@ -1,0 +1,122 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["synthetics", "tcp"],
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": {"query": "label_values(synthetics_probe_last_run_timestamp{kind=\"TCPProbe\"}, namespace)", "refId": "A"},
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "probe",
+        "label": "TCPProbe",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": {"query": "label_values(synthetics_probe_last_run_timestamp{namespace=\"$namespace\", kind=\"TCPProbe\"}, name)", "refId": "A"},
+        "refresh": 2,
+        "sort": 1
+      }
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["10s", "30s", "1m", "5m"]},
+  "timezone": "browser",
+  "title": "Synthetics / TCP",
+  "uid": "synthetics-TCPProbe",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Current status",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 5, "x": 0, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_probe{namespace=\"$namespace\", kind=\"TCPProbe\", name=\"$probe\"})"}],
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+    },
+    {
+      "id": 2,
+      "title": "Result",
+      "type": "table",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 5, "x": 5, "y": 0},
+      "targets": [{"refId": "A", "expr": "synthetics_probe_result_info{namespace=\"$namespace\", kind=\"TCPProbe\", name=\"$probe\"}", "format": "table", "instant": true}],
+      "transformations": [{"id": "filterFieldsByName", "options": {"include": {"names": ["result", "failed_assertion"]}}}],
+      "options": {"showHeader": true}
+    },
+    {
+      "id": 3,
+      "title": "Last run age",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 5, "x": 10, "y": 0},
+      "targets": [{"refId": "A", "expr": "time() - max(synthetics_probe_last_run_timestamp{namespace=\"$namespace\", kind=\"TCPProbe\", name=\"$probe\"})"}],
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 4,
+      "title": "Connection duration",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 4, "x": 15, "y": 0},
+      "targets": [{"refId": "A", "expr": "max(synthetics_probe_duration_ms{namespace=\"$namespace\", kind=\"TCPProbe\", name=\"$probe\"})"}],
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "id": 5,
+      "title": "Target",
+      "type": "table",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 5, "x": 19, "y": 0},
+      "targets": [{"refId": "A", "expr": "synthetics_probe_tcp_info{namespace=\"$namespace\", kind=\"TCPProbe\", name=\"$probe\"}", "format": "table", "instant": true}],
+      "transformations": [{"id": "filterFieldsByName", "options": {"include": {"names": ["host", "port"]}}}],
+      "options": {"showHeader": true}
+    },
+    {
+      "id": 6,
+      "title": "Availability",
+      "type": "state-timeline",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 5},
+      "targets": [{"refId": "A", "expr": "min by () (min_over_time(synthetics_probe{namespace=\"$namespace\", kind=\"TCPProbe\", name=\"$probe\"}[$__interval]))", "legendFormat": "$probe", "interval": "$__interval"}],
+      "options": {"mergeValues": true, "showValue": "always", "rowHeight": 0.7},
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}}], "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+    },
+    {
+      "id": 7,
+      "title": "Connection duration over time",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 13},
+      "targets": [
+        {"refId": "A", "expr": "synthetics_probe_duration_ms{namespace=\"$namespace\", kind=\"TCPProbe\", name=\"$probe\"}", "legendFormat": "now"},
+        {"refId": "B", "expr": "synthetics_probe_duration_ms{namespace=\"$namespace\", kind=\"TCPProbe\", name=\"$probe\"} offset 1w", "legendFormat": "1w ago"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 12, "showPoints": "never"}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 8,
+      "title": "Assertions",
+      "type": "state-timeline",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 13},
+      "targets": [{"refId": "A", "expr": "min by (assertion, expr) (min_over_time(synthetics_probe_assertion_result{namespace=\"$namespace\", kind=\"TCPProbe\", name=\"$probe\"}[$__interval]))", "legendFormat": "{{assertion}} — {{expr}}", "interval": "$__interval"}],
+      "options": {"mergeValues": true, "showValue": "always", "rowHeight": 0.7},
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"color": "red", "text": "FAIL"}, "1": {"color": "green", "text": "PASS"}}}], "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+    }
+  ]
+}

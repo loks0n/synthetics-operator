@@ -28,6 +28,7 @@ type Kind string
 const (
 	KindHTTPProbe      Kind = "HTTPProbe"
 	KindDNSProbe       Kind = "DNSProbe"
+	KindTCPProbe       Kind = "TCPProbe"
 	KindK6Test         Kind = "K6Test"
 	KindPlaywrightTest Kind = "PlaywrightTest"
 )
@@ -76,10 +77,19 @@ type DNSProbeSpecPayload struct {
 	Assertions []Assertion `json:"assertions,omitempty"`
 }
 
+// TCPProbeSpecPayload carries everything a prober needs to establish a TCP
+// connection. TCPProbe deliberately performs no application-level exchange.
+type TCPProbeSpecPayload struct {
+	TimeoutMs  int64       `json:"timeoutMs"`
+	Host       string      `json:"host"`
+	Port       int32       `json:"port"`
+	Assertions []Assertion `json:"assertions,omitempty"`
+}
+
 // SpecUpdate is published on synthetics.specs whenever a CR's spec changes
-// or the CR is deleted. Probe-workers and metrics-consumers each maintain a
-// cache of these — that cache is the only way they learn about deps /
-// metricLabels / executable specs, since they don't watch the k8s API.
+// or the CR is deleted. Metrics consumers cache these to learn about deps and
+// metricLabels without watching the k8s API. The scheduler also embeds the
+// current SpecUpdate in every ProbeJob so probe workers remain stateless.
 //
 // Deleted=true is a tombstone: remove all state for {Kind, Namespace, Name}.
 type SpecUpdate struct {
@@ -97,6 +107,7 @@ type SpecUpdate struct {
 	// just the spec metadata the metrics consumer needs.
 	HTTPProbe *HTTPProbeSpecPayload `json:"httpProbe,omitempty"`
 	DNSProbe  *DNSProbeSpecPayload  `json:"dnsProbe,omitempty"`
+	TCPProbe  *TCPProbeSpecPayload  `json:"tcpProbe,omitempty"`
 }
 
 // ProbeJob is published by the controller's scheduler on each scheduled
@@ -124,7 +135,7 @@ type AssertionResult struct {
 
 // ProbeResult is published by probers after each execution. Carries
 // everything the metrics consumer needs to emit the probe's metric family —
-// result class, duration, HTTP/DNS telemetry, per-assertion results.
+// result class, duration, HTTP/DNS/TCP telemetry, per-assertion results.
 //
 // The metrics consumer joins this against its SpecUpdate cache to resolve
 // metricLabels and depends; those are not duplicated here.
@@ -157,6 +168,10 @@ type ProbeResult struct {
 	DNSAnswerCount      int    `json:"dnsAnswerCount,omitempty"`
 	DNSAuthorityCount   int    `json:"dnsAuthorityCount,omitempty"`
 	DNSAdditionalCount  int    `json:"dnsAdditionalCount,omitempty"`
+
+	// TCP telemetry
+	TCPHost string `json:"tcpHost,omitempty"`
+	TCPPort int32  `json:"tcpPort,omitempty"`
 }
 
 // TestCase is a single case within a PlaywrightTest run, produced from the

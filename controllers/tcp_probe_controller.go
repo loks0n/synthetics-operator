@@ -17,10 +17,9 @@ import (
 	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
-// DNSProbeReconciler reconciles the DNSProbe CRD. Same Phase-14 split as
-// HTTPProbeReconciler — publishes specs, registers with the scheduler,
-// does not execute probes.
-type DNSProbeReconciler struct {
+// TCPProbeReconciler publishes TCPProbe specs and registers their intervals.
+// Execution is owned by the stateless prober deployment.
+type TCPProbeReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
 	Scheduler ProbeScheduler
@@ -28,34 +27,33 @@ type DNSProbeReconciler struct {
 	Clock     func() time.Time
 }
 
-func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var probe syntheticsv1alpha1.DNSProbe
+func (r *TCPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var probe syntheticsv1alpha1.TCPProbe
 	if err := r.Get(ctx, req.NamespacedName, &probe); err != nil {
 		if apierrors.IsNotFound(err) {
-			r.Scheduler.Unregister(results.KindDNSProbe, req.NamespacedName)
-			return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindDNSProbe, req.Namespace, req.Name))
+			r.Scheduler.Unregister(results.KindTCPProbe, req.NamespacedName)
+			return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindTCPProbe, req.Namespace, req.Name))
 		}
 		return ctrl.Result{}, err
 	}
 
 	if !probe.DeletionTimestamp.IsZero() {
-		r.Scheduler.Unregister(results.KindDNSProbe, req.NamespacedName)
-		return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindDNSProbe, probe.Namespace, probe.Name))
+		r.Scheduler.Unregister(results.KindTCPProbe, req.NamespacedName)
+		return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindTCPProbe, probe.Namespace, probe.Name))
 	}
 
-	spec := dnsProbeSpecUpdate(&probe)
+	spec := tcpProbeSpecUpdate(&probe)
 	if err := r.Publisher.PublishSpec(ctx, spec); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	original := probe.DeepCopy()
 	now := metav1.NewTime(r.Clock())
-
 	probe.Status.ObservedGeneration = probe.Generation
 	setSuspendedCondition(&probe.Status.Conditions, probe.Generation, probe.Spec.Suspend, now)
 
 	if probe.Spec.Suspend {
-		r.Scheduler.Unregister(results.KindDNSProbe, req.NamespacedName)
+		r.Scheduler.Unregister(results.KindTCPProbe, req.NamespacedName)
 	} else {
 		r.Scheduler.Register(spec)
 	}
@@ -65,12 +63,11 @@ func (r *DNSProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 	}
-
 	return ctrl.Result{}, nil
 }
 
-func (r *DNSProbeReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *TCPProbeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&syntheticsv1alpha1.DNSProbe{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&syntheticsv1alpha1.TCPProbe{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Complete(r)
 }

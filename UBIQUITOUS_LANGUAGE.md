@@ -4,10 +4,11 @@
 
 | Term | Definition | Aliases to avoid |
 | --- | --- | --- |
-| **Probe** | A lightweight, in-process HTTP or DNS check that runs on a repeating interval, managed by the operator's in-memory scheduler | Monitor, check, test |
+| **Probe** | A lightweight HTTP, DNS, or TCP check that runs on a repeating interval, managed by the operator's scheduler and prober pool | Monitor, check, test |
 | **Test** | A heavyweight, script-driven load test (k6, Playwright) that runs as a Kubernetes CronJob | Probe, job, run |
 | **HTTPProbe** | A **Probe** that makes an HTTP request and asserts on the response | HTTP check, HTTP monitor |
 | **DNSProbe** | A **Probe** that resolves a DNS name and asserts on the answer | DNS check, DNS monitor |
+| **TCPProbe** | A **Probe** that establishes and closes a TCP connection to a host and port | TCP check, TCP monitor |
 | **K6Test** | A **Test** that executes a k6 JavaScript script as a CronJob | k6 probe, k6 job |
 | **PlaywrightTest** | A **Test** that executes a Playwright browser test spec as a CronJob | Playwright probe, browser test |
 | **Script** | The JavaScript file, stored in a ConfigMap, that a **K6Test** or **PlaywrightTest** executes | Test file, source |
@@ -48,7 +49,7 @@
 
 ## Relationships
 
-- A **Probe** (HTTPProbe, DNSProbe) is managed by the in-memory **Scheduler**; no CronJob is created.
+- A **Probe** (HTTPProbe, DNSProbe, TCPProbe) is managed by the in-memory **Scheduler**; no CronJob is created.
 - A **Test** (K6Test, PlaywrightTest) owns exactly one **CronJob**; the **Scheduler** is not involved.
 - Each **Test** CronJob pod runs one **Runner** container and one **test-sidecar** container. K6Test additionally uses an init container to stage the k6-runner binary into the stock `grafana/k6` image; PlaywrightTest uses the playwright-runner image as the main container directly.
 - The **Runner** writes a **TestResult** JSON to a shared volume; the **test-sidecar** reads it and publishes it over **NATS**. PlaywrightTest **TestResults** carry a per-test breakdown; K6Test **TestResults** carry only the aggregate pass/fail.
@@ -78,4 +79,4 @@
 - **"runner"** appears in two contexts: the `RunnerSpec` field on `K6Test` (pod-level configuration) and the **Runner** binary that wraps k6. They are distinct — `RunnerSpec` is configuration, **Runner** is the executable. Code uses `RunnerSpec` and `k6-runner` to keep them apart; spoken language should do the same.
 - **"results-writer"** was an early name for the **test-sidecar** container. It is retired — prefer **test-sidecar** in all contexts.
 - **"ProbeResult"** was an early name for **TestResult** on the NATS wire format. It is retired — **Probes** never use NATS; only **Tests** produce **TestResults**.
-- **"probe"** (lowercase generic) was sometimes used to mean any synthetic check. The codebase distinguishes **Probe** (HTTPProbe, DNSProbe) from **Test** (K6Test) — use the specific term.
+- **"probe"** (lowercase generic) was sometimes used to mean any synthetic check. The codebase distinguishes **Probe** (HTTPProbe, DNSProbe, TCPProbe) from **Test** (K6Test, PlaywrightTest) — use the specific term.

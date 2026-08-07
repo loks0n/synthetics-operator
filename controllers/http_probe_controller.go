@@ -33,14 +33,14 @@ func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	var probe syntheticsv1alpha1.HTTPProbe
 	if err := r.Get(ctx, req.NamespacedName, &probe); err != nil {
 		if apierrors.IsNotFound(err) {
-			r.Scheduler.Unregister(req.NamespacedName)
+			r.Scheduler.Unregister(results.KindHTTPProbe, req.NamespacedName)
 			return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindHTTPProbe, req.Namespace, req.Name))
 		}
 		return ctrl.Result{}, err
 	}
 
 	if !probe.DeletionTimestamp.IsZero() {
-		r.Scheduler.Unregister(req.NamespacedName)
+		r.Scheduler.Unregister(results.KindHTTPProbe, req.NamespacedName)
 		return ctrl.Result{}, r.Publisher.PublishSpec(ctx, tombstone(results.KindHTTPProbe, probe.Namespace, probe.Name))
 	}
 
@@ -60,9 +60,9 @@ func (r *HTTPProbeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	setSuspendedCondition(&probe.Status.Conditions, probe.Generation, probe.Spec.Suspend, now)
 
 	if probe.Spec.Suspend {
-		r.Scheduler.Unregister(req.NamespacedName)
+		r.Scheduler.Unregister(results.KindHTTPProbe, req.NamespacedName)
 	} else {
-		r.Scheduler.Register(req.NamespacedName, spec)
+		r.Scheduler.Register(spec)
 	}
 
 	if probeStatusChanged(original.Status.ObservedGeneration, probe.Status.ObservedGeneration, original.Status.Conditions, probe.Status.Conditions) {

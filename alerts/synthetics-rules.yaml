@@ -124,6 +124,18 @@ spec:
               Probe {{ $labels.namespace }}/{{ $labels.name }} DNS response time has
               exceeded 500ms for the past 5 minutes.
 
+        # ── TCP probe slow ───────────────────────────────────────────────────────
+        - alert: SyntheticTCPProbeSlow
+          expr: synthetics_probe_duration_ms{kind="TCPProbe"} > 1000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "TCP probe {{ $labels.name }} is slow ({{ $value }}ms)"
+            description: >
+              Probe {{ $labels.namespace }}/{{ $labels.name }} TCP connection time
+              has exceeded 1000ms for the past 5 minutes.
+
     - name: synthetics.tests
       interval: 60s
       rules:

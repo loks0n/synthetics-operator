@@ -33,6 +33,21 @@ webhooks:
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
         resources: ["dnsprobes"]
+  - name: mtcpprobe.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "synthetics-operator.webhookServiceName" . }}
+        path: /mutate-synthetics-dev-v1alpha1-tcpprobe
+    rules:
+      - apiGroups: ["synthetics.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["tcpprobes"]
   - name: mk6test.kb.io
     admissionReviewVersions:
       - v1
@@ -99,6 +114,21 @@ webhooks:
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
         resources: ["dnsprobes"]
+  - name: vtcpprobe.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "synthetics-operator.webhookServiceName" . }}
+        path: /validate-synthetics-dev-v1alpha1-tcpprobe
+    rules:
+      - apiGroups: ["synthetics.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["tcpprobes"]
   - name: vk6test.kb.io
     admissionReviewVersions:
       - v1

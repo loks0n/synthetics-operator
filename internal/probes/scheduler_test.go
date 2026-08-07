@@ -34,6 +34,15 @@ func TestProbeOffsetDifferentProbes(t *testing.T) {
 	}
 }
 
+func TestProbeOffsetForKindDistinguishesSameNamedProbes(t *testing.T) {
+	interval := 30 * time.Second
+	httpOffset := ProbeOffsetForKind(results.KindHTTPProbe, "default", "shared", interval)
+	tcpOffset := ProbeOffsetForKind(results.KindTCPProbe, "default", "shared", interval)
+	if httpOffset == tcpOffset {
+		t.Fatal("expected kind-aware offsets for same-named probes")
+	}
+}
+
 func TestProbeOffsetZeroInterval(t *testing.T) {
 	if ProbeOffset("default", "probe", 0) != 0 {
 		t.Fatal("expected zero offset for zero interval")
@@ -66,10 +75,11 @@ func TestSchedulerRegisterBeforeStartDropsProbe(t *testing.T) {
 	s := NewScheduler(logr.Discard(), &fakeJobPublisher{})
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
-	s.Register(key, results.SpecUpdate{Kind: results.KindHTTPProbe, IntervalMs: (30 * time.Second).Milliseconds()})
+	spec := results.SpecUpdate{Kind: results.KindHTTPProbe, Namespace: key.Namespace, Name: key.Name, IntervalMs: (30 * time.Second).Milliseconds()}
+	s.Register(spec)
 
 	s.mu.Lock()
-	_, ok := s.probes[key]
+	_, ok := s.probes[probeKey{kind: spec.Kind, name: key}]
 	s.mu.Unlock()
 
 	if ok {
@@ -85,11 +95,12 @@ func TestSchedulerUnregisterRemovesProbe(t *testing.T) {
 	waitStarted(t, s)
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
-	s.Register(key, results.SpecUpdate{Kind: results.KindHTTPProbe, IntervalMs: (30 * time.Second).Milliseconds()})
-	s.Unregister(key)
+	spec := results.SpecUpdate{Kind: results.KindHTTPProbe, Namespace: key.Namespace, Name: key.Name, IntervalMs: (30 * time.Second).Milliseconds()}
+	s.Register(spec)
+	s.Unregister(spec.Kind, key)
 
 	s.mu.Lock()
-	_, ok := s.probes[key]
+	_, ok := s.probes[probeKey{kind: spec.Kind, name: key}]
 	s.mu.Unlock()
 	if ok {
 		t.Fatal("probe should be removed after Unregister")
@@ -105,14 +116,15 @@ func TestSchedulerReRegisterReplacesExisting(t *testing.T) {
 
 	key := types.NamespacedName{Namespace: "default", Name: "test"}
 
-	s.Register(key, results.SpecUpdate{Kind: results.KindHTTPProbe, IntervalMs: (30 * time.Second).Milliseconds()})
+	spec := results.SpecUpdate{Kind: results.KindHTTPProbe, Namespace: key.Namespace, Name: key.Name, IntervalMs: (30 * time.Second).Milliseconds()}
+	s.Register(spec)
 	s.mu.Lock()
-	first := s.probes[key]
+	first := s.probes[probeKey{kind: spec.Kind, name: key}]
 	s.mu.Unlock()
 
-	s.Register(key, results.SpecUpdate{Kind: results.KindHTTPProbe, IntervalMs: (30 * time.Second).Milliseconds()})
+	s.Register(spec)
 	s.mu.Lock()
-	second := s.probes[key]
+	second := s.probes[probeKey{kind: spec.Kind, name: key}]
 	s.mu.Unlock()
 
 	if first == second {
@@ -123,6 +135,36 @@ func TestSchedulerReRegisterReplacesExisting(t *testing.T) {
 	case <-first.stop:
 	default:
 		t.Fatal("old stop channel should be closed after re-register")
+	}
+}
+
+func TestSchedulerKeepsSameNamedProbeKindsIndependent(t *testing.T) {
+	s := NewScheduler(logr.Discard(), &fakeJobPublisher{})
+	ctx := t.Context()
+	go func() { _ = s.Start(ctx) }()
+	waitStarted(t, s)
+
+	name := types.NamespacedName{Namespace: "default", Name: "shared"}
+	httpSpec := results.SpecUpdate{Kind: results.KindHTTPProbe, Namespace: name.Namespace, Name: name.Name, IntervalMs: 30000}
+	tcpSpec := results.SpecUpdate{Kind: results.KindTCPProbe, Namespace: name.Namespace, Name: name.Name, IntervalMs: 30000}
+	s.Register(httpSpec)
+	s.Register(tcpSpec)
+
+	s.mu.Lock()
+	_, httpOK := s.probes[probeKey{kind: results.KindHTTPProbe, name: name}]
+	_, tcpOK := s.probes[probeKey{kind: results.KindTCPProbe, name: name}]
+	s.mu.Unlock()
+	if !httpOK || !tcpOK {
+		t.Fatalf("same-named kinds not independently registered: HTTP=%v TCP=%v", httpOK, tcpOK)
+	}
+
+	s.Unregister(results.KindTCPProbe, name)
+	s.mu.Lock()
+	_, httpOK = s.probes[probeKey{kind: results.KindHTTPProbe, name: name}]
+	_, tcpOK = s.probes[probeKey{kind: results.KindTCPProbe, name: name}]
+	s.mu.Unlock()
+	if !httpOK || tcpOK {
+		t.Fatalf("kind-scoped unregister failed: HTTP=%v TCP=%v", httpOK, tcpOK)
 	}
 }
 

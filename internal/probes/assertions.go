@@ -44,7 +44,7 @@ func evalAssertion(expr string, ctx assertionContext) (bool, error) {
 // evalAssertions runs all assertions against ctx. Returns ok=true when every
 // assertion passed, the name of the first failing assertion (empty when ok),
 // and a per-assertion result slice (always len(assertions)).
-func evalAssertions(assertions []v1alpha1.Assertion, ctx assertionContext) (ok bool, failedName string, out []results.AssertionResult) {
+func evalAssertions(assertions []results.Assertion, ctx assertionContext) (ok bool, failedName string, out []results.AssertionResult) {
 	out = make([]results.AssertionResult, 0, len(assertions))
 	ok = true
 	for _, a := range assertions {
@@ -73,10 +73,9 @@ func outcomeFromOK(ok bool) string {
 	return "assertion_failed"
 }
 
-// EvalHTTPAssertions evaluates HTTP probe assertions against the raw Result.
-// Returns the outcome result-class string, the failing assertion name (if
-// any), and the per-assertion results. Used by the prober.
-func EvalHTTPAssertions(r Result, assertions []v1alpha1.Assertion) (string, string, []results.AssertionResult) {
+// evalHTTPAssertions evaluates HTTPProbe assertions against the transport
+// result as part of the HTTPExecutor implementation.
+func evalHTTPAssertions(r httpResult, assertions []results.Assertion) (string, string, []results.AssertionResult) {
 	sslExpiryDays := float64(-1)
 	if r.CertExpiryTime != nil {
 		sslExpiryDays = time.Until(*r.CertExpiryTime).Hours() / 24
@@ -90,11 +89,20 @@ func EvalHTTPAssertions(r Result, assertions []v1alpha1.Assertion) (string, stri
 	return outcomeFromOK(ok), failed, out
 }
 
-// EvalDNSAssertions evaluates DNS probe assertions against the raw result.
-func EvalDNSAssertions(r DNSResult, assertions []v1alpha1.Assertion) (string, string, []results.AssertionResult) {
+// evalDNSAssertions evaluates DNSProbe assertions against the transport result.
+func evalDNSAssertions(r dnsResult, assertions []results.Assertion) (string, string, []results.AssertionResult) {
 	ctx := assertionContext{
 		"answer_count": float64(r.AnswerCount),
 		"duration_ms":  float64(r.Duration.Milliseconds()),
+	}
+	ok, failed, out := evalAssertions(assertions, ctx)
+	return outcomeFromOK(ok), failed, out
+}
+
+// evalTCPAssertions evaluates TCPProbe assertions against connection time.
+func evalTCPAssertions(r tcpResult, assertions []results.Assertion) (string, string, []results.AssertionResult) {
+	ctx := assertionContext{
+		"duration_ms": float64(r.Duration.Milliseconds()),
 	}
 	ok, failed, out := evalAssertions(assertions, ctx)
 	return outcomeFromOK(ok), failed, out
