@@ -30,6 +30,12 @@ type HeartbeatState struct {
 	// failed is unhealthy, even though it is perfectly fresh.
 	ReportedFailure bool
 	ExitCode        float64
+	// Suspended mutes every series for this heartbeat. Held as a flag rather
+	// than by dropping the entry: pings keep arriving while suspended, and a
+	// dropped entry would be recreated by the next one with a zero period —
+	// which evaluates as `missed` a second later, firing the very alert
+	// suspension exists to silence.
+	Suspended bool
 }
 
 // deadline is the instant by which the next ping must arrive. Grace defaults
@@ -70,10 +76,11 @@ func (s *Store) clock() time.Time {
 }
 
 // SetHeartbeatSpec records a Heartbeat's health contract from the spec
-// stream. Suspended heartbeats are dropped outright rather than stored with a
-// flag: a suspended heartbeat should produce no series at all, so an alert on
+// stream. A suspended heartbeat produces no series at all — so an alert on
 // `synthetics_heartbeat == 0` can't fire for one, and a dashboard doesn't
-// show a row that isn't being evaluated.
+// show a row that isn't being evaluated — but its state is retained so the
+// last ping survives the suspension and pings arriving during it have
+// somewhere to land. See HeartbeatState.Suspended.
 //
 // seedPingUnix and seedFailed replay the CR's status. They only apply when
 // the store has no live state, so a resync can't overwrite a ping this
@@ -83,14 +90,10 @@ func (s *Store) SetHeartbeatSpec(name types.NamespacedName, periodSeconds, grace
 	defer s.mu.Unlock()
 	key := crKey{kind: HeartbeatKind, name: name}
 
-	if suspend {
-		delete(s.heartbeats, key)
-		return
-	}
-
 	state, existing := s.heartbeats[key]
 	state.PeriodSeconds = periodSeconds
 	state.GraceSeconds = graceSeconds
+	state.Suspended = suspend
 	if !existing && seedPingUnix > 0 {
 		state.LastPingUnix = seedPingUnix
 		state.ReportedFailure = seedFailed
@@ -147,6 +150,10 @@ func (s *Store) SnapshotHeartbeat(name types.NamespacedName) (HeartbeatState, bo
 
 // observeHeartbeat emits one heartbeat's series. Caller must hold s.mu.RLock.
 func (s *Store) observeHeartbeat(observer apimetric.Observer, name types.NamespacedName, state HeartbeatState, instr instruments, now time.Time) {
+	if state.Suspended {
+		return
+	}
+
 	attrs := []attribute.KeyValue{
 		attribute.String("name", name.Name),
 		attribute.String("namespace", name.Namespace),

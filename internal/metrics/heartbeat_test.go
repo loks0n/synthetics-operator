@@ -148,6 +148,58 @@ func TestSuspendedHeartbeatEmitsNothing(t *testing.T) {
 	assertNoHeartbeatGauges(t, scrape(t, store))
 }
 
+// Suspension does not stop the job from running, so pings keep arriving
+// throughout it — and a ping must not be able to bring the series back. The
+// resurrected entry would carry no period, so its deadline would already have
+// passed and it would read `missed`, paging someone during the maintenance
+// window that was supposed to silence exactly that.
+func TestPingDuringSuspensionEmitsNothing(t *testing.T) {
+	store, advance := heartbeatStore(t)
+	store.SetHeartbeatSpec(backup, 60, 180, false, 0, false)
+	store.SetHeartbeatSpec(backup, 60, 180, true, 0, false)
+
+	advance(time.Minute)
+	store.RecordHeartbeatPing(t.Context(), backup, false, 0, float64(baseTime.Add(time.Minute).Unix()))
+	advance(time.Minute)
+
+	assertNoHeartbeatGauges(t, scrape(t, store))
+}
+
+// Resuming reports on the pings that arrived while suspended rather than
+// starting from pending — the job never stopped checking in.
+func TestResumingUsesPingsReceivedWhileSuspended(t *testing.T) {
+	store, advance := heartbeatStore(t)
+	store.SetHeartbeatSpec(backup, 60, 180, true, 0, false)
+
+	advance(time.Minute)
+	store.RecordHeartbeatPing(t.Context(), backup, false, 0, float64(baseTime.Add(time.Minute).Unix()))
+	store.SetHeartbeatSpec(backup, 60, 180, false, 0, false)
+
+	mustContain(t, scrape(t, store),
+		`synthetics_heartbeat{kind="Heartbeat",name="db-backup",namespace="prod"} 1`,
+		`result="ok"`,
+	)
+}
+
+// A suspended dependency is not being evaluated, so it must not suppress the
+// probes that depend on it.
+func TestSuspendedHeartbeatSuppressesNothing(t *testing.T) {
+	store, advance := heartbeatStore(t)
+	downstream := types.NamespacedName{Namespace: "prod", Name: "api"}
+	store.SetDepends("HTTPProbe", downstream, []syntheticsv1alpha1.DependencyRef{
+		{Kind: syntheticsv1alpha1.DependencyKindHeartbeat, Name: backup.Name},
+	})
+	store.SetHeartbeatSpec(backup, 60, 60, false, 0, false)
+	store.RecordHeartbeatPing(t.Context(), backup, false, 0, float64(baseTime.Unix()))
+	advance(5 * time.Minute)
+	store.SetHeartbeatSpec(backup, 60, 60, true, 0, false)
+	store.Upsert(downstream, ProbeState{Kind: "HTTPProbe", Result: ResultConnectRefused})
+
+	if strings.Contains(scrape(t, store), "synthetics_probe_suppressed") {
+		t.Error("a suspended heartbeat suppressed a probe that depends on it")
+	}
+}
+
 // The seed replays CR status after a restart. Without it a daily backup job
 // would read as pending — and alert — for a full day.
 func TestSpecSeedsLastPingOnAColdStore(t *testing.T) {
