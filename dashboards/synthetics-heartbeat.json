@@ -686,8 +686,8 @@
     },
     {
       "id": 9,
-      "title": "Overdue, as a fraction of the allowed window",
-      "type": "timeseries",
+      "title": "Deadline usage",
+      "type": "bargauge",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -698,51 +698,50 @@
         "x": 0,
         "y": 25
       },
-      "description": "1.0 is the deadline \u2014 period + grace since the last ping. Crossing it is exactly when synthetics_heartbeat flips to 0.",
+      "description": "Current time since last ping as a fraction of the allowed window: period + grace. 100% is the deadline; above 100% means the heartbeat is missed.",
       "targets": [
         {
           "refId": "A",
           "legendFormat": "{{name}}",
-          "expr": "(time() - (synthetics_heartbeat_last_received_timestamp{namespace=~\"$namespace\"} > 0)) / (synthetics_heartbeat_expected_period_seconds{namespace=~\"$namespace\"} + synthetics_heartbeat_grace_seconds{namespace=~\"$namespace\"})"
+          "expr": "(time() - (synthetics_heartbeat_last_received_timestamp{namespace=~\"$namespace\"} > 0)) / (synthetics_heartbeat_expected_period_seconds{namespace=~\"$namespace\"} + synthetics_heartbeat_grace_seconds{namespace=~\"$namespace\"})",
+          "instant": true
         }
       ],
       "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom"
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "minVizWidth": 0,
+        "minVizHeight": 10
       },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
           "min": 0,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "thresholdsStyle": {
-              "mode": "line"
-            }
-          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "transparent",
+                "color": "green",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.75
               },
               {
                 "color": "red",
                 "value": 1
               }
             ]
-          },
-          "max": 2
+          }
         },
         "overrides": []
       }
