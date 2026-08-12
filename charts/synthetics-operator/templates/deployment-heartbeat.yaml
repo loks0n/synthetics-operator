@@ -17,6 +17,9 @@ spec:
     spec:
 {{- include "synthetics-operator.podScheduling" . | indent 6 }}
       serviceAccountName: {{ include "synthetics-operator.fullname" . }}-heartbeat
+      # The receiver has no Kubernetes API client or RBAC. Do not mount a
+      # token into the only internet-facing pod.
+      automountServiceAccountToken: false
       containers:
         - name: heartbeat
           image: {{ include "synthetics-operator.componentImage" (dict "ctx" . "image" .Values.heartbeat.image) | quote }}
