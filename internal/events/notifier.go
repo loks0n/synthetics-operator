@@ -21,10 +21,12 @@ import (
 
 // Event reason strings. Kubernetes convention: CamelCase, short.
 const (
-	ReasonProbeActive = "ProbeActive"
-	ReasonProbeFailed = "ProbeFailed"
-	ReasonTestActive  = "TestActive"
-	ReasonTestFailed  = "TestFailed"
+	ReasonProbeActive     = "ProbeActive"
+	ReasonProbeFailed     = "ProbeFailed"
+	ReasonTestActive      = "TestActive"
+	ReasonTestFailed      = "TestFailed"
+	ReasonHeartbeatActive = "HeartbeatActive"
+	ReasonHeartbeatFailed = "HeartbeatFailed"
 )
 
 const getTimeout = 5 * time.Second
@@ -41,10 +43,12 @@ func New(c client.Client, recorder record.EventRecorder) *Notifier {
 	return &Notifier{client: c, recorder: recorder}
 }
 
-// OnProbeTransition emits an event against the HTTPProbe, DNSProbe, or TCPProbe whose
-// Result flipped. Silent on missing CRs (already deleted) or unknown kinds.
+// OnProbeTransition emits an event against the HTTPProbe, DNSProbe, TCPProbe,
+// or Heartbeat whose Result flipped. Silent on missing CRs (already deleted)
+// or unknown kinds.
 func (n *Notifier) OnProbeTransition(name types.NamespacedName, kind string, prev, next internalmetrics.Result) {
 	var obj client.Object
+	activeReason, failedReason := ReasonProbeActive, ReasonProbeFailed
 	switch kind {
 	case "HTTPProbe":
 		obj = &syntheticsv1alpha1.HTTPProbe{}
@@ -52,10 +56,13 @@ func (n *Notifier) OnProbeTransition(name types.NamespacedName, kind string, pre
 		obj = &syntheticsv1alpha1.DNSProbe{}
 	case "TCPProbe":
 		obj = &syntheticsv1alpha1.TCPProbe{}
+	case "Heartbeat":
+		obj = &syntheticsv1alpha1.Heartbeat{}
+		activeReason, failedReason = ReasonHeartbeatActive, ReasonHeartbeatFailed
 	default:
 		return
 	}
-	n.emit(obj, name, ReasonProbeActive, ReasonProbeFailed, prev, next)
+	n.emit(obj, name, activeReason, failedReason, prev, next)
 }
 
 // OnTestTransition emits an event against the K6Test or PlaywrightTest whose
