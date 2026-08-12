@@ -38,12 +38,6 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: |-
-          Named "Last Result", not "Result": this is what the most recent ping said,
-          not whether the heartbeat is currently healthy. A heartbeat whose last ping
-          succeeded an hour ago still reads "ok" here while its metric has long since
-          gone to `missed`. Freshness is evaluated at scrape time and deliberately
-          has no CR field — see synthetics_heartbeat.
         properties:
           apiVersion:
             description: |-
@@ -64,19 +58,12 @@ spec:
             type: object
           spec:
             description: |-
-              HeartbeatSpec configures an inbound liveness check: a job somewhere outside
-              the cluster pings a generated URL on every successful run, and the operator
-              reports the heartbeat down once a ping fails to arrive in time.
-
-              This inverts every other kind in this API. The operator does not reach out
-              to a target on a schedule; it waits. There is therefore no timeout, no
-              assertion language, and no prober involvement — Period and Grace are the
-              whole health contract.
+              HeartbeatSpec configures an inbound check-in endpoint for jobs that report
+              liveness by pinging the operator.
             properties:
               depends:
-                description: |-
-                  Depends lists other probes or tests in the same namespace whose failure
-                  should suppress alerts on this heartbeat. See DependencyRef.
+                description: Depends lists same-namespace checks whose failure suppresses
+                  this heartbeat.
                 items:
                   description: |-
                     DependencyRef points to another synthetics.dev CR in the same namespace.
@@ -103,33 +90,25 @@ spec:
                   type: object
                 type: array
               grace:
-                description: |-
-                  Grace is extra slack allowed on top of Period before the heartbeat is
-                  reported down. A job that runs every minute but occasionally takes two
-                  wants period 1m, grace 3m. Defaults to Period.
+                description: Grace is extra slack after Period before the heartbeat
+                  is down. Defaults to Period.
                 type: string
               metricLabels:
                 additionalProperties:
                   type: string
-                description: |-
-                  MetricLabels are user-supplied key/value pairs appended to every
-                  Prometheus metric the operator emits for this heartbeat.
+                description: MetricLabels are appended to every metric emitted for
+                  this heartbeat.
                 type: object
               period:
                 description: Period is how often a ping is expected. Required.
                 type: string
               suspend:
-                description: |-
-                  Suspend stops evaluating freshness without deleting the Heartbeat or
-                  rotating its token. Pings that arrive while suspended are accepted and
-                  acknowledged, but emit no metrics. Use for planned maintenance.
+                description: Suspend stops emitting heartbeat metrics without rotating
+                  the token.
                 type: boolean
               tokenSecretRef:
-                description: |-
-                  TokenSecretRef adopts an existing token instead of generating one. The
-                  referenced Secret must already exist in the same namespace and is left
-                  untouched by the operator — you own its lifecycle and rotation. Leave
-                  empty to have the operator mint a token into a Secret it owns.
+                description: TokenSecretRef adopts an existing token Secret instead
+                  of generating one.
                 properties:
                   key:
                     default: token
@@ -201,31 +180,21 @@ spec:
                   type: object
                 type: array
               lastPingTime:
-                description: |-
-                  LastPingTime is the arrival time of the most recent ping. Persisted here
-                  so a metrics-consumer restart reseeds from the API server rather than
-                  reporting every heartbeat as pending until its next ping — which for a
-                  daily backup job would mean a day of false alerts.
+                description: LastPingTime is the arrival time of the most recent ping.
                 format: date-time
                 type: string
               lastResult:
-                description: |-
-                  LastResult is the outcome the most recent ping reported: ok for a plain
-                  ping or exit code 0, failed for /fail or a non-zero exit code.
+                description: 'LastResult is what the most recent ping reported: ok
+                  or failed.'
                 type: string
               observedGeneration:
                 format: int64
                 type: integer
               tokenSecretName:
-                description: |-
-                  TokenSecretName names the Secret holding the token, whether the operator
-                  generated it or spec.tokenSecretRef supplied it.
+                description: TokenSecretName names the Secret holding the token.
                 type: string
               url:
-                description: |-
-                  URL is the full endpoint the monitored job should ping. Readable by
-                  anyone with get access to this Heartbeat; the same value is also written
-                  to the token Secret for jobs that should not need CRD permissions.
+                description: URL is the full endpoint the monitored job should ping.
                 type: string
             type: object
         type: object
