@@ -40,7 +40,7 @@ Plus a fleet-level **Overview** — failing probes, upstream-attributed suppress
 
 Heartbeats invert the direction — the job checks in, and a missing check-in is the failure. The **Heartbeats** dashboard is fleet-first, since these tend to arrive in the hundreds:
 
-![Synthetics / Heartbeats dashboard — fleet table with per-heartbeat result, deadline usage bars, and an availability ribbon](docs/images/heartbeat-dashboard-deadline.png)
+![Synthetics / Heartbeats dashboard — fleet table with per-heartbeat result, deadline usage bars, and an availability ribbon](docs/images/heartbeat-dashboard.png)
 
 All four states are visible above: `ok`, `missed` (deadline passed with no ping), `reported_failure` (checked in on time to say the job failed), and `pending` (never pinged).
 
