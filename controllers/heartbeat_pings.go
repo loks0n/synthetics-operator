@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
+	"github.com/loks0n/synthetics-operator/internal/heartbeat/lifecycle"
 	"github.com/loks0n/synthetics-operator/internal/natsbus"
 	"github.com/loks0n/synthetics-operator/internal/results"
 )
@@ -99,13 +100,7 @@ func (w *HeartbeatPingWriter) onPing(ctx context.Context, ping results.Heartbeat
 // quarter of the period keeps status fresh enough that a reseed after a
 // restart is never off by more than a quarter of the alerting window.
 func (w *HeartbeatPingWriter) throttleFor(beat *syntheticsv1alpha1.Heartbeat) time.Duration {
-	if w.MinWriteInterval > 0 {
-		return w.MinWriteInterval
-	}
-	if period := beat.Spec.Period.Duration; period > 0 {
-		return period / 4
-	}
-	return 15 * time.Second
+	return lifecycle.WriteInterval(beat.Spec.Period.Duration, w.MinWriteInterval)
 }
 
 // shouldWrite applies the throttle and records the decision. A changed
@@ -118,7 +113,7 @@ func (w *HeartbeatPingWriter) shouldWrite(name types.NamespacedName, at time.Tim
 		w.lastWrite = map[types.NamespacedName]time.Time{}
 	}
 	previous, seen := w.lastWrite[name]
-	if seen && !outcomeChanged && at.Sub(previous) < throttle {
+	if !lifecycle.ShouldPersistPing(previous, seen, at, outcomeChanged, throttle) {
 		return false
 	}
 	w.lastWrite[name] = at

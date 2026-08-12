@@ -61,3 +61,30 @@ func TestRecordPingIgnoresOlderPings(t *testing.T) {
 		t.Fatalf("older ping changed state: %+v", state)
 	}
 }
+
+func TestWriteInterval(t *testing.T) {
+	if got := WriteInterval(time.Minute, 0); got != 15*time.Second {
+		t.Fatalf("WriteInterval = %s, want 15s", got)
+	}
+	if got := WriteInterval(time.Minute, 5*time.Second); got != 5*time.Second {
+		t.Fatalf("WriteInterval override = %s, want 5s", got)
+	}
+	if got := WriteInterval(0, 0); got != 15*time.Second {
+		t.Fatalf("WriteInterval fallback = %s, want 15s", got)
+	}
+}
+
+func TestShouldPersistPing(t *testing.T) {
+	if !ShouldPersistPing(time.Time{}, false, base, false, time.Minute) {
+		t.Fatal("first ping should persist")
+	}
+	if !ShouldPersistPing(base, true, base.Add(time.Second), true, time.Minute) {
+		t.Fatal("outcome change should persist")
+	}
+	if ShouldPersistPing(base, true, base.Add(time.Second), false, time.Minute) {
+		t.Fatal("unchanged ping inside interval should not persist")
+	}
+	if !ShouldPersistPing(base, true, base.Add(time.Minute), false, time.Minute) {
+		t.Fatal("unchanged ping after interval should persist")
+	}
+}

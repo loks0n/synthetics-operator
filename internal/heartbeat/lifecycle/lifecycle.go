@@ -53,6 +53,22 @@ func RecordPing(state State, failed bool, exitCode int, receivedUnix float64) St
 	return state
 }
 
+// WriteInterval picks the minimum gap between persisted status writes.
+func WriteInterval(period, override time.Duration) time.Duration {
+	if override > 0 {
+		return override
+	}
+	if period > 0 {
+		return period / 4
+	}
+	return 15 * time.Second
+}
+
+// ShouldPersistPing reports whether this ping should update durable status.
+func ShouldPersistPing(previous time.Time, seen bool, at time.Time, outcomeChanged bool, interval time.Duration) bool {
+	return !seen || outcomeChanged || at.Sub(previous) >= interval
+}
+
 // Deadline is the instant by which the next ping must arrive.
 func (s State) Deadline() float64 {
 	grace := s.GraceSeconds
