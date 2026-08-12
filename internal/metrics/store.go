@@ -774,7 +774,7 @@ func (s *Store) isFailingLocked(kind string, name types.NamespacedName) bool {
 		state, ok := s.heartbeats[crKey{kind: kind, name: name}]
 		// A suspended heartbeat is not being evaluated, so it can't suppress
 		// anything that depends on it.
-		return ok && !state.Suspended && state.evaluate(s.clock()) != ResultOK
+		return ok && !state.Suspended && heartbeatResult(state.Evaluate(s.clock())) != ResultOK
 	}
 	return false
 }
