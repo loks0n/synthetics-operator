@@ -62,20 +62,34 @@ func (r *SpecResyncer) Start(ctx context.Context) error {
 	defer ticker.Stop()
 
 	requested := make(chan struct{}, 1)
+	requestErr := make(chan error, 1)
 	if r.Requests != nil {
+		ready := make(chan struct{})
 		go func() {
-			err := r.Requests.SubscribeSpecResyncRequests(ctx, func(context.Context) {
+			requestErr <- r.Requests.SubscribeSpecResyncRequests(ctx, func(context.Context) {
 				// Non-blocking: several subscribers restarting together
 				// should collapse into one resync, not queue one each.
 				select {
 				case requested <- struct{}{}:
 				default:
 				}
-			})
+			}, natsbus.WithReady(ready))
+		}()
+
+		// Subscribe to resync requests before the initial broadcast. On a full
+		// cold start that first broadcast can happen before consumers have their
+		// own spec subscriptions; if their follow-up request also lands before
+		// the controller is listening, core NATS drops it and they wait for the
+		// periodic tick.
+		select {
+		case <-ready:
+		case err := <-requestErr:
 			if err != nil && ctx.Err() == nil {
 				r.Log.Error(err, "subscribing to spec resync requests")
 			}
-		}()
+		case <-ctx.Done():
+			return nil
+		}
 	}
 
 	r.resync(ctx)
@@ -88,6 +102,10 @@ func (r *SpecResyncer) Start(ctx context.Context) error {
 		case <-requested:
 			r.Log.V(1).Info("resyncing specs on request")
 			r.resync(ctx)
+		case err := <-requestErr:
+			if err != nil && ctx.Err() == nil {
+				r.Log.Error(err, "subscribing to spec resync requests")
+			}
 		}
 	}
 }
