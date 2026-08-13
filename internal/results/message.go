@@ -2,10 +2,12 @@
 // four deployments: controller, webhook, prober, and metrics.
 //
 // Subjects:
-//   - synthetics.specs            — controller → prober + metrics
+//   - synthetics.specs            — controller → prober + metrics + heartbeat
+//   - synthetics.specs.resync     — any subscriber → controller ("send them again")
 //   - synthetics.probes.jobs      — controller scheduler → prober (queue group)
 //   - synthetics.probes.results   — prober → metrics
 //   - synthetics.tests.results    — test-sidecar (CronJob pod) → metrics
+//   - synthetics.heartbeats.pings — heartbeat receiver → metrics + controller
 package results
 
 import "time"
@@ -13,11 +15,13 @@ import "time"
 // Subject constants. Colocate them here so every producer/consumer sees the
 // same strings — a typo in a subject name is silent.
 const (
-	SubjectSpecs        = "synthetics.specs"
-	SubjectProbeJobs    = "synthetics.probes.jobs"
-	SubjectProbeResults = "synthetics.probes.results"
-	SubjectTestResults  = "synthetics.tests.results"
-	ProberQueue         = "synthetics-probers"
+	SubjectSpecs          = "synthetics.specs"
+	SubjectSpecsResync    = "synthetics.specs.resync"
+	SubjectProbeJobs      = "synthetics.probes.jobs"
+	SubjectProbeResults   = "synthetics.probes.results"
+	SubjectTestResults    = "synthetics.tests.results"
+	SubjectHeartbeatPings = "synthetics.heartbeats.pings"
+	ProberQueue           = "synthetics-probers"
 )
 
 // Kind identifies the CRD type that produced a result. Values match the
@@ -31,6 +35,7 @@ const (
 	KindTCPProbe       Kind = "TCPProbe"
 	KindK6Test         Kind = "K6Test"
 	KindPlaywrightTest Kind = "PlaywrightTest"
+	KindHeartbeat      Kind = "Heartbeat"
 )
 
 // DependencyRef mirrors api/v1alpha1.DependencyRef on the wire. Duplicated
@@ -86,6 +91,38 @@ type TCPProbeSpecPayload struct {
 	Assertions []Assertion `json:"assertions,omitempty"`
 }
 
+// HeartbeatSpecPayload carries what a receiver needs to authenticate a ping
+// and what the metrics consumer needs to judge freshness.
+//
+// LastPingUnix and LastResult are a replay of the CR's status, not live
+// state: core NATS has no retention, so a metrics consumer that restarts has
+// no memory of pings it already saw. Seeding from the spec resync is what
+// stops a restart from reporting every heartbeat as pending — for a daily
+// backup job that would mean a day of false alerts.
+type HeartbeatSpecPayload struct {
+	Token        string `json:"token"`
+	PeriodMs     int64  `json:"periodMs"`
+	GraceMs      int64  `json:"graceMs"`
+	LastPingUnix int64  `json:"lastPingUnix,omitempty"`
+	LastResult   string `json:"lastResult,omitempty"`
+}
+
+// HeartbeatPing is published by the receiver for every accepted request.
+// Identity is resolved receiver-side from the token, so downstream consumers
+// never see the token itself.
+type HeartbeatPing struct {
+	Name       string    `json:"name"`
+	Namespace  string    `json:"namespace"`
+	ReceivedAt time.Time `json:"receivedAt"`
+	// Failed is true for /fail or a non-zero exit code.
+	Failed bool `json:"failed,omitempty"`
+	// ExitCode is the code reported on the URL path; 0 when none was given.
+	ExitCode int `json:"exitCode,omitempty"`
+	// Output is the request body, truncated by the receiver. Logged for
+	// diagnosis, never turned into a metric label.
+	Output string `json:"output,omitempty"`
+}
+
 // SpecUpdate is published on synthetics.specs whenever a CR's spec changes
 // or the CR is deleted. Metrics consumers cache these to learn about deps and
 // metricLabels without watching the k8s API. The scheduler also embeds the
@@ -108,6 +145,7 @@ type SpecUpdate struct {
 	HTTPProbe *HTTPProbeSpecPayload `json:"httpProbe,omitempty"`
 	DNSProbe  *DNSProbeSpecPayload  `json:"dnsProbe,omitempty"`
 	TCPProbe  *TCPProbeSpecPayload  `json:"tcpProbe,omitempty"`
+	Heartbeat *HeartbeatSpecPayload `json:"heartbeat,omitempty"`
 }
 
 // ProbeJob is published by the controller's scheduler on each scheduled

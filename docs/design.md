@@ -5,7 +5,7 @@
 
 ## 1. Overview
 
-synthetics-operator is an open-source Kubernetes operator for unified synthetic monitoring. It provides a consistent, declarative way to define HTTP, DNS, and TCP probes, SSL certificate monitoring, scripted browser tests, and load tests — all exportable to Prometheus and visualised in Grafana.
+synthetics-operator is an open-source Kubernetes operator for unified synthetic monitoring. It provides a consistent, declarative way to define HTTP, DNS, and TCP probes, SSL certificate monitoring, scripted browser tests, load tests, and inbound heartbeats — all exportable to Prometheus and visualised in Grafana.
 
 The project is deliberately opinionated: Playwright for browser tests, k6 for load tests. This constraint simplifies the operator, sets clear expectations for users, and avoids the complexity of supporting arbitrary runtimes.
 
@@ -67,13 +67,29 @@ helm install synthetics-operator \
   --set-string playwrightRunner.image=ghcr.io/loks0n/synthetics-playwright-runner:<release>
 ```
 
+Heartbeats need one more thing than the other kinds: a hostname the outside world can reach. Enable the receiver, tell the operator what origin to render URLs against, and publish it:
+
+```sh
+helm upgrade synthetics-operator \
+  oci://ghcr.io/loks0n/charts/synthetics-operator \
+  --reuse-values \
+  --set heartbeat.enabled=true \
+  --set heartbeat.baseUrl=https://heartbeats.example.com \
+  --set heartbeat.httpRoute.enabled=true \
+  --set heartbeat.httpRoute.hostname=heartbeats.example.com \
+  --set heartbeat.httpRoute.parentRefs[0].name=<gateway> \
+  --set heartbeat.httpRoute.parentRefs[0].namespace=<gateway-namespace>
+```
+
+`heartbeat.baseUrl` must match how the receiver is actually published — the operator writes it into every Heartbeat's `status.url` and token Secret, and callers copy it from there. One A record for the hostname and an ordinary certificate are all the DNS and TLS this needs; see §2.5 for why it is not a wildcard. If you don't run Gateway API, leave `httpRoute.enabled=false` and point your own Ingress or LoadBalancer at the `synthetics-operator-heartbeat` Service on port 8080.
+
 For local development, `make dev` spins up a kind cluster with Tilt — see `CONTRIBUTING.md`.
 
 ---
 
 ## 2. Custom Resource Definitions
 
-The operator defines five CRDs, split into two execution models: lightweight network probes dispatched to the prober pool, and script-based tests that execute as Kubernetes CronJobs.
+The operator defines six CRDs across three execution models: lightweight network probes dispatched to the prober pool, script-based tests that execute as Kubernetes CronJobs, and one inbound kind that is never executed at all.
 
 | CRD | Execution Model | Purpose |
 |-----|----------------|---------|
@@ -82,6 +98,9 @@ The operator defines five CRDs, split into two execution models: lightweight net
 | `TCPProbe` | In-cluster prober | TCP host/port reachability and connection latency |
 | `PlaywrightTest` | CronJob (Playwright) | Scripted browser flows and multi-step journeys |
 | `K6Test` | CronJob (k6) | Load and performance testing |
+| `Heartbeat` | Inbound (no execution) | Liveness of jobs the operator cannot reach — cron jobs, backups, workers |
+
+`Heartbeat` inverts the direction of every other kind. The operator does not reach out to a target on a schedule; a job outside the cluster calls a generated URL, and the operator reports the heartbeat down when a call stops arriving. See §2.5.
 
 ### 2.1 Shared fields
 
@@ -204,7 +223,72 @@ Available variables for TCPProbe:
 |----------|-------------|
 | `duration_ms` | DNS resolution plus TCP connection time in milliseconds |
 
-### 2.5 PlaywrightTest
+### 2.5 Heartbeat
+
+Inbound liveness checks, compatible with Better Stack's heartbeat monitors. A job pings a generated URL on every successful run; the operator reports it down once no ping arrives within `period + grace`.
+
+This is the right shape for anything the operator cannot reach: cron jobs, database backups, queue workers, scheduled ETL. An HTTPProbe can tell you a service answers; only the job itself can tell you it ran.
+
+```yaml
+apiVersion: synthetics.dev/v1alpha1
+kind: Heartbeat
+metadata:
+  name: db-fra1-5-backup
+spec:
+  period: 1h            # how often a ping is expected — required
+  grace: 1h             # extra slack before reporting down; defaults to period
+  suspend: false
+  metricLabels:
+    team: infra
+```
+
+There is no `interval`, `timeout`, or `assertions` block. A Heartbeat is never dispatched to the prober pool, so `period` and `grace` are the entire health contract.
+
+**The URL.** The operator mints a 160-bit random token on first reconcile, writes it to a Secret it owns, and renders the full URL into `status.url`:
+
+```
+$ kubectl get heartbeat db-fra1-5-backup -o jsonpath='{.status.url}'
+https://heartbeats.example.com/hb_7jq2xvn4kd8zpr1swm3tc6yb9fah2ke4
+```
+
+The same Secret carries a `url` key, so a job can mount it and curl it without needing RBAC on the CRD:
+
+```yaml
+env:
+  - name: HEARTBEAT_URL
+    valueFrom:
+      secretKeyRef:
+        name: db-fra1-5-backup-heartbeat
+        key: url
+```
+
+The Secret is owner-referenced to the Heartbeat, so deleting the Heartbeat garbage-collects the token.
+
+**Why the token is in the path, not a subdomain.** A wildcard `*.heartbeats.example.com` with the token as the leftmost label is the obvious design and the wrong one: the token would be sent in cleartext twice before the connection is encrypted — once in the DNS query, once in the TLS SNI extension. Every recursive resolver in the path, and anyone reading packets on the wire, would collect a working credential. On a path the token never leaves the TLS session. It also means one A record and one ordinary certificate instead of a wildcard pair.
+
+**Bring your own token.** `spec.tokenSecretRef` adopts a Secret you create and rotate yourself. The operator reads it and never writes to it.
+
+**Ping URLs.** All three shapes match Better Stack exactly, so migrating a cron job means changing the hostname and nothing else:
+
+| Request | Meaning |
+|---|---|
+| `GET\|POST\|HEAD <url>` | The run succeeded |
+| `<url>/fail` | The run failed |
+| `<url>/<exit-code>` | The run finished with that exit code; `0` is success |
+
+A POST body up to 4 KiB is captured as job output and logged with the ping. It is never turned into a metric label.
+
+```sh
+# in a cron job
+/usr/local/bin/backup.sh
+curl -fsS --retry 3 "$HEARTBEAT_URL/$?"
+```
+
+**Responses.** `200` on an accepted ping. `404` for an unrecognised token. `503` while a freshly started receiver replica is still loading its token index — a retrying client succeeds rather than recording a spurious failure. `500` if the ping could not be published, so a job is never told "ok" for a check-in that nothing recorded.
+
+**Suspend.** A suspended Heartbeat still accepts and acknowledges pings, but emits no metrics at all — not a healthy series, not an unhealthy one. An alert on `synthetics_heartbeat == 0` therefore cannot fire during a maintenance window.
+
+### 2.6 PlaywrightTest
 
 Playwright scripts stored in ConfigMaps and executed on a schedule inside the cluster. Designed for multi-step browser flows, authenticated journeys, and checks that require JavaScript execution. Playwright version is pinned per probe for reproducibility. A `runner` block configures all pod-level concerns.
 
@@ -250,7 +334,7 @@ spec:
 
 All five CRD types use `interval` (duration string). For PlaywrightTest and K6Test, the operator converts the interval to a CronJob schedule string and applies a per-test minute offset using `probeOffset()` — preventing clustering when multiple tests share the same interval. Minimum interval for CronJob-backed tests is `1m` (cron resolution limit); sub-minute intervals are supported by HTTPProbe, DNSProbe, and TCPProbe.
 
-### 2.6 K6Test
+### 2.7 K6Test
 
 k6 scripts executed on an interval or triggered externally via CI. Supports distributed execution via parallelism — the operator automatically divides VUs across test pods using k6 execution segments, users just set total VUs in the script. A `runner` block configures all pod-level concerns separately from test configuration.
 
@@ -300,7 +384,7 @@ spec:
           - topologyKey: kubernetes.io/hostname   # spread runners across nodes
 ```
 
-### 2.7 depends field
+### 2.8 depends field
 
 All CRDs support a `depends` field listing other probes or tests in the same namespace whose failure should suppress alerts on this one. Dependencies can cross families: a `PlaywrightTest` can depend on an `HTTPProbe`, a `K6Test` can depend on a `DNSProbe`, and so on.
 
@@ -323,7 +407,7 @@ synthetics_probe == 0 unless on(name, namespace, kind) synthetics_probe_suppress
 
 **Validation.** At admission time the webhook verifies each dep's `kind` is valid, the name is DNS-1123, it isn't a self-reference, isn't duplicated, the referenced CR exists in the same namespace, and the transitive graph has no cycle leading back to the owner.
 
-### 2.8 CRD version graduation strategy
+### 2.9 CRD version graduation strategy
 
 Initial release as `v1alpha1`. Graduation path:
 
@@ -337,10 +421,11 @@ No timeline commitment — driven by schema stability, not calendar.
 
 ## 3. Metrics Schema
 
-Metrics split into two families, mirroring the CRD split:
+Metrics split into three families, mirroring the CRD split:
 
 - **Probe metrics** (`synthetics_probe_*`) — emitted by HTTPProbe, DNSProbe, and TCPProbe. Assertions are declarative and evaluated by the operator, so we know *why* a probe failed and surface it on the `result` label.
 - **Test metrics** (`synthetics_test_*`) — emitted by K6Test and PlaywrightTest. Pass/fail is determined by the test's own runtime (k6 thresholds, Playwright `expect()`); the operator only sees success/failure, not the per-assertion detail.
+- **Heartbeat metrics** (`synthetics_heartbeat*`) — emitted by Heartbeat. Health is a function of elapsed time rather than of any observed run, so it is derived at scrape time rather than written on ingest.
 
 The operator exposes a `/metrics` endpoint on port 8080 for Prometheus scraping.
 
@@ -354,8 +439,9 @@ name, namespace, kind
 
 - `kind` on probes: `HTTPProbe | DNSProbe | TCPProbe`.
 - `kind` on tests: `K6Test | PlaywrightTest`.
+- `kind` on heartbeats: `Heartbeat`.
 
-Plus any custom labels defined in `spec.metricLabels` (Phase 12 — see section 3.5).
+Plus any custom labels defined in `spec.metricLabels` (Phase 12 — see section 3.6).
 
 ### 3.2 Probe family — HTTPProbe, DNSProbe, and TCPProbe
 
@@ -378,7 +464,7 @@ When `result="assertion_failed"`, the additional `failed_assertion` label carrie
 | Metric | Type | Description |
 |--------|------|-------------|
 | `synthetics_probe` | gauge 0\|1 | 1 when `result="ok"`, 0 otherwise. Carries `result` and (for `assertion_failed`) `failed_assertion` labels. |
-| `synthetics_probe_suppressed` | gauge 1 | Emitted only when a failing probe's transitive dep graph has at least one failing node. Labels `unhealthy_dependency`, `unhealthy_dependency_kind` name the deepest failing dep. See §2.7 for alert-rule usage. |
+| `synthetics_probe_suppressed` | gauge 1 | Emitted only when a failing probe's transitive dep graph has at least one failing node. Labels `unhealthy_dependency`, `unhealthy_dependency_kind` name the deepest failing dep. See §2.8 for alert-rule usage. |
 | `synthetics_probe_duration_ms` | gauge | Total probe duration in milliseconds |
 | `synthetics_probe_last_run_timestamp` | gauge | Unix timestamp of last probe execution |
 | `synthetics_probe_assertion_result` | gauge 0\|1 | Per-assertion pass/fail with `assertion` (name) and `expr` (expression) labels. Emitted for every assertion on every run. |
@@ -410,7 +496,52 @@ When `result="assertion_failed"`, the additional `failed_assertion` label carrie
 |--------|------|-------------|
 | `synthetics_probe_tcp_info` | gauge (always 1) | Static target information with `host` and `port` labels |
 
-### 3.3 Test family — K6Test and PlaywrightTest
+### 3.3 Heartbeat family
+
+The `result` label on `synthetics_heartbeat_result_info` is a closed enum:
+
+| `result` value | Meaning |
+|---|---|
+| `ok` | A ping arrived within `period + grace` and reported success |
+| `pending` | No ping has ever arrived |
+| `missed` | The last ping is older than `period + grace` |
+| `reported_failure` | The last ping arrived on time but reported a failure (`/fail` or a non-zero exit code) |
+
+`pending` is deliberately distinct from `missed`. A Heartbeat nobody has pointed a job at yet is a configuration gap, not an outage, and paging on it every time someone deploys a new one trains people to ignore the alert.
+
+**Health is evaluated at scrape time, not on ingest.** Nothing arrives to tell the operator a heartbeat is late — the whole signal is an absence. The metrics store therefore compares `now` against the deadline on every scrape, so `synthetics_heartbeat` flips to 0 the moment the window closes, with no polling loop and no timer per heartbeat.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `synthetics_heartbeat` | gauge 0\|1 | 1 when `result="ok"`, 0 otherwise. Evaluated at scrape time. |
+| `synthetics_heartbeat_result_info` | gauge (always 1) | Carries the current `result` label. Join against `synthetics_heartbeat`. |
+| `synthetics_heartbeat_suppressed` | gauge 1 | Emitted only when an unhealthy heartbeat's transitive dep graph has at least one failing node. Labels as per §2.8. |
+| `synthetics_heartbeat_last_received_timestamp` | gauge | Unix timestamp of the last ping; 0 if none has ever arrived |
+| `synthetics_heartbeat_expected_period_seconds` | gauge | Configured `spec.period` in seconds |
+| `synthetics_heartbeat_grace_seconds` | gauge | Configured `spec.grace` in seconds |
+| `synthetics_heartbeat_last_exit_code` | gauge | Exit code on the last ping; 0 when none was supplied |
+| `synthetics_heartbeat_received_total` | counter | Pings received, with an `outcome` label (`ok` \| `failed`) |
+
+Because period and grace are exposed as series, alert rules can be written against the declared contract rather than hard-coding a window per heartbeat:
+
+```yaml
+# Fires for any heartbeat that has gone past its own deadline.
+alert: HeartbeatMissed
+expr: synthetics_heartbeat == 0 and on(name, namespace) synthetics_heartbeat_result_info{result="missed"} == 1
+for: 1m
+
+# How overdue, as a fraction of the allowed window — useful for a dashboard
+# column that sorts the worst offenders to the top.
+expr: |
+  (time() - synthetics_heartbeat_last_received_timestamp)
+  / (synthetics_heartbeat_expected_period_seconds + synthetics_heartbeat_grace_seconds)
+```
+
+`synthetics_heartbeat` alone is enough for the common alert. The raw timestamp is there for rules that want their own window, and for the "how late" panel above.
+
+**Kubernetes Events.** The operator emits an Event on ingest-time transitions (`ok` ↔ `reported_failure`). It does not emit one for `missed`: that transition is observed by a clock, not by a message, and nothing in the operator wakes up to notice it. Alerting on missed heartbeats is Prometheus's job.
+
+### 3.4 Test family — K6Test and PlaywrightTest
 
 The `result` label on `synthetics_test` is a closed enum. Because the operator only sees a pass/fail signal from the test runner over NATS, the set of values is deliberately small:
 
@@ -424,7 +555,7 @@ Pod-level failures (OOMKilled, ImagePullBackOff, runner crashed before writing o
 | Metric | Type | Description |
 |--------|------|-------------|
 | `synthetics_test` | gauge 0\|1 | 1 when `result="ok"`, 0 otherwise. Carries the `result` label. |
-| `synthetics_test_suppressed` | gauge 1 | Emitted only when a failing test's transitive dep graph has at least one failing node. Labels `unhealthy_dependency`, `unhealthy_dependency_kind` name the deepest failing dep. See §2.7. |
+| `synthetics_test_suppressed` | gauge 1 | Emitted only when a failing test's transitive dep graph has at least one failing node. Labels `unhealthy_dependency`, `unhealthy_dependency_kind` name the deepest failing dep. See §2.8. |
 | `synthetics_test_duration_ms` | gauge | Total test duration in milliseconds |
 | `synthetics_test_last_run_timestamp` | gauge | Unix timestamp of last test execution |
 | `synthetics_test_results_received_total` | counter | Total TestResults received via NATS |
@@ -452,7 +583,7 @@ Playwright's JSON reporter provides per-test results. The operator parses this o
 | `synthetics_loadtest_iterations` | gauge | Total iterations completed |
 | `synthetics_loadtest_duration_seconds` | gauge | Total test run duration |
 
-### 3.4 Operator health metrics
+### 3.5 Operator health metrics
 
 The operator exposes its own health metrics alongside probe metrics, giving visibility into scheduling saturation, controller errors, and cert lifecycle.
 
@@ -497,7 +628,7 @@ The operator exposes its own health metrics alongside probe metrics, giving visi
 
 > `synthetics_operator_worker_pool_queue_depth` is the most operationally useful — a growing queue means the pool is saturated and needs more workers or fewer probes.
 
-### 3.5 Custom metric labels
+### 3.6 Custom metric labels
 
 All CRDs support a `spec.metricLabels` field that propagates to every Prometheus metric emitted for that probe. This enables per-team alerting, per-environment dashboard filtering, and criticality tiering without requiring separate namespaces.
 
@@ -568,14 +699,17 @@ This keeps the MVP aligned with the Phase 1 deliverable: declare an `HttpProbe`,
 
 ### 4.2 Target deployment architecture (Phase 8+)
 
-Four deployments with independent scaling characteristics:
+Five deployments with independent scaling characteristics:
 
 | Deployment | Default replicas | Scales to | Responsibilities |
 |---|---|---|---|
-| `synthetics-operator-controller` | 1 | 1 | Reconcile CRDs, manage CronJobs, status conditions, cert rotation |
-| `synthetics-operator-prober` | 1 | N | HttpProbe + DnsProbe execution, publish results to NATS |
-| `synthetics-operator-metrics` | 1 | N | Consume NATS result stream, serve `/metrics` |
+| `synthetics-operator-controller` | 1 | 1 | Reconcile CRDs, manage CronJobs, status conditions, cert rotation, Heartbeat tokens |
+| `synthetics-operator-prober` | 1 | N | HttpProbe + DnsProbe + TCPProbe execution, publish results to NATS |
+| `synthetics-operator-metrics` | 1 | N | Consume NATS result + ping streams, serve `/metrics` |
 | `synthetics-operator-webhook` | 2 | N | Validate + default CRDs |
+| `synthetics-operator-heartbeat` | 2 | N | Serve the inbound ping endpoint, publish pings to NATS |
+
+The heartbeat receiver is the only component reachable from the public internet, which is why it is a separate Deployment rather than another endpoint on the metrics or webhook pod: a request storm against the ping endpoint degrades heartbeat ingestion and nothing else. It holds no Kubernetes permissions at all — its ServiceAccount has no ClusterRole bound — because everything it needs arrives over NATS.
 
 NATS JetStream is the message bus connecting all components. CronJob sidecars publish directly to NATS — they never talk to the operator.
 
@@ -584,7 +718,31 @@ controller          → NATS work queue  ← probers (compete for jobs)
 CronJob sidecars    → NATS result stream
 probers       → NATS result stream
 NATS result stream  → metrics-consumer → /metrics
+
+external job → heartbeat receiver → NATS ping stream → metrics-consumer → /metrics
+                                                     → controller → CR status
 ```
+
+### 4.2.1 Heartbeat ingestion
+
+```
+cron job ──HTTPS──▶ HTTPRoute ──▶ heartbeat receiver
+                                       │  resolves token → {namespace, name}
+                                       ▼
+                            synthetics.heartbeats.pings
+                                  │              │
+                                  ▼              ▼
+                        metrics-consumer     controller (leader)
+                        in-memory state      throttled status patch
+```
+
+Two properties are worth calling out.
+
+**The receiver is stateless with respect to the Kubernetes API,** like the prober and metrics deployments. Its token index is built from the same `synthetics.specs` stream everything else consumes, so a replica can be added or replaced with no RBAC and no informer cache. Core NATS replays nothing, so a fresh replica publishes to `synthetics.specs.resync` on start and the controller re-broadcasts every live spec immediately rather than making it wait out the one-minute resync tick. Until that round-trip completes the receiver reports unready and answers `503`, never `404`.
+
+**The last ping is persisted to CR status,** and this is load-bearing rather than cosmetic. Metrics live in the metrics deployment's memory, which is lost on restart. For an HTTPProbe that costs one interval. For a daily backup heartbeat it would mean a full day of reporting `pending` — and alerting on it — after any restart or rollout. Writing the last ping to the API server gives the spec resync something durable to reseed from, and Kubernetes is already the durable store in this architecture, so this needs no JetStream and no new dependency.
+
+Every ping is not worth an etcd write: a hundred one-minute heartbeats would be a hundred writes a minute forever. Writes are throttled to a quarter of each heartbeat's own period, with any change of outcome forced through immediately — throttling a transition into failure would skip precisely the write worth keeping.
 
 ### 4.3 Probe scheduling
 
@@ -906,10 +1064,10 @@ Phase 1 RBAC is a reduced subset of the target model: the single operator Deploy
 
 | Resource | Verbs | Why |
 |----------|-------|-----|
-| `httpprobes`, `dnsprobes`, `playwrighttests`, `k6tests` | get, list, watch, update, patch | Reconcile CRDs, update status conditions |
+| `httpprobes`, `dnsprobes`, `tcpprobes`, `playwrighttests`, `k6tests`, `heartbeats` | get, list, watch, update, patch | Reconcile CRDs, update status conditions |
 | `jobs`, `cronjobs` | get, list, watch, create, update, delete | Manage CronJobs for script-based tests |
 | `configmaps` | get, list, watch, create, update, patch | Read scripts, manage webhook ConfigMaps |
-| `secrets` | get, list, watch, create, update | Webhook certs Secret |
+| `secrets` | get, list, watch, create, update | Webhook certs Secret; Heartbeat token Secrets |
 | `validatingwebhookconfigurations`, `mutatingwebhookconfigurations` | get, update, patch | Inject caBundle |
 | `leases` | get, create, update | controller-runtime informer health |
 | `events` | create, patch | Emit Kubernetes events |
@@ -931,8 +1089,14 @@ Phase 1 RBAC is a reduced subset of the target model: the single operator Deploy
 
 | Resource | Verbs | Why |
 |----------|-------|-----|
-| `httpprobes`, `dnsprobes`, `playwrighttests`, `k6tests` | get, list, watch | Read CRD schemas for validation |
+| `httpprobes`, `dnsprobes`, `tcpprobes`, `playwrighttests`, `k6tests`, `heartbeats` | get, list, watch | Read CRD schemas for validation |
 | `secrets` | get, watch | Load webhook serving cert |
+
+**`synthetics-operator-heartbeat` ClusterRole:**
+
+| Resource | Verbs | Why |
+|----------|-------|-----|
+| — | — | None. The internet-facing component holds no Kubernetes permissions; its token index comes from NATS. |
 
 Runner pod ServiceAccounts require no Kubernetes API permissions. Sidecars authenticate to NATS via their pod ServiceAccount token; the controller validates tokens via TokenReview on the NATS auth callout. See section 4.4.
 
@@ -1053,6 +1217,8 @@ Phase 1 only needs a subset of this layout: `HttpProbe` API types, a controller,
 /controllers                    # Reconcile logic per CRD (runs in controller deployment)
   http_probe_controller.go
   dns_probe_controller.go
+  tcp_probe_controller.go
+  heartbeat_controller.go
   playwright_test_controller.go
   k6_test_controller.go
   /internal
@@ -1491,3 +1657,20 @@ In-process probe workers continue to update OTel instruments directly. NATS work
 - Helm values for replica counts per deployment
 
 **Usable because:** at 1000+ probes the single operator process becomes a bottleneck. This unlocks horizontal scaling without any CRD API or result format changes.
+
+
+---
+
+### Phase 15 — Heartbeat
+
+**Deliverable:** Inbound liveness monitoring for jobs the operator cannot reach, replacing Better Stack heartbeat monitors.
+
+- `Heartbeat` CRD with `period` / `grace`, plus admission validation and grace defaulting
+- Operator-minted 160-bit tokens in owner-referenced Secrets, with `spec.tokenSecretRef` to adopt your own
+- `synthetics-operator-heartbeat` deployment serving the ping endpoint, published on one hostname via HTTPRoute; token travels in the path so it stays inside TLS
+- Better Stack-compatible URL shapes (`<url>`, `<url>/fail`, `<url>/<exit-code>`) so migrated cron jobs need only a hostname change
+- `synthetics_heartbeat*` metric family, with health derived at scrape time from `period + grace`
+- Last ping persisted to CR status and replayed on spec resync, so a metrics restart doesn't report every heartbeat as pending
+- On-demand spec resync over `synthetics.specs.resync`, closing the cold-start window for any restarting subscriber
+
+**Usable because:** cron jobs, backups, and queue workers are exactly the things an outbound probe cannot see, and they were the last category still requiring a Better Stack subscription.

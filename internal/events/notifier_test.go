@@ -111,6 +111,30 @@ func TestOnTestTransitionEmitsAgainstRightKind(t *testing.T) {
 	}
 }
 
+func TestOnProbeTransitionEmitsHeartbeatEvents(t *testing.T) {
+	scheme := newScheme(t)
+	beat := &syntheticsv1alpha1.Heartbeat{
+		ObjectMeta: metav1.ObjectMeta{Name: "backup", Namespace: "default"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(beat).Build()
+	recorder := record.NewFakeRecorder(10)
+
+	n := New(c, recorder)
+	n.OnProbeTransition(types.NamespacedName{Name: "backup", Namespace: "default"}, "Heartbeat", internalmetrics.ResultOK, internalmetrics.ResultReported)
+	n.OnProbeTransition(types.NamespacedName{Name: "backup", Namespace: "default"}, "Heartbeat", internalmetrics.ResultReported, internalmetrics.ResultOK)
+
+	events := drainReasons(recorder)
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d: %v", len(events), events)
+	}
+	if !contains(events[0], ReasonHeartbeatFailed) || !contains(events[0], corev1.EventTypeWarning) || !contains(events[0], "reported_failure") {
+		t.Fatalf("expected Warning HeartbeatFailed event, got %q", events[0])
+	}
+	if !contains(events[1], ReasonHeartbeatActive) || !contains(events[1], corev1.EventTypeNormal) {
+		t.Fatalf("expected Normal HeartbeatActive event, got %q", events[1])
+	}
+}
+
 func TestOnProbeTransitionUnknownKindSilent(t *testing.T) {
 	scheme := newScheme(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()

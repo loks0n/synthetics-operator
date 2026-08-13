@@ -30,6 +30,26 @@ type SpecResyncer struct {
 	Publisher natsbus.Publisher
 	Interval  time.Duration
 	Log       logr.Logger
+	// Requests, when set, lets a subscriber ask for a resync now instead of
+	// waiting out Interval. A component that restarts alone — one metrics
+	// replica, one heartbeat receiver — otherwise runs blind until the next
+	// tick, and for the receiver that gap is visible to users as 404s on
+	// tokens it hasn't learned yet.
+	Requests ResyncRequests
+	// TokenReader resolves each Heartbeat's token, which lives in a Secret
+	// rather than on the CR. Heartbeats are skipped when it is nil.
+	TokenReader HeartbeatTokenReader
+}
+
+// ResyncRequests is the subscribe side of synthetics.specs.resync.
+type ResyncRequests interface {
+	SubscribeSpecResyncRequests(ctx context.Context, handler func(context.Context), opts ...natsbus.SubscribeOption) error
+}
+
+// HeartbeatTokenReader resolves the current token for a Heartbeat. Satisfied
+// by HeartbeatReconciler, which owns token provisioning.
+type HeartbeatTokenReader interface {
+	Token(ctx context.Context, beat *syntheticsv1alpha1.Heartbeat) (string, bool)
 }
 
 // NeedLeaderElection ensures only the active controller replica re-publishes.
@@ -41,6 +61,37 @@ func (r *SpecResyncer) Start(ctx context.Context) error {
 	ticker := time.NewTicker(r.Interval)
 	defer ticker.Stop()
 
+	requested := make(chan struct{}, 1)
+	requestErr := make(chan error, 1)
+	if r.Requests != nil {
+		ready := make(chan struct{})
+		go func() {
+			requestErr <- r.Requests.SubscribeSpecResyncRequests(ctx, func(context.Context) {
+				// Non-blocking: several subscribers restarting together
+				// should collapse into one resync, not queue one each.
+				select {
+				case requested <- struct{}{}:
+				default:
+				}
+			}, natsbus.WithReady(ready))
+		}()
+
+		// Subscribe to resync requests before the initial broadcast. On a full
+		// cold start that first broadcast can happen before consumers have their
+		// own spec subscriptions; if their follow-up request also lands before
+		// the controller is listening, core NATS drops it and they wait for the
+		// periodic tick.
+		select {
+		case <-ready:
+		case err := <-requestErr:
+			if err != nil && ctx.Err() == nil {
+				r.Log.Error(err, "subscribing to spec resync requests")
+			}
+		case <-ctx.Done():
+			return nil
+		}
+	}
+
 	r.resync(ctx)
 	for {
 		select {
@@ -48,6 +99,13 @@ func (r *SpecResyncer) Start(ctx context.Context) error {
 			return nil
 		case <-ticker.C:
 			r.resync(ctx)
+		case <-requested:
+			r.Log.V(1).Info("resyncing specs on request")
+			r.resync(ctx)
+		case err := <-requestErr:
+			if err != nil && ctx.Err() == nil {
+				r.Log.Error(err, "subscribing to spec resync requests")
+			}
 		}
 	}
 }
@@ -64,6 +122,33 @@ func (r *SpecResyncer) resyncHTTPProbe(ctx context.Context, p *syntheticsv1alpha
 		return
 	}
 	r.publish(ctx, httpProbeSpecUpdate(p, headers))
+}
+
+// resyncHeartbeats republishes every Heartbeat spec. Unlike the other kinds
+// this needs a Secret read per CR to recover the token, so it is skipped
+// entirely when no TokenReader is wired.
+func (r *SpecResyncer) resyncHeartbeats(ctx context.Context) {
+	if r.TokenReader == nil {
+		return
+	}
+	var heartbeats syntheticsv1alpha1.HeartbeatList
+	if err := r.Client.List(ctx, &heartbeats); err != nil {
+		r.Log.Error(err, "listing Heartbeats for spec resync")
+		return
+	}
+	for i := range heartbeats.Items {
+		beat := &heartbeats.Items[i]
+		if !beat.DeletionTimestamp.IsZero() {
+			continue
+		}
+		token, ok := r.TokenReader.Token(ctx, beat)
+		if !ok {
+			// The reconciler owns reporting why; republishing without a token
+			// would evict a working token from the receiver's index.
+			continue
+		}
+		r.publish(ctx, heartbeatSpecUpdate(beat, token))
+	}
 }
 
 func (r *SpecResyncer) resync(ctx context.Context) {
@@ -108,6 +193,8 @@ func (r *SpecResyncer) resync(ctx context.Context) {
 			}
 		}
 	}
+
+	r.resyncHeartbeats(ctx)
 
 	var playwrightTests syntheticsv1alpha1.PlaywrightTestList
 	if err := r.Client.List(ctx, &playwrightTests); err != nil {

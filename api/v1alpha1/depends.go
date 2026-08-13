@@ -19,6 +19,7 @@ const (
 	DependencyKindTCPProbe       DependencyKind = "TCPProbe"
 	DependencyKindK6Test         DependencyKind = "K6Test"
 	DependencyKindPlaywrightTest DependencyKind = "PlaywrightTest"
+	DependencyKindHeartbeat      DependencyKind = "Heartbeat"
 )
 
 // DependencyRef points to another synthetics.dev CR in the same namespace.
@@ -26,7 +27,7 @@ const (
 // when any transitive dep in this list is currently unhealthy — see the
 // `synthetics_probe_suppressed` / `synthetics_test_suppressed` gauges.
 type DependencyRef struct {
-	// +kubebuilder:validation:Enum=HTTPProbe;DNSProbe;TCPProbe;K6Test;PlaywrightTest
+	// +kubebuilder:validation:Enum=HTTPProbe;DNSProbe;TCPProbe;K6Test;PlaywrightTest;Heartbeat
 	Kind DependencyKind `json:"kind"`
 	Name string         `json:"name"`
 }
@@ -56,10 +57,10 @@ func ValidateDepends(ctx context.Context, reader client.Reader, ownerKind Depend
 		fp := path.Index(i)
 
 		switch dep.Kind {
-		case DependencyKindHTTPProbe, DependencyKindDNSProbe, DependencyKindTCPProbe, DependencyKindK6Test, DependencyKindPlaywrightTest:
+		case DependencyKindHTTPProbe, DependencyKindDNSProbe, DependencyKindTCPProbe, DependencyKindK6Test, DependencyKindPlaywrightTest, DependencyKindHeartbeat:
 		default:
 			allErrs = append(allErrs, field.NotSupported(fp.Child("kind"), string(dep.Kind),
-				[]string{string(DependencyKindHTTPProbe), string(DependencyKindDNSProbe), string(DependencyKindTCPProbe), string(DependencyKindK6Test), string(DependencyKindPlaywrightTest)}))
+				[]string{string(DependencyKindHTTPProbe), string(DependencyKindDNSProbe), string(DependencyKindTCPProbe), string(DependencyKindK6Test), string(DependencyKindPlaywrightTest), string(DependencyKindHeartbeat)}))
 			continue
 		}
 
@@ -108,6 +109,8 @@ func checkDepExists(ctx context.Context, reader client.Reader, namespace string,
 		err = reader.Get(ctx, key, &K6Test{})
 	case DependencyKindPlaywrightTest:
 		err = reader.Get(ctx, key, &PlaywrightTest{})
+	case DependencyKindHeartbeat:
+		err = reader.Get(ctx, key, &Heartbeat{})
 	default:
 		return fmt.Errorf("unknown dependency kind %q", dep.Kind)
 	}
@@ -187,6 +190,12 @@ func fetchDepends(ctx context.Context, reader client.Reader, namespace string, d
 			return nil, err
 		}
 		return t.Spec.Depends, nil
+	case DependencyKindHeartbeat:
+		var h Heartbeat
+		if err := reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: dep.Name}, &h); err != nil {
+			return nil, err
+		}
+		return h.Spec.Depends, nil
 	}
 	return nil, fmt.Errorf("unknown dependency kind %q", dep.Kind)
 }

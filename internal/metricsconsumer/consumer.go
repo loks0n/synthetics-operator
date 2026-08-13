@@ -33,10 +33,30 @@ func (c *Consumer) Start(ctx context.Context) error {
 	specErr := make(chan error, 1)
 	probeErr := make(chan error, 1)
 	testErr := make(chan error, 1)
+	pingErr := make(chan error, 1)
 
-	go func() { specErr <- c.Bus.SubscribeSpecs(ctx, c.onSpec) }()
+	specReady := make(chan struct{})
+	go func() { specErr <- c.Bus.SubscribeSpecs(ctx, c.onSpec, natsbus.WithReady(specReady)) }()
 	go func() { probeErr <- c.Bus.SubscribeProbeResults(ctx, c.onProbeResult) }()
 	go func() { testErr <- c.Bus.SubscribeTestResults(ctx, c.onTestResult) }()
+	go func() { pingErr <- c.Bus.SubscribeHeartbeatPings(ctx, c.onHeartbeatPing) }()
+
+	// Ask for a resync rather than waiting out the controller's interval. A
+	// consumer that restarts alone has an empty store, and every heartbeat in
+	// it reads as pending until its spec arrives with the last-ping seed.
+	//
+	// Strictly after the spec subscription exists. The controller answers
+	// within milliseconds and core NATS drops a message nobody is subscribed
+	// to, so requesting first loses the very reply being asked for and falls
+	// silently through to the periodic tick.
+	select {
+	case <-specReady:
+		if err := c.Bus.RequestSpecResync(ctx); err != nil {
+			c.Log.Error(err, "requesting spec resync")
+		}
+	case <-ctx.Done():
+		return nil
+	}
 
 	select {
 	case <-ctx.Done():
@@ -46,6 +66,8 @@ func (c *Consumer) Start(ctx context.Context) error {
 	case err := <-probeErr:
 		return err
 	case err := <-testErr:
+		return err
+	case err := <-pingErr:
 		return err
 	}
 }
@@ -61,6 +83,22 @@ func (c *Consumer) onSpec(_ context.Context, msg results.SpecUpdate) {
 	}
 	c.Store.SetDepends(kind, name, toAPIDepends(msg.Depends))
 	c.Store.SetMetricLabels(kind, name, msg.MetricLabels)
+
+	if msg.Kind == results.KindHeartbeat && msg.Heartbeat != nil {
+		c.Store.SetHeartbeatSpec(
+			name,
+			float64(msg.Heartbeat.PeriodMs)/1000,
+			float64(msg.Heartbeat.GraceMs)/1000,
+			msg.Suspend,
+			float64(msg.Heartbeat.LastPingUnix),
+			msg.Heartbeat.LastResult == syntheticsv1alpha1.HeartbeatResultFailed,
+		)
+	}
+}
+
+func (c *Consumer) onHeartbeatPing(ctx context.Context, msg results.HeartbeatPing) {
+	name := types.NamespacedName{Namespace: msg.Namespace, Name: msg.Name}
+	c.Store.RecordHeartbeatPing(ctx, name, msg.Failed, msg.ExitCode, float64(msg.ReceivedAt.Unix()))
 }
 
 func (c *Consumer) onProbeResult(_ context.Context, msg results.ProbeResult) {

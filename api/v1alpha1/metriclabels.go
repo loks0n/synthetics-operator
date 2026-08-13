@@ -28,6 +28,7 @@ func isSystemLabel(key string) bool {
 		"assertion", "expr",
 		"value", "type",
 		"suite", "test",
+		"host", "port", "outcome",
 		"unhealthy_dependency", "unhealthy_dependency_kind",
 		// Prometheus / OTel well-known.
 		"__name__", "le", "quantile", "job", "instance":

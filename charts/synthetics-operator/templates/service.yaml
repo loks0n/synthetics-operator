@@ -30,3 +30,21 @@ spec:
     - name: metrics
       port: 8080
       targetPort: metrics
+{{- if .Values.heartbeat.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-heartbeat
+  labels:
+    app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+    app.kubernetes.io/component: heartbeat
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+    app.kubernetes.io/component: heartbeat
+  ports:
+    - name: ping
+      port: 8080
+      targetPort: ping
+{{- end }}

@@ -10,6 +10,7 @@ COMPONENTS = [
     ('webhook', 'ko.local/synthetics-operator-webhook'),
     ('prober', 'ko.local/synthetics-operator-prober'),
     ('metrics', 'ko.local/synthetics-operator-metrics'),
+    ('heartbeat', 'ko.local/synthetics-operator-heartbeat'),
 ]
 
 # Build each cmd/ binary via ko into the local Docker daemon, then tag with
@@ -57,6 +58,8 @@ k8s_resource(
         'dnsprobes.synthetics.dev:customresourcedefinition',
         'k6tests.synthetics.dev:customresourcedefinition',
         'playwrighttests.synthetics.dev:customresourcedefinition',
+        'tcpprobes.synthetics.dev:customresourcedefinition',
+        'heartbeats.synthetics.dev:customresourcedefinition',
         'synthetics-operator-controller:clusterrole',
         'synthetics-operator-controller:clusterrolebinding',
         'synthetics-operator-controller:serviceaccount',
@@ -90,6 +93,17 @@ k8s_resource(
     labels=['operator'],
     objects=[
         'synthetics-operator-metrics:serviceaccount',
+    ],
+)
+
+# Port-forwarded so a local `curl localhost:8090/<token>` exercises the real
+# ping path without needing a Gateway in kind.
+k8s_resource(
+    'synthetics-operator-heartbeat',
+    port_forwards=['8090:8080'],
+    labels=['operator'],
+    objects=[
+        'synthetics-operator-heartbeat:serviceaccount',
     ],
 )
 

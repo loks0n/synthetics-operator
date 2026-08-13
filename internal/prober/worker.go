@@ -39,11 +39,15 @@ func NewWorker(log logr.Logger, bus *natsbus.Client, publisher ResultPublisher) 
 
 func defaultExecutors() map[results.Kind]internalprobes.Executor {
 	return map[results.Kind]internalprobes.Executor{
-		results.KindHTTPProbe:      internalprobes.HTTPExecutor{},
-		results.KindDNSProbe:       internalprobes.DNSExecutor{},
-		results.KindTCPProbe:       internalprobes.TCPExecutor{},
+		results.KindHTTPProbe: internalprobes.HTTPExecutor{},
+		results.KindDNSProbe:  internalprobes.DNSExecutor{},
+		results.KindTCPProbe:  internalprobes.TCPExecutor{},
+		// Tests execute in CronJob pods, not here. Heartbeats are inbound and
+		// execute nowhere at all. All three are listed so that adding a kind
+		// without deciding how the prober treats it fails the exhaustive lint.
 		results.KindK6Test:         nil,
 		results.KindPlaywrightTest: nil,
+		results.KindHeartbeat:      nil,
 	}
 }
 

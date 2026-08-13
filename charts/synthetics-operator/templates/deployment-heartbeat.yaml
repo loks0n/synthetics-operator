@@ -1,0 +1,58 @@
+{{- if .Values.heartbeat.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "synthetics-operator.fullname" . }}-heartbeat
+spec:
+  replicas: {{ .Values.heartbeat.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+      app.kubernetes.io/component: heartbeat
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "synthetics-operator.name" . }}
+        app.kubernetes.io/component: heartbeat
+    spec:
+{{- include "synthetics-operator.podScheduling" . | indent 6 }}
+      serviceAccountName: {{ include "synthetics-operator.fullname" . }}-heartbeat
+      # The receiver has no Kubernetes API client or RBAC. Do not mount a
+      # token into the only internet-facing pod.
+      automountServiceAccountToken: false
+      containers:
+        - name: heartbeat
+          image: {{ include "synthetics-operator.componentImage" (dict "ctx" . "image" .Values.heartbeat.image) | quote }}
+          imagePullPolicy: {{ .Values.heartbeat.image.pullPolicy }}
+          args:
+            - --nats-url={{ include "synthetics-operator.natsURL" . }}
+            - --bind-address=:8080
+            - --warmup={{ .Values.heartbeat.warmup }}
+          ports:
+            - name: ping
+              containerPort: 8080
+          # The receiver has no token index until the spec resync it requests
+          # on start comes back. Gating readiness on that keeps a rolling
+          # update from putting a cold pod behind the Service, where it would
+          # answer 503 to pings that a warm pod would have accepted.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: ping
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: ping
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+{{ toYaml .Values.heartbeat.resources | indent 12 }}
+{{- end }}

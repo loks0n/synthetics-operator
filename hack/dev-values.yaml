@@ -27,6 +27,18 @@ metrics:
     tag: latest
     pullPolicy: Never
 
+# Heartbeat receiver, reachable at localhost:8090 via the Tilt port-forward.
+# No HTTPRoute: kind has no Gateway, and baseUrl points at the forwarded port
+# so status.url is copy-pasteable straight into curl.
+heartbeat:
+  enabled: true
+  image:
+    repository: ko.local/synthetics-operator-heartbeat
+    tag: latest
+    pullPolicy: Never
+  replicaCount: 1
+  baseUrl: http://localhost:8090
+
 # In-chart NATS so Playwright/K6 CronJob sidecars and the operator's own
 # consumer have a bus to talk over without needing an external one.
 nats:

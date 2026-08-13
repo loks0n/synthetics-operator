@@ -35,6 +35,11 @@ spec:
             - --leader-elect=true
             {{- end }}
             - --nats-url={{ include "synthetics-operator.natsURL" . }}
+{{- if .Values.heartbeat.enabled }}
+            - --heartbeat-base-url={{ required "heartbeat.baseUrl is required when heartbeat.enabled is true — it is the origin Heartbeat URLs are rendered against" .Values.heartbeat.baseUrl }}
+{{- else if .Values.heartbeat.baseUrl }}
+            - --heartbeat-base-url={{ .Values.heartbeat.baseUrl }}
+{{- end }}
             - --test-sidecar-image={{ include "synthetics-operator.runnerImage" (dict "ctx" . "override" .Values.testSidecar.image "defaultRepo" "ghcr.io/loks0n/synthetics-test-sidecar") }}
             - --k6-runner-image={{ include "synthetics-operator.runnerImage" (dict "ctx" . "override" .Values.k6Runner.image "defaultRepo" "ghcr.io/loks0n/synthetics-k6-runner") }}
             - --playwright-runner-image={{ include "synthetics-operator.runnerImage" (dict "ctx" . "override" .Values.playwrightRunner.image "defaultRepo" "ghcr.io/loks0n/synthetics-playwright-runner") }}
