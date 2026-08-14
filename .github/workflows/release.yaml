@@ -78,6 +78,13 @@ jobs:
           ko build --bare --platform=linux/amd64,linux/arm64 \
             --tags=${{ steps.version.outputs.version }},latest ./cmd/metrics
 
+      - name: Publish heartbeat image
+        env:
+          KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/synthetics-operator-heartbeat
+        run: |
+          ko build --bare --platform=linux/amd64,linux/arm64 \
+            --tags=${{ steps.version.outputs.version }},latest ./cmd/heartbeat
+
       - name: Publish test-sidecar image
         env:
           KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/synthetics-test-sidecar
