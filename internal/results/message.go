@@ -201,6 +201,8 @@ type ProbeResult struct {
 	AssertionResults      []AssertionResult `json:"assertionResults,omitempty"`
 
 	// DNS telemetry
+	DNSQueryName        string `json:"dnsQueryName,omitempty"`
+	DNSResolver         string `json:"dnsResolver,omitempty"`
 	DNSFirstAnswerValue string `json:"dnsFirstAnswerValue,omitempty"`
 	DNSFirstAnswerType  string `json:"dnsFirstAnswerType,omitempty"`
 	DNSAnswerCount      int    `json:"dnsAnswerCount,omitempty"`

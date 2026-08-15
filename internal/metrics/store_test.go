@@ -169,7 +169,8 @@ func TestStoreTCPMetrics(t *testing.T) {
 	text := string(body)
 	for _, want := range []string{
 		`synthetics_probe_tcp_info{host="mysql.default.svc",kind="TCPProbe",name="mysql",namespace="default",port="3306"} 1`,
-		`synthetics_probe_assertion_result{assertion="fast",expr="duration_ms < 1000",kind="TCPProbe",name="mysql",namespace="default"} 1`,
+		`synthetics_probe{host="mysql.default.svc",kind="TCPProbe",name="mysql",namespace="default",port="3306"} 1`,
+		`synthetics_probe_assertion_result{assertion="fast",expr="duration_ms < 1000",host="mysql.default.svc",kind="TCPProbe",name="mysql",namespace="default",port="3306"} 1`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("metrics output missing %q\n%s", want, text)
@@ -223,5 +224,50 @@ func TestStoreTLSCertExpiryMetric(t *testing.T) {
 	}
 	if !strings.Contains(text, "1.8e+09") && !strings.Contains(text, "1800000000") {
 		t.Errorf("expected cert expiry value 1800000000 in metrics output, got:\n%s", text)
+	}
+}
+
+func TestStoreDNSMetricsNameTheQuestion(t *testing.T) {
+	// A DNS failure is about a name and the nameserver that was asked for it, so
+	// every metric for the probe says both without a join.
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Upsert(types.NamespacedName{Namespace: "default", Name: "zone-ns1"}, ProbeState{
+		Kind: "DNSProbe", Result: ResultOK, DurationMilliseconds: 8,
+		DNSQueryName: "cloud.example.com", DNSResolver: "ns1.example.net:53",
+		DNSAnswerCount: 2,
+	})
+
+	text := scrape(t, store)
+	for _, want := range []string{
+		`synthetics_probe{kind="DNSProbe",name="zone-ns1",namespace="default",query="cloud.example.com",resolver="ns1.example.net:53"} 1`,
+		`synthetics_probe_dns_response_answer_count{kind="DNSProbe",name="zone-ns1",namespace="default",query="cloud.example.com",resolver="ns1.example.net:53"} 2`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("metrics output missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestStoreDNSMetricsWithoutAResolver(t *testing.T) {
+	// A probe that names no resolver asks whichever one the runner is configured
+	// with, so there is no resolver to name and the label is left off.
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Upsert(types.NamespacedName{Namespace: "default", Name: "default-resolver"}, ProbeState{
+		Kind: "DNSProbe", Result: ResultOK, DNSQueryName: "cloud.example.com",
+	})
+
+	text := scrape(t, store)
+	want := `synthetics_probe{kind="DNSProbe",name="default-resolver",namespace="default",query="cloud.example.com"} 1`
+	if !strings.Contains(text, want) {
+		t.Errorf("metrics output missing %q\n%s", want, text)
+	}
+	if strings.Contains(text, `resolver=""`) {
+		t.Errorf("empty resolver label emitted\n%s", text)
 	}
 }

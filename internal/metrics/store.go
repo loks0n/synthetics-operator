@@ -79,6 +79,8 @@ type ProbeState struct {
 	HTTPPhaseTransferMs   float64
 	AssertionResults      []AssertionResult
 	// DNS-specific fields
+	DNSQueryName        string
+	DNSResolver         string
 	DNSFirstAnswerValue string
 	DNSFirstAnswerType  string
 	DNSAnswerCount      float64
@@ -415,6 +417,37 @@ func (s *Store) registerCallback(meter apimetric.Meter) error {
 	return err
 }
 
+// targetAttrs names what a probe hit, so a metric says which endpoint, address or
+// nameserver it was about without a join. Each kind states its target
+// differently, and a kind whose target is unknown contributes nothing rather
+// than an empty label.
+func targetAttrs(kind string, state ProbeState) []attribute.KeyValue {
+	switch kind {
+	case "HTTPProbe":
+		if state.URL != "" {
+			return []attribute.KeyValue{attribute.String("url", state.URL)}
+		}
+	case "TCPProbe":
+		if state.TCPHost != "" {
+			return []attribute.KeyValue{
+				attribute.String("host", state.TCPHost),
+				attribute.Int64("port", int64(state.TCPPort)),
+			}
+		}
+	case "DNSProbe":
+		var attrs []attribute.KeyValue
+		if state.DNSQueryName != "" {
+			attrs = append(attrs, attribute.String("query", state.DNSQueryName))
+		}
+		// Empty when the probe asks whichever resolver the runner is configured with.
+		if state.DNSResolver != "" {
+			attrs = append(attrs, attribute.String("resolver", state.DNSResolver))
+		}
+		return attrs
+	}
+	return nil
+}
+
 func (s *Store) observeProbe(observer apimetric.Observer, name types.NamespacedName, state ProbeState, instr instruments) {
 	kind := state.Kind
 	if kind == "" {
@@ -425,9 +458,7 @@ func (s *Store) observeProbe(observer apimetric.Observer, name types.NamespacedN
 		attribute.String("namespace", name.Namespace),
 		attribute.String("kind", kind),
 	}
-	if kind == "HTTPProbe" && state.URL != "" {
-		attrs = append(attrs, attribute.String("url", state.URL))
-	}
+	attrs = append(attrs, targetAttrs(kind, state)...)
 	attrs = append(attrs, s.userLabelsLocked(kind, name)...)
 
 	observer.ObserveFloat64(instr.probeGauge, state.Result.successValue(), apimetric.WithAttributes(attrs...))
@@ -464,12 +495,9 @@ func (s *Store) observeProbe(observer apimetric.Observer, name types.NamespacedN
 	}
 }
 
-func (s *Store) observeTCP(observer apimetric.Observer, attrs []attribute.KeyValue, state ProbeState, instr instruments) {
-	observer.ObserveFloat64(instr.tcpInfoGauge, 1, apimetric.WithAttributes(
-		append(attrs,
-			attribute.String("host", state.TCPHost),
-			attribute.Int64("port", int64(state.TCPPort)),
-		)...))
+func (s *Store) observeTCP(observer apimetric.Observer, attrs []attribute.KeyValue, _ ProbeState, instr instruments) {
+	// host and port ride on attrs, the same as every other probe metric.
+	observer.ObserveFloat64(instr.tcpInfoGauge, 1, apimetric.WithAttributes(attrs...))
 }
 
 func (s *Store) observeHTTP(observer apimetric.Observer, attrs []attribute.KeyValue, state ProbeState, instr instruments) {

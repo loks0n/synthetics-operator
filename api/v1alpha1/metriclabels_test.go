@@ -50,7 +50,7 @@ func TestValidateMetricLabelsInvalidName(t *testing.T) {
 }
 
 func TestValidateMetricLabelsSystemCollision(t *testing.T) {
-	for _, key := range []string{"name", "namespace", "kind", "result", "url", "method", "suite", "test", "unhealthy_dependency", "le"} {
+	for _, key := range []string{"name", "namespace", "kind", "result", "url", "method", "query", "resolver", "host", "port", "suite", "test", "unhealthy_dependency", "le"} {
 		t.Run(key, func(t *testing.T) {
 			errs := ValidateMetricLabels(map[string]string{key: "x"}, field.NewPath("spec", "metricLabels"))
 			if len(errs) == 0 {
