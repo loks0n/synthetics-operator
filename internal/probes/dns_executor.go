@@ -57,6 +57,8 @@ func (e DNSExecutor) Execute(ctx context.Context, job results.ProbeJob) results.
 	})
 	out := probeResult(job)
 	out.DurationMs = raw.Duration.Milliseconds()
+	out.DNSQueryName = payload.Name
+	out.DNSResolver = payload.Resolver
 	out.DNSFirstAnswerValue = raw.FirstAnswerValue
 	out.DNSFirstAnswerType = raw.FirstAnswerType
 	out.DNSAnswerCount = raw.AnswerCount

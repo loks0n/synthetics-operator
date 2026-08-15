@@ -441,6 +441,18 @@ name, namespace, kind
 - `kind` on tests: `K6Test | PlaywrightTest`.
 - `kind` on heartbeats: `Heartbeat`.
 
+Every metric in the probe family also names what the probe hit, so an alert on
+`synthetics_probe` can say which endpoint, address or nameserver it was about
+without joining another series:
+
+| `kind` | Labels | From |
+|---|---|---|
+| `HTTPProbe` | `url` | `spec.request.url` |
+| `TCPProbe` | `host`, `port` | `spec.target` |
+| `DNSProbe` | `query`, `resolver` | `spec.query`; `resolver` is absent when the probe names none and asks whichever resolver the runner is configured with |
+
+These are reserved: `spec.metricLabels` may not redefine them.
+
 Plus any custom labels defined in `spec.metricLabels` (Phase 12 — see section 3.6).
 
 ### 3.2 Probe family — HTTPProbe, DNSProbe, and TCPProbe
@@ -494,7 +506,7 @@ When `result="assertion_failed"`, the additional `failed_assertion` label carrie
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `synthetics_probe_tcp_info` | gauge (always 1) | Static target information with `host` and `port` labels |
+| `synthetics_probe_tcp_info` | gauge (always 1) | Static target information. `host` and `port` are shared labels on the whole probe family (§3.1), so this gauge exists to be counted and joined against, not to carry them alone |
 
 ### 3.3 Heartbeat family
 

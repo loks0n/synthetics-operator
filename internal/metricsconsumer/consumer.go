@@ -118,6 +118,8 @@ func (c *Consumer) onProbeResult(_ context.Context, msg results.ProbeResult) {
 		HTTPPhaseTLSMs:        msg.HTTPPhaseTLSMs,
 		HTTPPhaseProcessingMs: msg.HTTPPhaseProcessingMs,
 		HTTPPhaseTransferMs:   msg.HTTPPhaseTransferMs,
+		DNSQueryName:          msg.DNSQueryName,
+		DNSResolver:           msg.DNSResolver,
 		DNSFirstAnswerValue:   msg.DNSFirstAnswerValue,
 		DNSFirstAnswerType:    msg.DNSFirstAnswerType,
 		DNSAnswerCount:        float64(msg.DNSAnswerCount),

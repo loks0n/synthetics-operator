@@ -25,6 +25,7 @@ func isSystemLabel(key string) bool {
 	case "name", "namespace", "kind",
 		"result", "failed_assertion",
 		"url", "method", "phase",
+		"query", "resolver",
 		"assertion", "expr",
 		"value", "type",
 		"suite", "test",
