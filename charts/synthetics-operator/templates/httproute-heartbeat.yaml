@@ -29,6 +29,15 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: {{ include "synthetics-operator.fullname" . }}-heartbeat
+{{/*
+group, kind and weight are spelled out rather than left to the API server.
+They are defaulted onto the stored object either way, so omitting them leaves
+a GitOps controller comparing a manifest that lacks three fields the cluster
+has, and reporting the release permanently out of sync.
+*/}}
+        - group: ""
+          kind: Service
+          name: {{ include "synthetics-operator.fullname" . }}-heartbeat
           port: 8080
+          weight: 1
 {{- end }}
