@@ -29,6 +29,10 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: {{ include "synthetics-operator.fullname" . }}-heartbeat
+{{/* Defaults spelled out so a GitOps diff doesn't read as permanent drift. */}}
+        - group: ""
+          kind: Service
+          name: {{ include "synthetics-operator.fullname" . }}-heartbeat
           port: 8080
+          weight: 1
 {{- end }}
