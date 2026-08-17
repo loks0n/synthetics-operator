@@ -29,12 +29,7 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-{{/*
-group, kind and weight are spelled out rather than left to the API server.
-They are defaulted onto the stored object either way, so omitting them leaves
-a GitOps controller comparing a manifest that lacks three fields the cluster
-has, and reporting the release permanently out of sync.
-*/}}
+{{/* Defaults spelled out so a GitOps diff doesn't read as permanent drift. */}}
         - group: ""
           kind: Service
           name: {{ include "synthetics-operator.fullname" . }}-heartbeat
