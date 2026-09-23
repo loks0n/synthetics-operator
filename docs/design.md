@@ -1000,7 +1000,7 @@ Webhook replicas watch the Secret via informer and reload certs on change via at
 **`synthetics-operator-webhook` deployment** — HA out of the box.
 - 2 replicas, stateless; any replica handles any webhook call.
 - `PodDisruptionBudget` with `minAvailable: 1` keeps at least one pod up during rollouts or evictions.
-- `priorityClassName: system-cluster-critical` protects against eviction under node pressure.
+- `priorityClassName` is empty by default; set `system-cluster-critical` to also protect against eviction under node pressure (see 5.2).
 - This is the only guarantee on `kubectl apply` remaining available during a controller restart, which is why Phase 7 split the deployment.
 
 **`synthetics-operator` controller deployment** — active-passive with optional leader election.
@@ -1181,7 +1181,7 @@ Each deployment exposes the standard Kubernetes scheduling primitives. Defaults 
 
 ```yaml
 webhook:
-  priorityClassName: system-cluster-critical  # default: elevated — webhook down blocks all CRD applies
+  priorityClassName: ""  # opt in to system-cluster-critical, see below
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -1216,7 +1216,7 @@ nats:
   topologySpreadConstraints: []
 ```
 
-`priorityClassName` on the webhook defaults to `system-cluster-critical` — the same class used by CoreDNS and kube-proxy. If the cluster is under resource pressure and the webhook pod is evicted, `kubectl apply` fails cluster-wide for all CRD types. The other deployments default to empty (inheriting the namespace default) since probe gaps during pressure are acceptable.
+Every deployment's `priorityClassName` defaults to empty (inheriting the namespace default). The webhook is the one worth raising: if it is evicted under resource pressure, `kubectl apply` fails for all of the operator's CRD types until it returns. Two replicas and the PodDisruptionBudget cover rollouts and single-node loss, so the default stays empty. Clusters that want the stronger guarantee set `webhook.priorityClassName: system-cluster-critical`, the class used by CoreDNS and kube-proxy. Some platforms restrict it outside `kube-system`: GKE only admits it in another namespace if a ResourceQuota there allows it (a `scopeSelector` matching `PriorityClass In [system-node-critical, system-cluster-critical]`). Without that quota the webhook pods are never created.
 
 The `runner` block on `K6Test` and `PlaywrightTest` exposes the same fields for CronJob pods — see section 2.5.
 

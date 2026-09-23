@@ -35,9 +35,11 @@ webhook:
     tag: ""
     pullPolicy: IfNotPresent
   replicaCount: 2
-  # Elevated priority keeps the webhook available under node pressure.
-  # If evicted, kubectl apply fails for all CRD types cluster-wide.
-  priorityClassName: system-cluster-critical
+  # Empty by default: two replicas and a PodDisruptionBudget keep the webhook
+  # available. Set system-cluster-critical to also protect it from eviction
+  # under node pressure; on GKE that class is only admitted outside
+  # kube-system if a ResourceQuota in this namespace allows it.
+  priorityClassName: ""
   resources: {}
 
   serviceName: synthetics-operator-webhook-service
