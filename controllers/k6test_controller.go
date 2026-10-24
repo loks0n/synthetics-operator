@@ -103,6 +103,7 @@ func (r *K6TestReconciler) mutateCronJob(cj *batchv1.CronJob, test *syntheticsv1
 	cj.Spec.JobTemplate.Spec.Template.Spec.Volumes = r.buildVolumes(test)
 	cj.Spec.JobTemplate.Spec.Template.Spec.InitContainers = r.buildInitContainers()
 	cj.Spec.JobTemplate.Spec.Template.Spec.Containers = r.buildRunnerContainers(test)
+	hardenPodSpec(&cj.Spec.JobTemplate.Spec.Template.Spec)
 
 	if test.Spec.Runner != nil {
 		cj.Spec.JobTemplate.Spec.Template.Spec.Affinity = test.Spec.Runner.Affinity

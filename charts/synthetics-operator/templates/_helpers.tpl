@@ -107,3 +107,13 @@ tolerations:
 {{ toYaml . }}
 {{- end }}
 {{- end }}
+
+{{/*
+Container security context for every component: no privilege escalation and no
+capabilities. The pod sets the RuntimeDefault seccomp profile.
+*/}}
+{{- define "synthetics-operator.containerSecurityContext" -}}
+allowPrivilegeEscalation: false
+capabilities:
+  drop: ["ALL"]
+{{- end }}

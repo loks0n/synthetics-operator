@@ -25,8 +25,13 @@ spec:
     spec:
 {{- include "synthetics-operator.podScheduling" . | indent 6 }}
       serviceAccountName: {{ include "synthetics-operator.fullname" . }}-nats
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: nats
+          securityContext:
+            {{- include "synthetics-operator.containerSecurityContext" . | nindent 12 }}
           image: {{ .Values.nats.image | quote }}
           env:
             - name: POD_NAME

@@ -16,8 +16,13 @@ spec:
     spec:
 {{- include "synthetics-operator.podScheduling" . | indent 6 }}
       serviceAccountName: {{ include "synthetics-operator.serviceAccountName" . }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: controller
+          securityContext:
+            {{- include "synthetics-operator.containerSecurityContext" . | nindent 12 }}
           image: {{ include "synthetics-operator.componentImage" (dict "ctx" . "image" .Values.controller.image) | quote }}
           imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
           env:

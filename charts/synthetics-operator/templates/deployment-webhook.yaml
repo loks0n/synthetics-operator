@@ -19,8 +19,13 @@ spec:
       {{- with .Values.webhook.priorityClassName }}
       priorityClassName: {{ . }}
       {{- end }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: webhook
+          securityContext:
+            {{- include "synthetics-operator.containerSecurityContext" . | nindent 12 }}
           image: {{ include "synthetics-operator.componentImage" (dict "ctx" . "image" .Values.webhook.image) | quote }}
           imagePullPolicy: {{ .Values.webhook.image.pullPolicy }}
           env:
