@@ -20,8 +20,13 @@ spec:
     spec:
 {{- include "synthetics-operator.podScheduling" . | indent 6 }}
       serviceAccountName: {{ include "synthetics-operator.fullname" . }}-prober
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: prober
+          securityContext:
+            {{- include "synthetics-operator.containerSecurityContext" . | nindent 12 }}
           image: {{ include "synthetics-operator.componentImage" (dict "ctx" . "image" .Values.prober.image) | quote }}
           imagePullPolicy: {{ .Values.prober.image.pullPolicy }}
           args:
