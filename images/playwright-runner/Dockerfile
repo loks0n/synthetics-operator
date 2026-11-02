@@ -16,8 +16,9 @@ RUN npm install --omit=dev --no-fund --no-audit \
 
 COPY playwright.config.js runner.js runner.test.js ./
 
-RUN useradd --create-home --home-dir /home/runner --shell /usr/sbin/nologin runner \
+# Numeric, so the kubelet can check runAsNonRoot against it.
+RUN useradd --uid 1001 --create-home --home-dir /home/runner --shell /usr/sbin/nologin runner \
  && chown -R runner:runner /app
-USER runner
+USER 1001
 
 ENTRYPOINT ["node", "/app/runner.js"]
