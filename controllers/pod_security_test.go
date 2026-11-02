@@ -30,6 +30,9 @@ func TestTestCronJobsRunHardened(t *testing.T) {
 			spec.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
 			t.Errorf("%s: pod seccomp profile is not RuntimeDefault", name)
 		}
+		if spec.SecurityContext == nil || spec.SecurityContext.RunAsNonRoot == nil || !*spec.SecurityContext.RunAsNonRoot {
+			t.Errorf("%s: pod does not set runAsNonRoot", name)
+		}
 		for _, c := range append(spec.InitContainers, spec.Containers...) {
 			sc := c.SecurityContext
 			if sc == nil || sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation {

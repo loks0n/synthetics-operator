@@ -25,7 +25,7 @@ spec:
       containers:
         - name: webhook
           securityContext:
-            {{- include "synthetics-operator.containerSecurityContext" . | nindent 12 }}
+            {{- include "synthetics-operator.nonRootContainerSecurityContext" . | nindent 12 }}
           image: {{ include "synthetics-operator.componentImage" (dict "ctx" . "image" .Values.webhook.image) | quote }}
           imagePullPolicy: {{ .Values.webhook.image.pullPolicy }}
           env:

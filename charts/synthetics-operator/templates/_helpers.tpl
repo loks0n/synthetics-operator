@@ -117,3 +117,13 @@ allowPrivilegeEscalation: false
 capabilities:
   drop: ["ALL"]
 {{- end }}
+
+{{/*
+The same, for a component whose image runs as a non-root numeric user, so the
+kubelet refuses to start it as root. Bundled NATS runs as root and uses the
+context above.
+*/}}
+{{- define "synthetics-operator.nonRootContainerSecurityContext" -}}
+{{ include "synthetics-operator.containerSecurityContext" . }}
+runAsNonRoot: true
+{{- end }}
