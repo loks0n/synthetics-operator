@@ -30,8 +30,13 @@ spec:
           type: RuntimeDefault
       containers:
         - name: nats
+          # The image's default user is root; NATS needs nothing from it here
+          # (ports above 1024, no volumes). The kubelet checks runAsNonRoot
+          # against a numeric user, so one is named.
           securityContext:
-            {{- include "synthetics-operator.containerSecurityContext" . | nindent 12 }}
+            {{- include "synthetics-operator.nonRootContainerSecurityContext" . | nindent 12 }}
+            runAsUser: 1000
+            runAsGroup: 1000
           image: {{ .Values.nats.image | quote }}
           env:
             - name: POD_NAME
