@@ -31,10 +31,14 @@ type fakeBus struct {
 	resyncBeforeSubscribe bool
 	handler               func(context.Context, results.SpecUpdate)
 	subscribed            chan struct{}
+	// resynced closes on the first resync request. Start makes it from its
+	// own goroutine after the subscription is ready, so a test that only
+	// waited for subscribed could look before it had happened.
+	resynced chan struct{}
 }
 
 func newFakeBus() *fakeBus {
-	return &fakeBus{subscribed: make(chan struct{})}
+	return &fakeBus{subscribed: make(chan struct{}), resynced: make(chan struct{})}
 }
 
 func (b *fakeBus) SubscribeSpecs(ctx context.Context, handler func(context.Context, results.SpecUpdate), opts ...natsbus.SubscribeOption) error {
@@ -63,6 +67,9 @@ func (b *fakeBus) PublishHeartbeatPing(_ context.Context, msg results.HeartbeatP
 func (b *fakeBus) RequestSpecResync(context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if !b.resyncCalled {
+		close(b.resynced)
+	}
 	b.resyncCalled = true
 	b.resyncBeforeSubscribe = !b.specsSubscribed
 	return nil
@@ -110,6 +117,7 @@ func startReceiver(t *testing.T) (*Receiver, *fakeBus, *httptest.Server) {
 		_ = receiver.Start(ctx)
 	}()
 	<-bus.subscribed
+	<-bus.resynced
 
 	server := httptest.NewServer(receiver.Handler())
 	t.Cleanup(func() {
