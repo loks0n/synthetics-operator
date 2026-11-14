@@ -56,9 +56,9 @@ func run(log logr.Logger, natsURL string) error {
 	worker := prober.NewWorker(log, bus, bus)
 	go func() { workerErr <- worker.Start(ctx) }()
 
+	// Wait for the worker even after a signal: it returns once the jobs it was
+	// already handed are probed and published, which closing the bus would cut short.
 	select {
-	case <-ctx.Done():
-		return nil
 	case err := <-workerErr:
 		return err
 	case err := <-healthErr:
