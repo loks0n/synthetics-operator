@@ -232,6 +232,11 @@ func (e HTTPExecutor) newTransport() *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.DisableKeepAlives = true
 	t.DialContext = e.Egress.dialer(30 * time.Second).DialContext
+	// Through a proxy the dialer only sees the proxy's address, so the target's
+	// network can't be checked. A prober that denies networks connects directly.
+	if len(e.Egress.Denied) > 0 {
+		t.Proxy = nil
+	}
 	return t
 }
 

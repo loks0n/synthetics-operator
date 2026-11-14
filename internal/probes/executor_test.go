@@ -5,7 +5,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -174,5 +177,41 @@ func TestExecutorsRefuseDeniedNetworks(t *testing.T) {
 	}
 	if internalHits != 1 {
 		t.Fatalf("internal service saw %d requests; only the unguarded check below may reach it", internalHits)
+	}
+}
+
+// With HTTP_PROXY set, the dialer only sees the proxy's address. A proxy in an
+// allowed network must not carry a probe to a denied target. The proxy
+// environment is read once per process, so the probe runs in a child process.
+func TestDeniedNetworksAreNotReachedThroughAProxy(t *testing.T) {
+	if os.Getenv("SYNTHETICS_PROXY_CHILD") != "" {
+		denied, err := ParseDeniedNetworks("192.0.2.0/24")
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := HTTPExecutor{Egress: Egress{Denied: denied}}.Execute(context.Background(), results.ProbeJob{Spec: results.SpecUpdate{
+			Kind:      results.KindHTTPProbe,
+			HTTPProbe: &results.HTTPProbeSpecPayload{TimeoutMs: 2000, URL: "http://192.0.2.1/", Method: http.MethodGet},
+		}})
+		if result.Result != "target_denied" {
+			t.Fatalf("expected target_denied, got %s", result.Result)
+		}
+		return
+	}
+
+	var proxied atomic.Int64
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxied.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer proxy.Close()
+
+	child := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestDeniedNetworksAreNotReachedThroughAProxy$")
+	child.Env = append(os.Environ(), "SYNTHETICS_PROXY_CHILD=1", "HTTP_PROXY="+proxy.URL, "NO_PROXY=")
+	if output, err := child.CombinedOutput(); err != nil {
+		t.Fatalf("probe through proxy: %v\n%s", err, output)
+	}
+	if got := proxied.Load(); got != 0 {
+		t.Fatalf("proxy received %d requests for a denied target", got)
 	}
 }
