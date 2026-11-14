@@ -19,6 +19,7 @@ import (
 // HTTP variables:  status_code, duration_ms, ssl_expiry_days
 // DNS variables:   answer_count, duration_ms
 // TCP variables:   duration_ms
+// SMTP variables:  smtp_code, duration_ms, ssl_expiry_days
 type Assertion struct {
 	// Name identifies the assertion and is used as the "reason" label on the
 	// probe_success metric when this assertion fails.
@@ -30,6 +31,7 @@ type Assertion struct {
 func httpAssertionVars() []string { return []string{"status_code", "duration_ms", "ssl_expiry_days"} }
 func dnsAssertionVars() []string  { return []string{"answer_count", "duration_ms"} }
 func tcpAssertionVars() []string  { return []string{"duration_ms"} }
+func smtpAssertionVars() []string { return []string{"smtp_code", "duration_ms", "ssl_expiry_days"} }
 
 // ValidateAssertionExpr checks that expr is syntactically valid and references
 // one of the allowed variables.

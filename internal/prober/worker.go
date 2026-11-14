@@ -42,6 +42,7 @@ func defaultExecutors() map[results.Kind]internalprobes.Executor {
 		results.KindHTTPProbe: internalprobes.HTTPExecutor{},
 		results.KindDNSProbe:  internalprobes.DNSExecutor{},
 		results.KindTCPProbe:  internalprobes.TCPExecutor{},
+		results.KindSMTPProbe: internalprobes.SMTPExecutor{},
 		// Tests execute in CronJob pods, not here. Heartbeats are inbound and
 		// execute nowhere at all. All three are listed so that adding a kind
 		// without deciding how the prober treats it fails the exhaustive lint.

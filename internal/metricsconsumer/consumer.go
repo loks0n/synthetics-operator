@@ -127,6 +127,10 @@ func (c *Consumer) onProbeResult(_ context.Context, msg results.ProbeResult) {
 		DNSAdditionalCount:    float64(msg.DNSAdditionalCount),
 		TCPHost:               msg.TCPHost,
 		TCPPort:               msg.TCPPort,
+		SMTPHost:              msg.SMTPHost,
+		SMTPPort:              msg.SMTPPort,
+		SMTPTLSMode:           msg.SMTPTLSMode,
+		SMTPReplyCode:         float64(msg.SMTPReplyCode),
 	}
 	if msg.TLSCertExpiryUnix > 0 {
 		state.TLSCertExpiry = float64(msg.TLSCertExpiryUnix)
