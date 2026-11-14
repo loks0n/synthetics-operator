@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 	"time"
 
@@ -387,3 +388,31 @@ func TestClassifyHTTPTransportFallbacksToConnectRefused(t *testing.T) {
 type unknownError struct{}
 
 func (unknownError) Error() string { return "something else" }
+
+// A probe of a large response must not hold the body in memory: prober pods
+// are sized for many small probes, and one buffered response OOM-kills them.
+func TestHTTPExecutorDoesNotBufferResponseBody(t *testing.T) {
+	const size = 256 << 20
+	chunk := make([]byte, 1<<20)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		for range size / len(chunk) {
+			_, _ = w.Write(chunk)
+		}
+	}))
+	defer server.Close()
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	result := HTTPExecutor{}.Execute(context.Background(), results.ProbeJob{Spec: results.SpecUpdate{
+		Kind:      results.KindHTTPProbe,
+		HTTPProbe: &results.HTTPProbeSpecPayload{TimeoutMs: 30_000, URL: server.URL, Method: http.MethodGet},
+	}})
+	runtime.ReadMemStats(&after)
+
+	if result.Result != "ok" || result.HTTPStatusCode != http.StatusOK {
+		t.Fatalf("expected ok 200, got %s %d", result.Result, result.HTTPStatusCode)
+	}
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 32<<20 {
+		t.Fatalf("probing a %d MiB response allocated %d MiB", size>>20, allocated>>20)
+	}
+}
