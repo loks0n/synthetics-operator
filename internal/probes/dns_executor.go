@@ -2,6 +2,7 @@ package probes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -40,7 +41,9 @@ type dnsQuery struct {
 }
 
 // DNSExecutor runs DNS probes using github.com/miekg/dns.
-type DNSExecutor struct{}
+type DNSExecutor struct {
+	Egress Egress
+}
 
 // Execute owns the full DNSProbe job-to-result policy.
 func (e DNSExecutor) Execute(ctx context.Context, job results.ProbeJob) results.ProbeResult {
@@ -68,6 +71,8 @@ func (e DNSExecutor) Execute(ctx context.Context, job results.ProbeJob) results.
 	switch {
 	case raw.ConfigError:
 		out.Result = "config_error"
+	case errors.Is(raw.ResolverErr, ErrTargetDenied):
+		out.Result = "target_denied"
 	case raw.ResolverErr != nil:
 		out.Result = "dns_failed"
 	case len(payload.Assertions) > 0:
@@ -137,6 +142,7 @@ func (e DNSExecutor) executeQuery(ctx context.Context, query dnsQuery) dnsResult
 		}
 		client.Timeout = remaining
 	}
+	client.Dialer = e.Egress.dialer(client.Timeout)
 
 	resp, rtt, err := client.ExchangeContext(ctx, msg, resolver)
 	if err != nil {

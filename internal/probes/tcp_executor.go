@@ -39,6 +39,7 @@ type tcpTarget struct {
 // not send bytes or perform a protocol/TLS handshake.
 type TCPExecutor struct {
 	Dialer TCPDialer
+	Egress Egress
 }
 
 var _ Executor = TCPExecutor{}
@@ -87,7 +88,7 @@ func (e TCPExecutor) connect(ctx context.Context, target tcpTarget) tcpResult {
 
 	dialer := e.Dialer
 	if dialer == nil {
-		dialer = &net.Dialer{}
+		dialer = e.Egress.dialer(0)
 	}
 	address := net.JoinHostPort(host, strconv.Itoa(int(port)))
 	conn, err := dialer.DialContext(ctx, "tcp", address)
@@ -109,6 +110,9 @@ func (e TCPExecutor) connect(ctx context.Context, target tcpTarget) tcpResult {
 
 // classifyTCPConnect maps dial failures to the public result vocabulary.
 func classifyTCPConnect(err error) string {
+	if errors.Is(err, ErrTargetDenied) {
+		return "target_denied"
+	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return "dns_failed"

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 
+	internalprobes "github.com/loks0n/synthetics-operator/internal/probes"
 	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
@@ -35,7 +36,7 @@ func TestWorkerExecutesTCPJob(t *testing.T) {
 
 	addr := listener.Addr().(*net.TCPAddr)
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub)
+	w := NewWorker(logr.Discard(), nil, pub, internalprobes.Egress{})
 	w.onJob(context.Background(), results.ProbeJob{Spec: results.SpecUpdate{
 		Kind: results.KindTCPProbe, Name: "mysql", Namespace: "default",
 		TCPProbe: &results.TCPProbeSpecPayload{
@@ -91,7 +92,7 @@ func TestWorkerExecutesJobWithNoPriorState(t *testing.T) {
 	defer srv.Close()
 
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub)
+	w := NewWorker(logr.Discard(), nil, pub, internalprobes.Egress{})
 
 	w.onJob(context.Background(), httpJob(srv.URL))
 
@@ -105,7 +106,7 @@ func TestWorkerExecutesJobWithNoPriorState(t *testing.T) {
 
 func TestWorkerSkipsSuspendedJob(t *testing.T) {
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub)
+	w := NewWorker(logr.Discard(), nil, pub, internalprobes.Egress{})
 
 	job := httpJob("http://127.0.0.1:1")
 	job.Spec.Suspend = true
@@ -118,7 +119,7 @@ func TestWorkerSkipsSuspendedJob(t *testing.T) {
 
 func TestWorkerIgnoresTestKinds(t *testing.T) {
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub)
+	w := NewWorker(logr.Discard(), nil, pub, internalprobes.Egress{})
 
 	job := httpJob("http://127.0.0.1:1")
 	job.Spec.Kind = results.KindK6Test

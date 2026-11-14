@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -112,5 +113,66 @@ func TestDNSExecutorOwnsPayloadValidation(t *testing.T) {
 	got := (DNSExecutor{}).Execute(t.Context(), job)
 	if got.Result != "config_error" {
 		t.Fatalf("result=%q, want config_error", got.Result)
+	}
+}
+
+// With the private networks denied, nothing a probe spec names may reach the
+// prober's own network: not directly, not through a redirect, not as a TCP
+// target and not as a DNS resolver. Each is refused before anything is sent.
+func TestExecutorsRefuseDeniedNetworks(t *testing.T) {
+	var internalHits int
+	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		internalHits++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer internal.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, internal.URL+"/admin", http.StatusFound)
+	}))
+	defer redirect.Close()
+	_, port, _ := net.SplitHostPort(internal.Listener.Addr().String())
+	portNumber, _ := strconv.Atoi(port)
+
+	denied, err := ParseDeniedNetworks("private")
+	if err != nil {
+		t.Fatal(err)
+	}
+	egress := Egress{Denied: denied}
+	httpJob := func(url string) results.ProbeJob {
+		return results.ProbeJob{Spec: results.SpecUpdate{Kind: results.KindHTTPProbe,
+			HTTPProbe: &results.HTTPProbeSpecPayload{TimeoutMs: 2000, URL: url, Method: http.MethodGet}}}
+	}
+	tests := []struct {
+		name     string
+		executor Executor
+		job      results.ProbeJob
+	}{
+		{"loopback URL", HTTPExecutor{Egress: egress}, httpJob(internal.URL)},
+		{"redirect to loopback", HTTPExecutor{Egress: egress}, httpJob(redirect.URL)},
+		{"cloud metadata", HTTPExecutor{Egress: egress}, httpJob("http://169.254.169.254/computeMetadata/v1/")},
+		{"loopback TCP port", TCPExecutor{Egress: egress}, results.ProbeJob{Spec: results.SpecUpdate{Kind: results.KindTCPProbe,
+			TCPProbe: &results.TCPProbeSpecPayload{TimeoutMs: 2000, Host: "127.0.0.1", Port: int32(portNumber)}}}},
+		{"loopback DNS resolver", DNSExecutor{Egress: egress}, results.ProbeJob{Spec: results.SpecUpdate{Kind: results.KindDNSProbe,
+			DNSProbe: &results.DNSProbeSpecPayload{TimeoutMs: 2000, Name: "example.com", Type: "A", Resolver: "127.0.0.1:" + port}}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			start := time.Now()
+			result := test.executor.Execute(context.Background(), test.job)
+			if result.Result != "target_denied" {
+				t.Fatalf("expected target_denied, got %s", result.Result)
+			}
+			if elapsed := time.Since(start); elapsed > time.Second {
+				t.Fatalf("refusal took %s; the address was dialled", elapsed)
+			}
+		})
+	}
+
+	// The zero value denies nothing, so probes of in-cluster services keep working.
+	if result := (HTTPExecutor{}).Execute(context.Background(), httpJob(internal.URL)); result.Result != "ok" {
+		t.Fatalf("unguarded probe of a loopback service: expected ok, got %s", result.Result)
+	}
+	if internalHits != 1 {
+		t.Fatalf("internal service saw %d requests; only the unguarded check below may reach it", internalHits)
 	}
 }
