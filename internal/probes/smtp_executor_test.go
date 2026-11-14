@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net"
 	"net/textproto"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -285,5 +286,86 @@ func TestSMTPExecutorRejectsUnknownTLSMode(t *testing.T) {
 	address, _ := fakeSMTPServer{banner: []string{readyBanner}, ehlo: plainExtensions()}.start(t)
 	if got := (SMTPExecutor{}).Execute(t.Context(), smtpJob(address, "ssl", nil)); got.Result != "config_error" {
 		t.Fatalf("result=%q, want config_error", got.Result)
+	}
+}
+
+// floodingSMTPServer accepts one connection and streams size bytes of banner:
+// line repeated until size, then a CRLF. It stops once the client hangs up,
+// and speaks implicit TLS when given a certificate.
+func floodingSMTPServer(t *testing.T, line string, size int, certificate *tls.Certificate) *net.TCPAddr {
+	t.Helper()
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	chunk := []byte(strings.Repeat(line, 64*1024/len(line)))
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+		if certificate != nil {
+			conn = tls.Server(conn, &tls.Config{Certificates: []tls.Certificate{*certificate}})
+		}
+		for sent := 0; sent < size; sent += len(chunk) {
+			if _, err := conn.Write(chunk); err != nil {
+				return
+			}
+		}
+		_, _ = conn.Write([]byte("\r\n"))
+	}()
+	return listener.Addr().(*net.TCPAddr)
+}
+
+func TestSMTPExecutorBoundsOversizedReplies(t *testing.T) {
+	const flood = 64 << 20
+	certificate, _ := selfSignedCertificate(t, time.Now().Add(24*time.Hour))
+	singleLine := "220 " + strings.Repeat("a", 60)
+	multiline := "220-" + strings.Repeat("a", 58) + "\r\n"
+	cases := []struct {
+		name string
+		// line is repeated to fill the banner: without a newline it is one
+		// endless reply line, with one it is an endless multiline reply.
+		line        string
+		mode        string
+		certificate *tls.Certificate
+	}{
+		{name: "single line", line: singleLine, mode: smtpTLSModeNone},
+		{name: "multiline", line: multiline, mode: smtpTLSModeNone},
+		{name: "single line over implicit TLS", line: singleLine, mode: smtpTLSModeImplicit, certificate: &certificate},
+		{name: "multiline over implicit TLS", line: multiline, mode: smtpTLSModeImplicit, certificate: &certificate},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			address := floodingSMTPServer(t, tc.line, flood, tc.certificate)
+			var tlsConfig *results.TLSConfig
+			if tc.certificate != nil {
+				tlsConfig = &results.TLSConfig{InsecureSkipVerify: true}
+			}
+			job := smtpJob(address, tc.mode, tlsConfig)
+			job.Spec.SMTPProbe.TimeoutMs = 10000
+
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			start := time.Now()
+			got := SMTPExecutor{}.Execute(t.Context(), job)
+			elapsed := time.Since(start)
+			runtime.ReadMemStats(&after)
+
+			allocated := after.TotalAlloc - before.TotalAlloc
+			t.Logf("allocated %d bytes in %s reading a %d MiB banner", allocated, elapsed, flood>>20)
+			if got.Result != "smtp_rejected" || got.SMTPReplyCode != 220 {
+				t.Fatalf("result=%q code=%d, want smtp_rejected 220", got.Result, got.SMTPReplyCode)
+			}
+			if allocated > 1<<20 {
+				t.Fatalf("allocated %d bytes for one reply, want under 1 MiB", allocated)
+			}
+			if elapsed > time.Second {
+				t.Fatalf("probe read the flood instead of failing fast: %s", elapsed)
+			}
+		})
 	}
 }

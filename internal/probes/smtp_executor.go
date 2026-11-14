@@ -1,6 +1,8 @@
 package probes
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -20,6 +22,20 @@ const (
 	smtpTLSModeStartTLS = "starttls"
 	smtpTLSModeImplicit = "implicit"
 )
+
+const (
+	// smtpMaxReplyLine is the longest reply line a server may send, CRLF
+	// included (RFC 5321 §4.5.3.1.5). Reading stops at the first longer one.
+	smtpMaxReplyLine = 512
+	// smtpMaxReplyLines caps a multiline reply. RFC 5321 sets no count; the
+	// longest reply the probe reads is EHLO, one line per extension, and 128
+	// is several times the extensions IANA registers. With the line limit it
+	// bounds one reply to 64 KiB.
+	smtpMaxReplyLines = 128
+)
+
+// errSMTPReplyTooLong is a protocol error, so it classifies as smtp_rejected.
+var errSMTPReplyTooLong = textproto.ProtocolError("reply exceeds RFC 5321 limits")
 
 // smtpResult holds the conversation outcome while SMTPExecutor builds the
 // public ProbeResult. Failure is empty when every reply was 2xx.
@@ -116,7 +132,7 @@ func (e SMTPExecutor) exchange(ctx context.Context, payload *results.SMTPProbeSp
 			return classifySMTPTLS(err)
 		}
 	}
-	session := smtpSession{text: textproto.NewConn(conn), raw: raw}
+	session := newSMTPSession(conn, raw)
 	if _, err := session.command(""); err != nil {
 		return classifySMTPReply(err)
 	}
@@ -134,7 +150,7 @@ func (e SMTPExecutor) exchange(ctx context.Context, payload *results.SMTPProbeSp
 
 	// Polite close; the 221 reply is not awaited, so a server slow to say
 	// goodbye does not stretch the probe to its timeout.
-	_ = session.text.PrintfLine("QUIT")
+	_ = session.writer.PrintfLine("QUIT")
 	return ""
 }
 
@@ -154,7 +170,7 @@ func (e SMTPExecutor) startTLS(ctx context.Context, conn net.Conn, session *smtp
 	if err != nil {
 		return conn, classifySMTPTLS(err)
 	}
-	session.text = textproto.NewConn(tlsConn)
+	*session = newSMTPSession(tlsConn, session.raw)
 	// RFC 3207 discards all state after the upgrade, so the server must greet
 	// again over TLS before it is usable.
 	if _, err := session.command("EHLO " + e.hostname()); err != nil {
@@ -176,23 +192,71 @@ func (e SMTPExecutor) hostname() string {
 // smtpSession sends one command at a time and requires a 2xx reply, keeping
 // the last reply code on raw for the smtp_code assertion variable.
 type smtpSession struct {
-	text *textproto.Conn
-	raw  *smtpResult
+	// reader buffers one maximum-length reply line, so a longer line fills it
+	// and fails instead of growing.
+	reader *bufio.Reader
+	writer *textproto.Writer
+	raw    *smtpResult
+}
+
+func newSMTPSession(conn net.Conn, raw *smtpResult) smtpSession {
+	return smtpSession{
+		reader: bufio.NewReaderSize(conn, smtpMaxReplyLine),
+		writer: textproto.NewWriter(bufio.NewWriter(conn)),
+		raw:    raw,
+	}
 }
 
 // command sends line, or only reads when line is empty (the banner), and
 // returns the reply text.
 func (s smtpSession) command(line string) (string, error) {
 	if line != "" {
-		if err := s.text.PrintfLine("%s", line); err != nil {
+		if err := s.writer.PrintfLine("%s", line); err != nil {
 			return "", err
 		}
 	}
-	code, message, err := s.text.ReadResponse(2)
+	reply, err := s.readReply()
+	if err != nil {
+		// A reply cut off at the limit still names its code in the first line.
+		if len(reply) >= 3 {
+			if code, convErr := strconv.Atoi(string(reply[:3])); convErr == nil {
+				s.raw.ReplyCode = code
+			}
+		}
+		return "", err
+	}
+	code, message, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(reply))).ReadResponse(2)
 	if code != 0 {
 		s.raw.ReplyCode = code
 	}
 	return message, err
+}
+
+// readReply returns the raw lines of one reply, read within the RFC 5321
+// limits, for textproto to parse. A line continues the reply while it either
+// says so with '-' after the code or does not carry the reply's code, which is
+// how textproto groups the lines it reads.
+func (s smtpSession) readReply() ([]byte, error) {
+	var reply []byte
+	for range smtpMaxReplyLines {
+		line, err := s.reader.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) {
+			return append(reply, line...), errSMTPReplyTooLong
+		}
+		if err != nil {
+			return nil, err
+		}
+		first := len(reply) == 0
+		reply = append(reply, line...)
+		continued := len(line) >= 4 && line[3] == '-'
+		if first && !continued {
+			return reply, nil
+		}
+		if !first && len(line) >= 4 && line[3] == ' ' && bytes.Equal(line[:3], reply[:3]) {
+			return reply, nil
+		}
+	}
+	return reply, errSMTPReplyTooLong
 }
 
 // advertises reports whether an EHLO reply lists extension. The first line

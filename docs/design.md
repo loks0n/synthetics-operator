@@ -519,7 +519,7 @@ The `result` label on `synthetics_probe` is a closed enum describing what happen
 | `connect_failed` | TCP connect failed for another network reason, or an SMTP server closed the connection mid-conversation (TCPProbe or SMTPProbe) |
 | `tls_failed` | TLS handshake or certificate verification failed, or an SMTPProbe in `starttls` mode found `STARTTLS` not advertised (HTTPProbe or SMTPProbe) |
 | `recv_timeout` | Response body (HTTPProbe) or an SMTP reply (SMTPProbe) didn't arrive within the probe timeout |
-| `smtp_rejected` | The SMTP server answered the banner, EHLO or STARTTLS with a non-2xx or unparseable reply (SMTPProbe only) |
+| `smtp_rejected` | The SMTP server answered the banner, EHLO or STARTTLS with a non-2xx or unparseable reply, or one over RFC 5321's 512-octet line limit (§4.5.3.1.5) or 128 lines; the probe stops reading at the limit (SMTPProbe only) |
 | `assertion_failed` | Got a response, at least one named assertion didn't pass |
 
 When `result="assertion_failed"`, the additional `failed_assertion` label carries the name of the first failing assertion.
