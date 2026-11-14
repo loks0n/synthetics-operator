@@ -1,6 +1,6 @@
 apiVersion: v2
 name: synthetics-operator
-description: Kubernetes operator for unified synthetic monitoring — HTTPProbe, DNSProbe, TCPProbe, K6Test, PlaywrightTest, Heartbeat. Results exported to Prometheus; no proprietary store.
+description: Kubernetes operator for unified synthetic monitoring — HTTPProbe, DNSProbe, TCPProbe, SMTPProbe, K6Test, PlaywrightTest, Heartbeat. Results exported to Prometheus; no proprietary store.
 type: application
 version: 0.2.0
 appVersion: "0.2.0"
@@ -12,6 +12,7 @@ keywords:
   - prometheus
   - observability
   - tcp-monitoring
+  - smtp-monitoring
   - heartbeat
   - cron-monitoring
   - playwright

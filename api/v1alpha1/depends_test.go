@@ -100,6 +100,19 @@ func TestValidateDependsOnTCPProbe(t *testing.T) {
 	}
 }
 
+func TestValidateDependsWalksThroughSMTPProbe(t *testing.T) {
+	smtp := &SMTPProbe{
+		ObjectMeta: metav1.ObjectMeta{Name: "mail", Namespace: "default"},
+		Spec:       SMTPProbeSpec{Depends: []DependencyRef{{Kind: DependencyKindTCPProbe, Name: "mail-port"}}},
+	}
+	reader := newDependsTestReader(t, smtp)
+	errs := ValidateDepends(context.Background(), reader, DependencyKindTCPProbe, "default", "mail-port",
+		[]DependencyRef{{Kind: DependencyKindSMTPProbe, Name: "mail"}}, field.NewPath("spec", "depends"))
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "dependency cycle") {
+		t.Fatalf("expected the cycle through the SMTPProbe to be rejected, got %v", errs)
+	}
+}
+
 func TestValidateDependsCycleDetected(t *testing.T) {
 	// A → B, B → A. When we admit A's update to add depends on B, B already has
 	// depends on A, so the cycle walk hits A and rejects.

@@ -271,3 +271,29 @@ func TestStoreDNSMetricsWithoutAResolver(t *testing.T) {
 		t.Errorf("empty resolver label emitted\n%s", text)
 	}
 }
+
+func TestStoreSMTPMetrics(t *testing.T) {
+	store, err := NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Upsert(types.NamespacedName{Namespace: "mail", Name: "submission"}, ProbeState{
+		Kind: "SMTPProbe", Result: ResultSMTPRejected, DurationMilliseconds: 40,
+		SMTPHost: "smtp.example.com", SMTPPort: 587, SMTPTLSMode: "starttls",
+		SMTPReplyCode: 421, TLSCertExpiry: 1893456000,
+	})
+
+	text := scrape(t, store)
+	labels := `host="smtp.example.com",kind="SMTPProbe",name="submission",namespace="mail",port="587"`
+	for _, want := range []string{
+		`synthetics_probe{` + labels + `} 0`,
+		`synthetics_probe_result_info{failed_assertion="",` + labels + `,result="smtp_rejected"} 1`,
+		`synthetics_probe_smtp_info{` + labels + `,tls_mode="starttls"} 1`,
+		`synthetics_probe_smtp_reply_code{` + labels + `} 421`,
+		`synthetics_probe_tls_cert_expiry_timestamp_seconds{` + labels + `} 1.893456e+09`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("metrics output missing %q\n%s", want, text)
+		}
+	}
+}

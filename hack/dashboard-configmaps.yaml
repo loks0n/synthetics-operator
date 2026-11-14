@@ -1437,7 +1437,7 @@ data:
             "name": "kind",
             "label": "Kind",
             "type": "custom",
-            "query": "HTTPProbe, DNSProbe, TCPProbe",
+            "query": "HTTPProbe, DNSProbe, TCPProbe, SMTPProbe",
             "multi": true,
             "includeAll": true,
             "allValue": ".*",
@@ -1948,6 +1948,16 @@ data:
                             "color": "red",
                             "index": 7,
                             "text": "connect_timeout"
+                          }
+                        }
+                      },
+                      {
+                        "type": "value",
+                        "options": {
+                          "smtp_rejected": {
+                            "color": "red",
+                            "index": 8,
+                            "text": "smtp_rejected"
                           }
                         }
                       }
@@ -2585,6 +2595,15 @@ data:
                     "connect_failed": {
                       "color": "dark-red",
                       "index": 5
+                    }
+                  }
+                },
+                {
+                  "type": "value",
+                  "options": {
+                    "smtp_rejected": {
+                      "color": "dark-red",
+                      "index": 6
                     }
                   }
                 }

@@ -72,6 +72,7 @@ spec:
                       - HTTPProbe
                       - DNSProbe
                       - TCPProbe
+                      - SMTPProbe
                       - K6Test
                       - PlaywrightTest
                       - Heartbeat

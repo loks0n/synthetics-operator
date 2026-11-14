@@ -5,7 +5,7 @@
 
 ## 1. Overview
 
-synthetics-operator is an open-source Kubernetes operator for unified synthetic monitoring. It provides a consistent, declarative way to define HTTP, DNS, and TCP probes, SSL certificate monitoring, scripted browser tests, load tests, and inbound heartbeats — all exportable to Prometheus and visualised in Grafana.
+synthetics-operator is an open-source Kubernetes operator for unified synthetic monitoring. It provides a consistent, declarative way to define HTTP, DNS, TCP, and SMTP probes, SSL certificate monitoring, scripted browser tests, load tests, and inbound heartbeats — all exportable to Prometheus and visualised in Grafana.
 
 The project is deliberately opinionated: Playwright for browser tests, k6 for load tests. This constraint simplifies the operator, sets clear expectations for users, and avoids the complexity of supporting arbitrary runtimes.
 
@@ -13,7 +13,7 @@ The project is deliberately opinionated: Playwright for browser tests, k6 for lo
 
 ### 1.1 Core Goals
 
-- Unified monitoring across HTTP, DNS, TCP, SSL, browser flows, and load tests
+- Unified monitoring across HTTP, DNS, TCP, SMTP, SSL, browser flows, and load tests
 - Declarative CRD-based configuration, native to Kubernetes
 - All results exported to Prometheus — no proprietary data store
 - Importable Grafana dashboards and Alertmanager rules included in the repo
@@ -89,13 +89,14 @@ For local development, `make dev` spins up a kind cluster with Tilt — see `CON
 
 ## 2. Custom Resource Definitions
 
-The operator defines six CRDs across three execution models: lightweight network probes dispatched to the prober pool, script-based tests that execute as Kubernetes CronJobs, and one inbound kind that is never executed at all.
+The operator defines seven CRDs across three execution models: lightweight network probes dispatched to the prober pool, script-based tests that execute as Kubernetes CronJobs, and one inbound kind that is never executed at all.
 
 | CRD | Execution Model | Purpose |
 |-----|----------------|---------|
 | `HttpProbe` | In-operator | HTTP assertions + SSL certificate checks |
 | `DnsProbe` | In-operator | DNS resolution checks |
 | `TCPProbe` | In-cluster prober | TCP host/port reachability and connection latency |
+| `SMTPProbe` | In-cluster prober | Mail server banner, EHLO, STARTTLS or implicit TLS, certificate expiry |
 | `PlaywrightTest` | CronJob (Playwright) | Scripted browser flows and multi-step journeys |
 | `K6Test` | CronJob (k6) | Load and performance testing |
 | `Heartbeat` | Inbound (no execution) | Liveness of jobs the operator cannot reach — cron jobs, backups, workers |
@@ -223,6 +224,54 @@ Available variables for TCPProbe:
 |----------|-------------|
 | `duration_ms` | DNS resolution plus TCP connection time in milliseconds |
 
+### 2.4.1 SMTPProbe
+
+A TCPProbe against a mail server only proves the port accepts connections. A
+server that accepts TCP and then answers `421 4.3.2 Service not available`
+still reads healthy. SMTPProbe holds the conversation far enough to see
+refusal: it reads the `220` banner (multi-line replies included), sends `EHLO`,
+upgrades with `STARTTLS` or starts with implicit TLS when asked, verifies the
+certificate, and sends `QUIT` without waiting for the `221`. It never
+authenticates and never sends mail.
+
+```yaml
+apiVersion: synthetics.dev/v1alpha1
+kind: SMTPProbe
+metadata:
+  name: mail-submission
+spec:
+  interval: 1m
+  timeout: 10s
+  target:
+    host: smtp.example.com
+    port: 587
+  tls:
+    mode: starttls        # none | starttls | implicit
+    # caCert: |           # same shape as HTTPProbe spec.tls
+    # insecureSkipVerify: false
+  assertions:
+    - name: accepted
+      expr: "smtp_code = 250"
+    - name: cert-not-expiring
+      expr: "ssl_expiry_days > 14"
+```
+
+`tls.mode` defaults from the port at admission: `implicit` on 465 (RFC 8314),
+`starttls` on 587 (RFC 6409), `none` elsewhere. Port 25 defaults to `none`
+because STARTTLS between relays is opportunistic; set `starttls` explicitly to
+require it. In `starttls` mode a server that does not advertise `STARTTLS` in
+its EHLO reply fails with `tls_failed`, not `smtp_rejected`: it answered every
+command, but mail to it would travel in plaintext. `caCert` and
+`insecureSkipVerify` are rejected with `mode: none`, where nothing verifies them.
+
+Available variables for SMTPProbe:
+
+| Variable | Description |
+|----------|-------------|
+| `smtp_code` | Code of the last reply read: the post-TLS EHLO reply when the conversation completes, otherwise the reply that failed it |
+| `duration_ms` | DNS resolution through the end of the conversation, in milliseconds |
+| `ssl_expiry_days` | Days until the server certificate expires; `-1` with `mode: none` |
+
 ### 2.5 Heartbeat
 
 Inbound liveness checks, compatible with Better Stack's heartbeat monitors. A job pings a generated URL on every successful run; the operator reports it down once no ping arrives within `period + grace`.
@@ -332,7 +381,7 @@ spec:
         cpu: 500m
 ```
 
-All five CRD types use `interval` (duration string). For PlaywrightTest and K6Test, the operator converts the interval to a CronJob schedule string and applies a per-test minute offset using `probeOffset()` — preventing clustering when multiple tests share the same interval. Minimum interval for CronJob-backed tests is `1m` (cron resolution limit); sub-minute intervals are supported by HTTPProbe, DNSProbe, and TCPProbe.
+All five CRD types use `interval` (duration string). For PlaywrightTest and K6Test, the operator converts the interval to a CronJob schedule string and applies a per-test minute offset using `probeOffset()` — preventing clustering when multiple tests share the same interval. Minimum interval for CronJob-backed tests is `1m` (cron resolution limit); sub-minute intervals are supported by HTTPProbe, DNSProbe, TCPProbe, and SMTPProbe.
 
 ### 2.7 K6Test
 
@@ -423,7 +472,7 @@ No timeline commitment — driven by schema stability, not calendar.
 
 Metrics split into three families, mirroring the CRD split:
 
-- **Probe metrics** (`synthetics_probe_*`) — emitted by HTTPProbe, DNSProbe, and TCPProbe. Assertions are declarative and evaluated by the operator, so we know *why* a probe failed and surface it on the `result` label.
+- **Probe metrics** (`synthetics_probe_*`) — emitted by HTTPProbe, DNSProbe, TCPProbe, and SMTPProbe. Assertions are declarative and evaluated by the operator, so we know *why* a probe failed and surface it on the `result` label.
 - **Test metrics** (`synthetics_test_*`) — emitted by K6Test and PlaywrightTest. Pass/fail is determined by the test's own runtime (k6 thresholds, Playwright `expect()`); the operator only sees success/failure, not the per-assertion detail.
 - **Heartbeat metrics** (`synthetics_heartbeat*`) — emitted by Heartbeat. Health is a function of elapsed time rather than of any observed run, so it is derived at scrape time rather than written on ingest.
 
@@ -437,7 +486,7 @@ Every metric in either family carries:
 name, namespace, kind
 ```
 
-- `kind` on probes: `HTTPProbe | DNSProbe | TCPProbe`.
+- `kind` on probes: `HTTPProbe | DNSProbe | TCPProbe | SMTPProbe`.
 - `kind` on tests: `K6Test | PlaywrightTest`.
 - `kind` on heartbeats: `Heartbeat`.
 
@@ -449,13 +498,14 @@ without joining another series:
 |---|---|---|
 | `HTTPProbe` | `url` | `spec.request.url` |
 | `TCPProbe` | `host`, `port` | `spec.target` |
+| `SMTPProbe` | `host`, `port` | `spec.target` |
 | `DNSProbe` | `query`, `resolver` | `spec.query`; `resolver` is absent when the probe names none and asks whichever resolver the runner is configured with |
 
 These are reserved: `spec.metricLabels` may not redefine them.
 
 Plus any custom labels defined in `spec.metricLabels` (Phase 12 — see section 3.6).
 
-### 3.2 Probe family — HTTPProbe, DNSProbe, and TCPProbe
+### 3.2 Probe family — HTTPProbe, DNSProbe, TCPProbe, and SMTPProbe
 
 The `result` label on `synthetics_probe` is a closed enum describing what happened on the last run:
 
@@ -464,11 +514,12 @@ The `result` label on `synthetics_probe` is a closed enum describing what happen
 | `ok` | All assertions passed (or there were none) |
 | `config_error` | Spec is invalid — bad URL, unreachable resolver, invalid CA PEM |
 | `dns_failed` | DNS resolution failed (probe target for HTTP; resolver answer for DNSProbe) |
-| `connect_refused` | TCP connect was explicitly refused (HTTPProbe or TCPProbe) |
-| `connect_timeout` | TCP connect exceeded the probe timeout (HTTPProbe or TCPProbe) |
-| `connect_failed` | TCP connect failed for another network reason (TCPProbe) |
-| `tls_failed` | TLS handshake or certificate verification failed (HTTPProbe only) |
-| `recv_timeout` | Response body didn't complete within the probe timeout (HTTPProbe only) |
+| `connect_refused` | TCP connect was explicitly refused (HTTPProbe, TCPProbe, or SMTPProbe) |
+| `connect_timeout` | TCP connect exceeded the probe timeout (HTTPProbe, TCPProbe, or SMTPProbe) |
+| `connect_failed` | TCP connect failed for another network reason, or an SMTP server closed the connection mid-conversation (TCPProbe or SMTPProbe) |
+| `tls_failed` | TLS handshake or certificate verification failed, or an SMTPProbe in `starttls` mode found `STARTTLS` not advertised (HTTPProbe or SMTPProbe) |
+| `recv_timeout` | Response body (HTTPProbe) or an SMTP reply (SMTPProbe) didn't arrive within the probe timeout |
+| `smtp_rejected` | The SMTP server answered the banner, EHLO or STARTTLS with a non-2xx or unparseable reply, or one over RFC 5321's 512-octet line limit (§4.5.3.1.5) or 128 lines; the probe stops reading at the limit (SMTPProbe only) |
 | `assertion_failed` | Got a response, at least one named assertion didn't pass |
 
 When `result="assertion_failed"`, the additional `failed_assertion` label carries the name of the first failing assertion.
@@ -489,7 +540,7 @@ When `result="assertion_failed"`, the additional `failed_assertion` label carrie
 | `synthetics_probe_http_version` | gauge | HTTP version (1.0, 1.1, 2.0, 3.0) |
 | `synthetics_probe_http_phase_duration_ms` | gauge | Per-phase timing with `phase` label: `dns`, `connect`, `tls`, `processing`, `transfer` |
 | `synthetics_probe_http_info` | gauge (always 1) | Static probe configuration: `method` label carries the HTTP method |
-| `synthetics_probe_tls_cert_expiry_timestamp_seconds` | gauge | Unix timestamp of TLS leaf certificate expiry; absent if no TLS |
+| `synthetics_probe_tls_cert_expiry_timestamp_seconds` | gauge | Unix timestamp of TLS leaf certificate expiry; absent if no TLS. Also emitted by SMTPProbe |
 
 **DNSProbe-only**
 
@@ -507,6 +558,15 @@ When `result="assertion_failed"`, the additional `failed_assertion` label carrie
 | Metric | Type | Description |
 |--------|------|-------------|
 | `synthetics_probe_tcp_info` | gauge (always 1) | Static target information. `host` and `port` are shared labels on the whole probe family (§3.1), so this gauge exists to be counted and joined against, not to carry them alone |
+
+**SMTPProbe-only**
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `synthetics_probe_smtp_info` | gauge (always 1) | Static probe configuration: `tls_mode` label carries `none`, `starttls`, or `implicit` |
+| `synthetics_probe_smtp_reply_code` | gauge | Code of the last SMTP reply read; 0 when none arrived (connect failure or timeout before the banner) |
+
+SMTPProbe also emits `synthetics_probe_tls_cert_expiry_timestamp_seconds` when it negotiated TLS.
 
 ### 3.3 Heartbeat family
 
@@ -716,7 +776,7 @@ Five deployments with independent scaling characteristics:
 | Deployment | Default replicas | Scales to | Responsibilities |
 |---|---|---|---|
 | `synthetics-operator-controller` | 1 | 1 | Reconcile CRDs, manage CronJobs, status conditions, cert rotation, Heartbeat tokens |
-| `synthetics-operator-prober` | 1 | N | HttpProbe + DnsProbe + TCPProbe execution, publish results to NATS |
+| `synthetics-operator-prober` | 1 | N | HttpProbe + DnsProbe + TCPProbe + SMTPProbe execution, publish results to NATS |
 | `synthetics-operator-metrics` | 1 | N | Consume NATS result + ping streams, serve `/metrics` |
 | `synthetics-operator-webhook` | 2 | N | Validate + default CRDs |
 | `synthetics-operator-heartbeat` | 2 | N | Serve the inbound ping endpoint, publish pings to NATS |
@@ -762,7 +822,7 @@ In Phase 1, `HttpProbe` scheduling is in-process. The reconciler registers each 
 
 From Phase 15 onward, the same offset algorithm is reused with NATS as the transport. The controller publishes jobs to the NATS work queue at the scheduled time and probe workers compete to consume them.
 
-The controller publishes a job to the NATS work queue at the scheduled time for each HTTPProbe, DNSProbe, and TCPProbe. Probe workers compete to consume jobs — NATS delivers each job to exactly one worker.
+The controller publishes a job to the NATS work queue at the scheduled time for each HTTPProbe, DNSProbe, TCPProbe, and SMTPProbe. Probe workers compete to consume jobs — NATS delivers each job to exactly one worker.
 
 Rather than jitter (which is random and can still cluster), each probe's publish time is derived deterministically from a hash of its `namespace/name`:
 
@@ -1076,7 +1136,7 @@ Phase 1 RBAC is a reduced subset of the target model: the single operator Deploy
 
 | Resource | Verbs | Why |
 |----------|-------|-----|
-| `httpprobes`, `dnsprobes`, `tcpprobes`, `playwrighttests`, `k6tests`, `heartbeats` | get, list, watch, update, patch | Reconcile CRDs, update status conditions |
+| `httpprobes`, `dnsprobes`, `tcpprobes`, `smtpprobes`, `playwrighttests`, `k6tests`, `heartbeats` | get, list, watch, update, patch | Reconcile CRDs, update status conditions |
 | `jobs`, `cronjobs` | get, list, watch, create, update, delete | Manage CronJobs for script-based tests |
 | `configmaps` | get, list, watch, create, update, patch | Read scripts, manage webhook ConfigMaps |
 | `secrets` | get, list, watch, create, update | Webhook certs Secret; Heartbeat token Secrets |
@@ -1101,7 +1161,7 @@ Phase 1 RBAC is a reduced subset of the target model: the single operator Deploy
 
 | Resource | Verbs | Why |
 |----------|-------|-----|
-| `httpprobes`, `dnsprobes`, `tcpprobes`, `playwrighttests`, `k6tests`, `heartbeats` | get, list, watch | Read CRD schemas for validation |
+| `httpprobes`, `dnsprobes`, `tcpprobes`, `smtpprobes`, `playwrighttests`, `k6tests`, `heartbeats` | get, list, watch | Read CRD schemas for validation |
 | `secrets` | get, watch | Load webhook serving cert |
 
 **`synthetics-operator-heartbeat` ClusterRole:**
@@ -1230,6 +1290,7 @@ Phase 1 only needs a subset of this layout: `HttpProbe` API types, a controller,
   http_probe_controller.go
   dns_probe_controller.go
   tcp_probe_controller.go
+  smtp_probe_controller.go
   heartbeat_controller.go
   playwright_test_controller.go
   k6_test_controller.go
@@ -1435,7 +1496,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Thresholds in script only | k6 thresholds defined in the script, not duplicated in the CRD. Avoids drift between two sources of truth. Operator parses threshold results from k6 summary output. |
 | No alerting in operator | Operator emits metrics only. Users own Alertmanager rules. Avoids duplicating alerting infrastructure and keeps operator scope focused. |
 | Assertions are stateless | CRD spec assertions evaluate the current run only — no sliding windows, no history, no aggregation. Each assertion is a named expression (`variable op value`) evaluated against the probe result. All assertions run on every probe execution; `synthetics_probe` reflects the overall pass/fail, while `synthetics_probe_assertion_result` carries a per-assertion 0/1 gauge with `assertion` and `expr` labels. Anything requiring multiple results over time (p95 latency, consecutive failure rate) belongs in Prometheus/Alertmanager rules against emitted metrics, not in the CRD schema. |
-| Lightweight probe scheduling | HTTPProbe, DNSProbe, and TCPProbe use controller timers plus a horizontally scalable NATS-backed prober pool. Sub-minute intervals are supported without pod-per-run overhead. |
+| Lightweight probe scheduling | HTTPProbe, DNSProbe, TCPProbe, and SMTPProbe use controller timers plus a horizontally scalable NATS-backed prober pool. Sub-minute intervals are supported without pod-per-run overhead. |
 | CronJobs for scripts | PlaywrightTest and K6Test need isolated runtimes and run at minute-or-longer intervals. CronJobs are the natural fit. |
 | Hash-based probe offset | Each probe's schedule offset is `FNV64(namespace/name) % interval`. Deterministic across restarts, independent per probe — adding or removing a probe does not affect any other. No global state. Jitter was rejected: random offsets can still cluster and change on restart. Midpoint insertion was rejected: requires sorted global state, breaks on restart without persistence, and degrades badly when probes are removed. |
 | NATS as the shared stateful component | CronJob results must go somewhere external to the operator process — a shared stateful component is unavoidable. NATS is the minimal right answer: purpose-built for message routing, ~32Mi idle, no persistence required by default, and keeps every other component stateless. ConfigMaps and an HTTP ingest endpoint were considered; both make either the API server or the operator a scaling bottleneck. See section 1.3. |
@@ -1450,7 +1511,7 @@ The native sidecar pattern (initContainer with `restartPolicy: Always`) requires
 | Operator health metrics | NATS queue depth, reconcile errors, CronJob failures, Job rejections, result stream lag, and cert expiry all instrumented via OTel SDK. Exported as Prometheus on `/metrics` via OTel Prometheus exporter. NATS queue depth is the key saturation signal. |
 | Custom metric labels | `spec.metricLabels` on all CRDs propagates to OTel metric attributes (Prometheus labels). Enables per-team alerting and dashboard filtering without separate namespaces. Deliberately separate from k8s metadata labels so observability labels can be managed independently and cardinality stays explicit. |
 | suspend field | All CRDs support `spec.suspend` to pause probes without deletion. In-operator probes are unscheduled; CronJobs set `suspend: true`. |
-| Consistent interval syntax | All five CRDs use `interval` (duration string). For CronJob-backed tests the operator converts the interval to a CronJob schedule with a per-test offset for even distribution. Sub-minute intervals are supported by HTTPProbe, DNSProbe, and TCPProbe; minimum for PlaywrightTest and K6Test is `1m`. |
+| Consistent interval syntax | All five CRDs use `interval` (duration string). For CronJob-backed tests the operator converts the interval to a CronJob schedule with a per-test offset for even distribution. Sub-minute intervals are supported by HTTPProbe, DNSProbe, TCPProbe, and SMTPProbe; minimum for PlaywrightTest and K6Test is `1m`. |
 | OTel SDK, Prometheus export | OTel Go SDK for all instrumentation, exported via OTel Prometheus exporter on `/metrics`. External interface stays Prometheus-compatible; no OTel collector required. |
 | Testing layers | Unit tests for pure logic, envtest for controller/webhook behaviour, kind for full end-to-end. envtest covers ~80% of operator behaviour without needing a full cluster. Scale tests include churn scenarios. |
 | CI cadence | `gofmt`, `go vet`, unit tests, envtest, and Helm lint/render run on every PR. A kind smoke install runs on pushes to `main` and on demand. A nightly kind matrix covers currently-supported bootstrap versions and can expand as the project adds more phases. |

@@ -184,6 +184,17 @@ func (r *SpecResyncer) resync(ctx context.Context) {
 		}
 	}
 
+	var smtpProbes syntheticsv1alpha1.SMTPProbeList
+	if err := r.Client.List(ctx, &smtpProbes); err != nil {
+		r.Log.Error(err, "listing SMTPProbes for spec resync")
+	} else {
+		for i := range smtpProbes.Items {
+			if p := &smtpProbes.Items[i]; p.DeletionTimestamp.IsZero() {
+				r.publish(ctx, smtpProbeSpecUpdate(p))
+			}
+		}
+	}
+
 	if err := r.Client.List(ctx, &k6Tests); err != nil {
 		r.Log.Error(err, "listing K6Tests for spec resync")
 	} else {
