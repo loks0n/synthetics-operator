@@ -118,12 +118,13 @@ Ready-to-apply specs in [`examples/`](examples/). Full schema, assertion grammar
 
 ### Dashboards
 
-Six Grafana dashboards ship in [`dashboards/`](dashboards/). Drop them into a ConfigMap with the `grafana_dashboard=1` label and Grafana's sidecar picks them up:
+Seven Grafana dashboards ship in [`dashboards/`](dashboards/). Drop them into a ConfigMap with the `grafana_dashboard=1` label and Grafana's sidecar picks them up:
 
 - **Synthetics / Overview** — fleet state, cert expiry, suppressions
 - **Synthetics / HTTP** — per-HTTPProbe: phase breakdown, assertions, TLS, status codes
 - **Synthetics / DNS** — per-DNSProbe: response time, answer drift
 - **Synthetics / TCP** — per-TCPProbe: availability, endpoint, connection duration, assertions
+- **Synthetics / SMTP** — per-SMTPProbe: availability, endpoint and TLS mode, reply code, TLS expiry, assertions
 - **Synthetics / Playwright** — per-test status, per-case pass/fail ribbons, durations
 - **Synthetics / K6** — per-test status, duration trend
 
