@@ -404,7 +404,7 @@ func TestHTTPExecutorDoesNotBufferResponseBody(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 	result := HTTPExecutor{}.Execute(context.Background(), results.ProbeJob{Spec: results.SpecUpdate{
-		Kind: results.KindHTTPProbe,
+		Kind:      results.KindHTTPProbe,
 		HTTPProbe: &results.HTTPProbeSpecPayload{TimeoutMs: 30_000, URL: server.URL, Method: http.MethodGet},
 	}})
 	runtime.ReadMemStats(&after)
