@@ -551,6 +551,16 @@
                         "text": "connect_timeout"
                       }
                     }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "target_denied": {
+                        "color": "red",
+                        "index": 8,
+                        "text": "target_denied"
+                      }
+                    }
                   }
                 ]
               }
@@ -1186,6 +1196,15 @@
                 "connect_failed": {
                   "color": "dark-red",
                   "index": 5
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "target_denied": {
+                  "color": "dark-red",
+                  "index": 6
                 }
               }
             }
