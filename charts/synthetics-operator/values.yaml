@@ -61,6 +61,9 @@ prober:
     tag: ""
     pullPolicy: IfNotPresent
   replicaCount: 1
+  # Probes each replica runs at once. Probes mostly wait on the network, so
+  # raise this before adding replicas; lower it if probes saturate the CPU.
+  concurrency: 16
   resources: {}
   # Optional KEDA autoscaling. Requires KEDA installed in the cluster
   # (https://keda.sh) — the chart only renders the ScaledObject.

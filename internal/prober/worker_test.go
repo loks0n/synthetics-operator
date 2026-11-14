@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,7 +40,7 @@ func TestWorkerExecutesTCPJob(t *testing.T) {
 
 	addr := listener.Addr().(*net.TCPAddr)
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub)
+	w := NewWorker(logr.Discard(), nil, pub, 1)
 	w.onJob(context.Background(), results.ProbeJob{Spec: results.SpecUpdate{
 		Kind: results.KindTCPProbe, Name: "mysql", Namespace: "default",
 		TCPProbe: &results.TCPProbeSpecPayload{
@@ -95,7 +96,7 @@ func TestWorkerExecutesJobWithNoPriorState(t *testing.T) {
 	defer srv.Close()
 
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub)
+	w := NewWorker(logr.Discard(), nil, pub, 1)
 
 	w.onJob(context.Background(), httpJob(srv.URL))
 
@@ -109,7 +110,7 @@ func TestWorkerExecutesJobWithNoPriorState(t *testing.T) {
 
 func TestWorkerSkipsSuspendedJob(t *testing.T) {
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub)
+	w := NewWorker(logr.Discard(), nil, pub, 1)
 
 	job := httpJob("http://127.0.0.1:1")
 	job.Spec.Suspend = true
@@ -122,7 +123,7 @@ func TestWorkerSkipsSuspendedJob(t *testing.T) {
 
 func TestWorkerIgnoresTestKinds(t *testing.T) {
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub)
+	w := NewWorker(logr.Discard(), nil, pub, 1)
 
 	job := httpJob("http://127.0.0.1:1")
 	job.Spec.Kind = results.KindK6Test
@@ -171,13 +172,20 @@ func TestWorkerFinishesDeliveredJobsOnShutdown(t *testing.T) {
 	pub := &fakeResultPublisher{}
 	executors := defaultExecutors()
 	executors[results.KindHTTPProbe] = blockingExecutor{delay: 200 * time.Millisecond}
-	w := &Worker{Log: logr.Discard(), Bus: bus, Publisher: pub, executors: executors}
+	w := &Worker{Log: logr.Discard(), Bus: bus, Publisher: pub, Concurrency: 2, executors: executors}
 
+	// The server counts its own internal subscriptions too, so wait for the
+	// worker's to be added on top of them before publishing.
+	baseline := server.NumSubscriptions()
 	ctx, stop := context.WithCancel(context.Background())
-	ready := make(chan struct{})
 	stopped := make(chan error, 1)
-	go func() { stopped <- w.Bus.SubscribeProbeJobs(ctx, w.onJob, natsbus.WithReady(ready)) }()
-	<-ready
+	go func() { stopped <- w.Start(ctx) }()
+	for deadline := time.Now().Add(5 * time.Second); server.NumSubscriptions() == baseline; {
+		if time.Now().After(deadline) {
+			t.Fatal("worker never subscribed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	for i := range jobs {
 		if err := bus.PublishProbeJob(ctx, results.ProbeJob{Spec: results.SpecUpdate{
@@ -186,7 +194,7 @@ func TestWorkerFinishesDeliveredJobsOnShutdown(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	time.Sleep(100 * time.Millisecond) // the first job is mid-probe, the rest are buffered
+	time.Sleep(100 * time.Millisecond) // two jobs are mid-probe, the rest are buffered
 	stop()
 
 	select {
@@ -195,7 +203,7 @@ func TestWorkerFinishesDeliveredJobsOnShutdown(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("subscription did not return after shutdown")
+		t.Fatal("worker did not return after shutdown")
 	}
 
 	pub.mu.Lock()
@@ -207,5 +215,55 @@ func TestWorkerFinishesDeliveredJobsOnShutdown(t *testing.T) {
 		if got.Result != "ok" {
 			t.Fatalf("%s probed against a cancelled context: %s", got.Name, got.Result)
 		}
+	}
+}
+
+// concurrencyExecutor records how many probes it is running at once.
+type concurrencyExecutor struct {
+	running, peak *atomic.Int64
+	delay         time.Duration
+}
+
+func (e concurrencyExecutor) Execute(_ context.Context, job results.ProbeJob) results.ProbeResult {
+	now := e.running.Add(1)
+	for {
+		peak := e.peak.Load()
+		if now <= peak || e.peak.CompareAndSwap(peak, now) {
+			break
+		}
+	}
+	time.Sleep(e.delay)
+	e.running.Add(-1)
+	return results.ProbeResult{Kind: job.Spec.Kind, Name: job.Spec.Name, Result: "ok"}
+}
+
+// One slow target must not hold up the probes queued behind it, and a replica
+// must not run more probes at once than it was given slots for.
+func TestWorkerRunsJobsConcurrentlyUpToItsLimit(t *testing.T) {
+	const jobs, concurrency = 12, 4
+	var running, peak atomic.Int64
+	pub := &fakeResultPublisher{}
+	w := NewWorker(logr.Discard(), nil, pub, concurrency)
+	w.executors[results.KindHTTPProbe] = concurrencyExecutor{running: &running, peak: &peak, delay: 100 * time.Millisecond}
+	w.slots = make(chan struct{}, concurrency)
+
+	start := time.Now()
+	for i := range jobs {
+		w.dispatch(context.Background(), results.ProbeJob{Spec: results.SpecUpdate{
+			Kind: results.KindHTTPProbe, Name: fmt.Sprintf("probe-%d", i),
+		}})
+	}
+	w.running.Wait()
+	elapsed := time.Since(start)
+
+	if got := peak.Load(); got != concurrency {
+		t.Fatalf("expected %d probes at once, peaked at %d", concurrency, got)
+	}
+	if len(pub.published) != jobs {
+		t.Fatalf("published %d of %d jobs", len(pub.published), jobs)
+	}
+	// 12 jobs of 100ms in batches of 4 take ~300ms; one at a time takes 1.2s.
+	if elapsed > 700*time.Millisecond {
+		t.Fatalf("%d jobs took %s; they ran one at a time", jobs, elapsed)
 	}
 }
