@@ -27,6 +27,7 @@ var _ Executor = HTTPExecutor{}
 // HTTPExecutor is the production Executor that makes real HTTP requests.
 type HTTPExecutor struct {
 	Client *http.Client
+	Egress Egress
 }
 
 // httpResult holds transport details while HTTPExecutor builds the public
@@ -164,7 +165,7 @@ func (e HTTPExecutor) executeRequest(ctx context.Context, request httpRequest) h
 		httpClient = tlsClient
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Transport: newTransport()}
+		httpClient = &http.Client{Transport: e.newTransport()}
 	}
 
 	resp, err := httpClient.Do(req)
@@ -222,20 +223,29 @@ func (e HTTPExecutor) buildTLSClient(config *results.TLSConfig) (*http.Client, e
 		}
 		tlsCfg.RootCAs = pool
 	}
-	base := newTransport()
+	base := e.newTransport()
 	base.TLSClientConfig = tlsCfg
 	return &http.Client{Transport: base}, nil
 }
 
-func newTransport() *http.Transport {
+func (e HTTPExecutor) newTransport() *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.DisableKeepAlives = true
+	t.DialContext = e.Egress.dialer(30 * time.Second).DialContext
+	// Through a proxy the dialer only sees the proxy's address, so the target's
+	// network can't be checked. A prober that denies networks connects directly.
+	if len(e.Egress.Denied) > 0 {
+		t.Proxy = nil
+	}
 	return t
 }
 
 // classifyHTTPTransport maps an http.Client.Do error to the public result
 // vocabulary.
 func classifyHTTPTransport(err error) string {
+	if errors.Is(err, ErrTargetDenied) {
+		return "target_denied"
+	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return "dns_failed"

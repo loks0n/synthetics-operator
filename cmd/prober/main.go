@@ -20,25 +20,31 @@ import (
 
 	"github.com/loks0n/synthetics-operator/internal/natsbus"
 	"github.com/loks0n/synthetics-operator/internal/prober"
+	"github.com/loks0n/synthetics-operator/internal/probes"
 )
 
 func main() {
-	var natsURL string
+	var natsURL, deniedNetworks string
 	flag.StringVar(&natsURL, "nats-url", "", "NATS server URL (required).")
+	flag.StringVar(&deniedNetworks, "denied-networks", "", "Comma-separated CIDRs probes may not connect to; `private` adds the private, loopback, link-local and CGNAT ranges. Empty allows everything.")
 	flag.Parse()
 
 	ctrl := logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	log := ctrl.WithName("prober")
 
-	if err := run(log, natsURL); err != nil {
+	if err := run(log, natsURL, deniedNetworks); err != nil {
 		log.Error(err, "exiting")
 		os.Exit(1)
 	}
 }
 
-func run(log logr.Logger, natsURL string) error {
+func run(log logr.Logger, natsURL, deniedNetworks string) error {
 	if natsURL == "" {
 		return errors.New("--nats-url is required")
+	}
+	denied, err := probes.ParseDeniedNetworks(deniedNetworks)
+	if err != nil {
+		return fmt.Errorf("--denied-networks: %w", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -53,7 +59,7 @@ func run(log logr.Logger, natsURL string) error {
 	healthErr := serveHealth(ctx, log.WithName("health"))
 	workerErr := make(chan error, 1)
 
-	worker := prober.NewWorker(log, bus, bus)
+	worker := prober.NewWorker(log, bus, bus, probes.Egress{Denied: denied})
 	go func() { workerErr <- worker.Start(ctx) }()
 
 	select {

@@ -31,6 +31,9 @@ spec:
           imagePullPolicy: {{ .Values.prober.image.pullPolicy }}
           args:
             - --nats-url={{ include "synthetics-operator.natsURL" . }}
+            {{- with .Values.prober.deniedNetworks }}
+            - --denied-networks={{ join "," . }}
+            {{- end }}
           ports:
             - name: healthz
               containerPort: 8081

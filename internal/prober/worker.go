@@ -28,20 +28,22 @@ type Worker struct {
 }
 
 // NewWorker wires the production executors behind the Worker dispatch seam.
-func NewWorker(log logr.Logger, bus *natsbus.Client, publisher ResultPublisher) *Worker {
+// Every executor connects through egress, so a denied network is refused for
+// all probe kinds alike.
+func NewWorker(log logr.Logger, bus *natsbus.Client, publisher ResultPublisher, egress internalprobes.Egress) *Worker {
 	return &Worker{
 		Log:       log,
 		Bus:       bus,
 		Publisher: publisher,
-		executors: defaultExecutors(),
+		executors: defaultExecutors(egress),
 	}
 }
 
-func defaultExecutors() map[results.Kind]internalprobes.Executor {
+func defaultExecutors(egress internalprobes.Egress) map[results.Kind]internalprobes.Executor {
 	return map[results.Kind]internalprobes.Executor{
-		results.KindHTTPProbe: internalprobes.HTTPExecutor{},
-		results.KindDNSProbe:  internalprobes.DNSExecutor{},
-		results.KindTCPProbe:  internalprobes.TCPExecutor{},
+		results.KindHTTPProbe: internalprobes.HTTPExecutor{Egress: egress},
+		results.KindDNSProbe:  internalprobes.DNSExecutor{Egress: egress},
+		results.KindTCPProbe:  internalprobes.TCPExecutor{Egress: egress},
 		// Tests execute in CronJob pods, not here. Heartbeats are inbound and
 		// execute nowhere at all. All three are listed so that adding a kind
 		// without deciding how the prober treats it fails the exhaustive lint.
@@ -74,7 +76,7 @@ func (w *Worker) onJob(ctx context.Context, job results.ProbeJob) {
 	if executors == nil {
 		// Preserve direct struct construction for embedders while NewWorker
 		// remains the production path.
-		executors = defaultExecutors()
+		executors = defaultExecutors(internalprobes.Egress{})
 	}
 	executor, ok := executors[job.Spec.Kind]
 	if !ok || executor == nil {
