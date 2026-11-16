@@ -467,6 +467,7 @@ The `result` label on `synthetics_probe` is a closed enum describing what happen
 | `connect_refused` | TCP connect was explicitly refused (HTTPProbe or TCPProbe) |
 | `connect_timeout` | TCP connect exceeded the probe timeout (HTTPProbe or TCPProbe) |
 | `connect_failed` | TCP connect failed for another network reason (TCPProbe) |
+| `target_denied` | The target or resolver resolved into a network the prober's `--denied-networks` refuses; nothing was sent |
 | `tls_failed` | TLS handshake or certificate verification failed (HTTPProbe only) |
 | `recv_timeout` | Response body didn't complete within the probe timeout (HTTPProbe only) |
 | `assertion_failed` | Got a response, at least one named assertion didn't pass |
