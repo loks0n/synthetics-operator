@@ -75,7 +75,7 @@ func (e Egress) control(_, address string, _ syscall.RawConn) error {
 	if err != nil {
 		return fmt.Errorf("parse dial address %q: %w", address, err)
 	}
-	ip := addressPort.Addr().Unmap()
+	ip := addressPort.Addr().WithZone("").Unmap()
 	for _, prefix := range e.Denied {
 		if prefix.Contains(ip) {
 			return fmt.Errorf("%w: %s", ErrTargetDenied, ip)
