@@ -5,6 +5,7 @@ package prober
 
 import (
 	"context"
+	"sync"
 
 	"github.com/go-logr/logr"
 
@@ -18,22 +19,32 @@ type ResultPublisher interface {
 	PublishProbeResult(ctx context.Context, msg results.ProbeResult) error
 }
 
+// DefaultConcurrency is how many probes one replica runs at once. Probes
+// spend their time waiting on the network, so one at a time left a replica
+// idle behind every slow target.
+const DefaultConcurrency = 16
+
 // Worker implements controller-runtime's Runnable. Per-kind executors own the
 // complete job-to-result policy; Worker owns only dispatch and publication.
 type Worker struct {
 	Log       logr.Logger
 	Bus       *natsbus.Client
 	Publisher ResultPublisher
-	executors map[results.Kind]internalprobes.Executor
+	// Concurrency caps the probes running at once; below 1 means 1.
+	Concurrency int
+	executors   map[results.Kind]internalprobes.Executor
+	slots       chan struct{}
+	running     sync.WaitGroup
 }
 
 // NewWorker wires the production executors behind the Worker dispatch seam.
-func NewWorker(log logr.Logger, bus *natsbus.Client, publisher ResultPublisher) *Worker {
+func NewWorker(log logr.Logger, bus *natsbus.Client, publisher ResultPublisher, concurrency int) *Worker {
 	return &Worker{
-		Log:       log,
-		Bus:       bus,
-		Publisher: publisher,
-		executors: defaultExecutors(),
+		Log:         log,
+		Bus:         bus,
+		Publisher:   publisher,
+		Concurrency: concurrency,
+		executors:   defaultExecutors(),
 	}
 }
 
@@ -58,8 +69,24 @@ func (*Worker) NeedLeaderElection() bool { return false }
 
 // Start subscribes to probe jobs and blocks until ctx is cancelled and every
 // job already delivered to this replica has been executed and published.
+// The subscription is drained before returning, so no dispatch can start a
+// probe after the wait for running probes begins.
 func (w *Worker) Start(ctx context.Context) error {
-	return w.Bus.SubscribeProbeJobs(ctx, w.onJob)
+	w.slots = make(chan struct{}, max(1, w.Concurrency))
+	err := w.Bus.SubscribeProbeJobs(ctx, w.dispatch)
+	w.running.Wait()
+	return err
+}
+
+// dispatch runs a job in its own goroutine once a slot is free. While every
+// slot is taken it blocks, and further jobs delivered to this replica wait in
+// its NATS client buffer; they are not handed back to other replicas.
+func (w *Worker) dispatch(ctx context.Context, job results.ProbeJob) {
+	w.slots <- struct{}{}
+	w.running.Go(func() {
+		defer func() { <-w.slots }()
+		w.onJob(ctx, job)
+	})
 }
 
 func (w *Worker) onJob(ctx context.Context, job results.ProbeJob) {

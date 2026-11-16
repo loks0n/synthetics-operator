@@ -24,19 +24,21 @@ import (
 
 func main() {
 	var natsURL string
+	var concurrency int
 	flag.StringVar(&natsURL, "nats-url", "", "NATS server URL (required).")
+	flag.IntVar(&concurrency, "concurrency", prober.DefaultConcurrency, "Probes this replica runs at once.")
 	flag.Parse()
 
 	ctrl := logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	log := ctrl.WithName("prober")
 
-	if err := run(log, natsURL); err != nil {
+	if err := run(log, natsURL, concurrency); err != nil {
 		log.Error(err, "exiting")
 		os.Exit(1)
 	}
 }
 
-func run(log logr.Logger, natsURL string) error {
+func run(log logr.Logger, natsURL string, concurrency int) error {
 	if natsURL == "" {
 		return errors.New("--nats-url is required")
 	}
@@ -53,7 +55,7 @@ func run(log logr.Logger, natsURL string) error {
 	healthErr := serveHealth(ctx, log.WithName("health"))
 	workerErr := make(chan error, 1)
 
-	worker := prober.NewWorker(log, bus, bus)
+	worker := prober.NewWorker(log, bus, bus, concurrency)
 	go func() { workerErr <- worker.Start(ctx) }()
 
 	// Wait for the worker even after a signal: it returns once the jobs it was
