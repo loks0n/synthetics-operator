@@ -35,6 +35,7 @@ generate:
 	cp config/crd/bases/synthetics.dev_httpprobes.yaml charts/synthetics-operator/crds/synthetics.dev_httpprobes.yaml
 	cp config/crd/bases/synthetics.dev_dnsprobes.yaml charts/synthetics-operator/crds/synthetics.dev_dnsprobes.yaml
 	cp config/crd/bases/synthetics.dev_tcpprobes.yaml charts/synthetics-operator/crds/synthetics.dev_tcpprobes.yaml
+	cp config/crd/bases/synthetics.dev_smtpprobes.yaml charts/synthetics-operator/crds/synthetics.dev_smtpprobes.yaml
 	cp config/crd/bases/synthetics.dev_heartbeats.yaml charts/synthetics-operator/crds/synthetics.dev_heartbeats.yaml
 	cp config/crd/bases/synthetics.dev_k6tests.yaml charts/synthetics-operator/crds/synthetics.dev_k6tests.yaml
 	cp config/crd/bases/synthetics.dev_playwrighttests.yaml charts/synthetics-operator/crds/synthetics.dev_playwrighttests.yaml

@@ -205,6 +205,16 @@ func run(
 		return fmt.Errorf("creating TCPProbe controller: %w", err)
 	}
 
+	if err := (&controllers.SMTPProbeReconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Scheduler: scheduler,
+		Publisher: bus,
+		Clock:     time.Now,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("creating SMTPProbe controller: %w", err)
+	}
+
 	if err := heartbeats.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("creating Heartbeat controller: %w", err)
 	}

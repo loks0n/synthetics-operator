@@ -34,6 +34,7 @@ const (
 	ResultConnectFailed   Result = "connect_failed"
 	ResultTLSFailed       Result = "tls_failed"
 	ResultRecvTimeout     Result = "recv_timeout"
+	ResultSMTPRejected    Result = "smtp_rejected"
 	ResultAssertionFailed Result = "assertion_failed"
 	ResultTestFailed      Result = "test_failed"
 	// Heartbeat-only outcomes. A heartbeat never fails an assertion or a
@@ -59,9 +60,9 @@ type AssertionResult struct {
 	Result float64 // 1 = pass, 0 = fail
 }
 
-// ProbeState holds the last-run state of an HTTPProbe, DNSProbe, or TCPProbe.
+// ProbeState holds the last-run state of an HTTPProbe, DNSProbe, TCPProbe, or SMTPProbe.
 type ProbeState struct {
-	Kind                 string // "HTTPProbe" | "DNSProbe" | "TCPProbe"
+	Kind                 string // "HTTPProbe" | "DNSProbe" | "TCPProbe" | "SMTPProbe"
 	Result               Result
 	FailedAssertion      string // populated only when Result == ResultAssertionFailed
 	DurationMilliseconds float64
@@ -71,7 +72,7 @@ type ProbeState struct {
 	HTTPVersion           float64
 	URL                   string
 	Method                string
-	TLSCertExpiry         float64 // Unix timestamp of leaf cert NotAfter; 0 if no TLS
+	TLSCertExpiry         float64 // Unix timestamp of leaf cert NotAfter; 0 if no TLS (HTTP and SMTP)
 	HTTPPhaseDNSMs        float64
 	HTTPPhaseConnectMs    float64
 	HTTPPhaseTLSMs        float64
@@ -89,6 +90,11 @@ type ProbeState struct {
 	// TCP-specific fields
 	TCPHost string
 	TCPPort int32
+	// SMTP-specific fields
+	SMTPHost      string
+	SMTPPort      int32
+	SMTPTLSMode   string
+	SMTPReplyCode float64
 }
 
 // TestState holds the last-run state of a K6Test or PlaywrightTest.
@@ -102,7 +108,7 @@ type TestState struct {
 }
 
 type instruments struct {
-	// Probe family — HTTPProbe, DNSProbe, TCPProbe
+	// Probe family — HTTPProbe, DNSProbe, TCPProbe, SMTPProbe
 	probeGauge               apimetric.Float64ObservableGauge
 	probeResultInfo          apimetric.Float64ObservableGauge
 	probeSuppressedGauge     apimetric.Float64ObservableGauge
@@ -121,6 +127,8 @@ type instruments struct {
 	dnsAuthorityCountGauge   apimetric.Float64ObservableGauge
 	dnsAdditionalCountGauge  apimetric.Float64ObservableGauge
 	tcpInfoGauge             apimetric.Float64ObservableGauge
+	smtpInfoGauge            apimetric.Float64ObservableGauge
+	smtpReplyCodeGauge       apimetric.Float64ObservableGauge
 	// Heartbeat family
 	heartbeatGauge           apimetric.Float64ObservableGauge
 	heartbeatResultInfo      apimetric.Float64ObservableGauge
@@ -292,6 +300,14 @@ func newInstruments(meter apimetric.Meter) (instruments, error) {
 		apimetric.WithDescription("Static TCPProbe target configuration; value is always 1")); err != nil {
 		return instr, err
 	}
+	if instr.smtpInfoGauge, err = meter.Float64ObservableGauge("synthetics_probe_smtp_info",
+		apimetric.WithDescription("Static SMTPProbe configuration: tls_mode label carries none, starttls or implicit; value is always 1")); err != nil {
+		return instr, err
+	}
+	if instr.smtpReplyCodeGauge, err = meter.Float64ObservableGauge("synthetics_probe_smtp_reply_code",
+		apimetric.WithDescription("Code of the last SMTP reply the probe read; 0 when none arrived")); err != nil {
+		return instr, err
+	}
 
 	// Test family
 	if instr.testGauge, err = meter.Float64ObservableGauge("synthetics_test",
@@ -403,7 +419,7 @@ func (s *Store) registerCallback(meter apimetric.Meter) error {
 		instr.httpPhaseDurationGauge, instr.httpInfoGauge, instr.assertionResultGauge,
 		instr.dnsResponseMsGauge, instr.dnsFirstAnswerValueGauge, instr.dnsFirstAnswerTypeGauge,
 		instr.dnsAnswerCountGauge, instr.dnsAuthorityCountGauge, instr.dnsAdditionalCountGauge,
-		instr.tcpInfoGauge,
+		instr.tcpInfoGauge, instr.smtpInfoGauge, instr.smtpReplyCodeGauge,
 		// Heartbeat family instruments
 		instr.heartbeatGauge, instr.heartbeatResultInfo, instr.heartbeatSuppressedGauge,
 		instr.heartbeatLastReceived, instr.heartbeatPeriodSeconds, instr.heartbeatGraceSeconds,
@@ -432,6 +448,13 @@ func targetAttrs(kind string, state ProbeState) []attribute.KeyValue {
 			return []attribute.KeyValue{
 				attribute.String("host", state.TCPHost),
 				attribute.Int64("port", int64(state.TCPPort)),
+			}
+		}
+	case "SMTPProbe":
+		if state.SMTPHost != "" {
+			return []attribute.KeyValue{
+				attribute.String("host", state.SMTPHost),
+				attribute.Int64("port", int64(state.SMTPPort)),
 			}
 		}
 	case "DNSProbe":
@@ -492,6 +515,17 @@ func (s *Store) observeProbe(observer apimetric.Observer, name types.NamespacedN
 		s.observeDNS(observer, attrs, state, instr)
 	case "TCPProbe":
 		s.observeTCP(observer, attrs, state, instr)
+	case "SMTPProbe":
+		s.observeSMTP(observer, attrs, state, instr)
+	}
+}
+
+func (s *Store) observeSMTP(observer apimetric.Observer, attrs []attribute.KeyValue, state ProbeState, instr instruments) {
+	observer.ObserveFloat64(instr.smtpInfoGauge, 1, apimetric.WithAttributes(
+		append(attrs, attribute.String("tls_mode", state.SMTPTLSMode))...))
+	observer.ObserveFloat64(instr.smtpReplyCodeGauge, state.SMTPReplyCode, apimetric.WithAttributes(attrs...))
+	if state.TLSCertExpiry > 0 {
+		observer.ObserveFloat64(instr.tlsCertExpiryGauge, state.TLSCertExpiry, apimetric.WithAttributes(attrs...))
 	}
 }
 
@@ -792,7 +826,7 @@ func (s *Store) walkDepsLocked(namespace string, deps []syntheticsv1alpha1.Depen
 
 func (s *Store) isFailingLocked(kind string, name types.NamespacedName) bool {
 	switch kind {
-	case string(syntheticsv1alpha1.DependencyKindHTTPProbe), string(syntheticsv1alpha1.DependencyKindDNSProbe), string(syntheticsv1alpha1.DependencyKindTCPProbe):
+	case string(syntheticsv1alpha1.DependencyKindHTTPProbe), string(syntheticsv1alpha1.DependencyKindDNSProbe), string(syntheticsv1alpha1.DependencyKindTCPProbe), string(syntheticsv1alpha1.DependencyKindSMTPProbe):
 		state, ok := s.probes[crKey{kind: kind, name: name}]
 		return ok && state.Result != ResultOK
 	case string(syntheticsv1alpha1.DependencyKindK6Test), string(syntheticsv1alpha1.DependencyKindPlaywrightTest):

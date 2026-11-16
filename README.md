@@ -1,6 +1,6 @@
 # synthetics-operator
 
-Declarative synthetic monitoring for Kubernetes. Define HTTP, DNS, and TCP probes, Playwright browser flows, and k6 load tests as CRDs; get Prometheus metrics and Grafana dashboards without wiring any of it yourself.
+Declarative synthetic monitoring for Kubernetes. Define HTTP, DNS, TCP, and SMTP probes, Playwright browser flows, and k6 load tests as CRDs; get Prometheus metrics and Grafana dashboards without wiring any of it yourself.
 
 A self-hosted alternative to BetterStack / Datadog Synthetics — in-cluster, no SaaS, no per-seat pricing, no proprietary query language.
 
@@ -46,7 +46,7 @@ All four states are visible above: `ok`, `missed` (deadline passed with no ping)
 
 ## Features
 
-- **Unified** — HTTP, DNS, TCP, TLS, Playwright, k6, and inbound heartbeats under one API
+- **Unified** — HTTP, DNS, TCP, SMTP, TLS, Playwright, k6, and inbound heartbeats under one API
 - **Opinionated** — curated runtimes (Playwright for browser, k6 for load); no arbitrary scripts
 - **Prometheus-native** — `/metrics` endpoint, importable Grafana dashboards, shipped PrometheusRule + Grafana alert sets
 - **Self-contained** — runs entirely in-cluster, no data egress, no SaaS component
@@ -67,7 +67,7 @@ helm install synthetics-operator \
 
 Every image (controller, webhook, prober, metrics, heartbeat, test-sidecar, k6-runner, playwright-runner) defaults to the chart's AppVersion — no image pinning flags needed for a straight install. Override individually with `--set controller.image.ref=…` etc. if you need custom builds.
 
-Helm does not update CRDs that already exist. Before upgrading an existing installation to a release that adds TCPProbe, apply the release's CRDs, then upgrade the chart:
+Helm does not update CRDs that already exist. Before upgrading an existing installation to a release that adds a kind such as SMTPProbe, apply the release's CRDs, then upgrade the chart:
 
 ```sh
 helm show crds oci://ghcr.io/loks0n/charts/synthetics-operator --version <release> | kubectl apply -f -
@@ -107,6 +107,7 @@ That's one A record and one ordinary certificate — the per-heartbeat token tra
 | `HTTPProbe` | in-cluster prober | HTTP checks, assertions, TLS expiry |
 | `DNSProbe` | in-cluster prober | DNS resolution, answer inspection |
 | `TCPProbe` | in-cluster prober | TCP host/port reachability and connection latency |
+| `SMTPProbe` | in-cluster prober | Mail server banner, EHLO, STARTTLS or implicit TLS, certificate expiry |
 | `PlaywrightTest` | Kubernetes CronJob | Scripted browser flows (multi-step journeys) |
 | `K6Test` | Kubernetes CronJob | Load and performance testing |
 | `Heartbeat` | nothing — inbound | Liveness of jobs the operator can't reach: cron, backups, workers |
@@ -117,12 +118,13 @@ Ready-to-apply specs in [`examples/`](examples/). Full schema, assertion grammar
 
 ### Dashboards
 
-Six Grafana dashboards ship in [`dashboards/`](dashboards/). Drop them into a ConfigMap with the `grafana_dashboard=1` label and Grafana's sidecar picks them up:
+Seven Grafana dashboards ship in [`dashboards/`](dashboards/). Drop them into a ConfigMap with the `grafana_dashboard=1` label and Grafana's sidecar picks them up:
 
 - **Synthetics / Overview** — fleet state, cert expiry, suppressions
 - **Synthetics / HTTP** — per-HTTPProbe: phase breakdown, assertions, TLS, status codes
 - **Synthetics / DNS** — per-DNSProbe: response time, answer drift
 - **Synthetics / TCP** — per-TCPProbe: availability, endpoint, connection duration, assertions
+- **Synthetics / SMTP** — per-SMTPProbe: availability, endpoint and TLS mode, reply code, TLS expiry, assertions
 - **Synthetics / Playwright** — per-test status, per-case pass/fail ribbons, durations
 - **Synthetics / K6** — per-test status, duration trend
 

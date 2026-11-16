@@ -1,0 +1,22 @@
+# SMTP service check: reads the banner, sends EHLO, upgrades with STARTTLS and
+# verifies the certificate. A server that accepts TCP but answers 421 fails
+# with result="smtp_rejected", where a TCPProbe would still report ok.
+# No mail is sent and no credentials are used.
+apiVersion: synthetics.dev/v1alpha1
+kind: SMTPProbe
+metadata:
+  name: mail-submission
+spec:
+  interval: 1m
+  timeout: 10s
+  target:
+    host: smtp.example.com
+    port: 587
+  # Optional: defaults to implicit on 465, starttls on 587, none otherwise.
+  tls:
+    mode: starttls
+  assertions:
+    - name: accepted
+      expr: smtp_code = 250
+    - name: cert-not-expiring
+      expr: ssl_expiry_days > 14

@@ -38,7 +38,7 @@
         "name": "kind",
         "label": "Kind",
         "type": "custom",
-        "query": "HTTPProbe, DNSProbe, TCPProbe",
+        "query": "HTTPProbe, DNSProbe, TCPProbe, SMTPProbe",
         "multi": true,
         "includeAll": true,
         "allValue": ".*",
@@ -559,6 +559,11 @@
                         "color": "red",
                         "index": 8,
                         "text": "target_denied"
+                      },
+                      "smtp_rejected": {
+                        "color": "red",
+                        "index": 9,
+                        "text": "smtp_rejected"
                       }
                     }
                   }
@@ -1203,6 +1208,10 @@
               "type": "value",
               "options": {
                 "target_denied": {
+                  "color": "dark-red",
+                  "index": 7
+                },
+                "smtp_rejected": {
                   "color": "dark-red",
                   "index": 6
                 }

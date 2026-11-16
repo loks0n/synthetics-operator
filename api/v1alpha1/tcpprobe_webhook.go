@@ -68,19 +68,7 @@ func (p *TCPProbe) validate(ctx context.Context, reader client.Reader) error {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "timeout"), p.Spec.Timeout.Duration.String(), "must be less than or equal to interval"))
 	}
 
-	host := strings.TrimSpace(p.Spec.Target.Host)
-	hostPath := field.NewPath("spec", "target", "host")
-	if host == "" {
-		allErrs = append(allErrs, field.Required(hostPath, "host is required"))
-	} else if net.ParseIP(host) == nil {
-		dnsHost := strings.TrimSuffix(host, ".")
-		if errs := validation.IsDNS1123Subdomain(dnsHost); len(errs) > 0 {
-			allErrs = append(allErrs, field.Invalid(hostPath, p.Spec.Target.Host, "must be a DNS hostname, IPv4 address, or IPv6 address without a scheme or port"))
-		}
-	}
-	if p.Spec.Target.Port < 1 || p.Spec.Target.Port > 65535 {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "target", "port"), p.Spec.Target.Port, "must be between 1 and 65535"))
-	}
+	allErrs = append(allErrs, validateTCPTarget(p.Spec.Target, field.NewPath("spec", "target"))...)
 
 	for i, a := range p.Spec.Assertions {
 		fp := field.NewPath("spec", "assertions").Index(i)
@@ -99,6 +87,25 @@ func (p *TCPProbe) validate(ctx context.Context, reader client.Reader) error {
 		return nil
 	}
 	return apierrors.NewInvalid(schema.GroupKind{Group: GroupVersion.Group, Kind: "TCPProbe"}, p.Name, allErrs)
+}
+
+// validateTCPTarget checks a host and port that a probe dials directly.
+func validateTCPTarget(target TCPTarget, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	host := strings.TrimSpace(target.Host)
+	hostPath := path.Child("host")
+	if host == "" {
+		allErrs = append(allErrs, field.Required(hostPath, "host is required"))
+	} else if net.ParseIP(host) == nil {
+		dnsHost := strings.TrimSuffix(host, ".")
+		if errs := validation.IsDNS1123Subdomain(dnsHost); len(errs) > 0 {
+			allErrs = append(allErrs, field.Invalid(hostPath, target.Host, "must be a DNS hostname, IPv4 address, or IPv6 address without a scheme or port"))
+		}
+	}
+	if target.Port < 1 || target.Port > 65535 {
+		allErrs = append(allErrs, field.Invalid(path.Child("port"), target.Port, "must be between 1 and 65535"))
+	}
+	return allErrs
 }
 
 func (p *TCPProbe) String() string {

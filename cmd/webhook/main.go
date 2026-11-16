@@ -102,6 +102,7 @@ func run(
 		syntheticsv1alpha1.SetupWebhookWithManager,
 		syntheticsv1alpha1.SetupDNSWebhookWithManager,
 		syntheticsv1alpha1.SetupTCPProbeWebhookWithManager,
+		syntheticsv1alpha1.SetupSMTPProbeWebhookWithManager,
 		syntheticsv1alpha1.SetupHeartbeatWebhookWithManager,
 		syntheticsv1alpha1.SetupK6TestWebhookWithManager,
 		syntheticsv1alpha1.SetupPlaywrightTestWebhookWithManager,
