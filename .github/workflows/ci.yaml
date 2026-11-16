@@ -369,7 +369,7 @@ jobs:
           spec:
             interval: 30s
             target:
-              host: mailpit
+              host: mailpit.default.svc.cluster.local
               port: 25
             assertions:
               - name: accepted
@@ -382,7 +382,7 @@ jobs:
           spec:
             interval: 30s
             target:
-              host: smtp-refusing
+              host: smtp-refusing.default.svc.cluster.local
               port: 25
           EOF
           kubectl wait --for=condition=Ready pod/mailpit pod/smtp-refusing --timeout=120s
