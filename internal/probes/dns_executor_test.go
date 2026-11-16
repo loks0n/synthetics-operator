@@ -2,9 +2,11 @@ package probes
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	syntheticsv1alpha1 "github.com/loks0n/synthetics-operator/api/v1alpha1"
@@ -25,9 +27,37 @@ func dnsProbe(name, qtype, resolver string) *syntheticsv1alpha1.DNSProbe {
 	}
 }
 
-func TestDNSExecutorRealQuery(t *testing.T) {
+// localResolver serves fixed A, AAAA and TXT answers on 127.0.0.1, so the
+// executor tests do not depend on reaching a public resolver.
+func localResolver(t *testing.T) string {
+	t.Helper()
+	conn, err := (&net.ListenConfig{}).ListenPacket(t.Context(), "udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &dns.Server{PacketConn: conn, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
+		resp := new(dns.Msg)
+		resp.SetReply(req)
+		q := req.Question[0]
+		header := dns.RR_Header{Name: q.Name, Rrtype: q.Qtype, Class: dns.ClassINET, Ttl: 60}
+		switch q.Qtype {
+		case dns.TypeA:
+			resp.Answer = append(resp.Answer, &dns.A{Hdr: header, A: net.ParseIP("1.1.1.1")})
+		case dns.TypeAAAA:
+			resp.Answer = append(resp.Answer, &dns.AAAA{Hdr: header, AAAA: net.ParseIP("2606:4700:4700::1111")})
+		case dns.TypeTXT:
+			resp.Answer = append(resp.Answer, &dns.TXT{Hdr: header, Txt: []string{"v=spf1 -all"}})
+		}
+		_ = w.WriteMsg(resp)
+	})}
+	go func() { _ = server.ActivateAndServe() }()
+	t.Cleanup(func() { _ = server.Shutdown() })
+	return conn.LocalAddr().String()
+}
+
+func TestDNSExecutorAQuery(t *testing.T) {
 	exec := DNSExecutor{}
-	probe := dnsProbe("one.one.one.one", "A", "1.1.1.1:53")
+	probe := dnsProbe("one.one.one.one", "A", localResolver(t))
 
 	result := exec.executeProbe(context.Background(), probe)
 
@@ -80,7 +110,7 @@ func TestDNSExecutorUnreachableResolver(t *testing.T) {
 }
 
 func TestDNSExecutorAAAAQuery(t *testing.T) {
-	result := DNSExecutor{}.executeProbe(context.Background(), dnsProbe("one.one.one.one", "AAAA", "1.1.1.1:53"))
+	result := DNSExecutor{}.executeProbe(context.Background(), dnsProbe("one.one.one.one", "AAAA", localResolver(t)))
 	if !result.success() {
 		t.Fatalf("expected AAAA query to succeed, got: %s", result.Message)
 	}
@@ -90,7 +120,7 @@ func TestDNSExecutorAAAAQuery(t *testing.T) {
 }
 
 func TestDNSExecutorTXTQuery(t *testing.T) {
-	result := DNSExecutor{}.executeProbe(context.Background(), dnsProbe("google.com", "TXT", "8.8.8.8:53"))
+	result := DNSExecutor{}.executeProbe(context.Background(), dnsProbe("google.com", "TXT", localResolver(t)))
 	if !result.success() {
 		t.Fatalf("expected TXT query to succeed, got: %s", result.Message)
 	}
