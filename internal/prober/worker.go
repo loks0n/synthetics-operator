@@ -56,17 +56,10 @@ func defaultExecutors() map[results.Kind]internalprobes.Executor {
 // group, leader election would defeat the point.
 func (*Worker) NeedLeaderElection() bool { return false }
 
-// Start subscribes to probe jobs and blocks until ctx is cancelled.
+// Start subscribes to probe jobs and blocks until ctx is cancelled and every
+// job already delivered to this replica has been executed and published.
 func (w *Worker) Start(ctx context.Context) error {
-	jobErr := make(chan error, 1)
-	go func() { jobErr <- w.Bus.SubscribeProbeJobs(ctx, w.onJob) }()
-
-	select {
-	case <-ctx.Done():
-		return nil
-	case err := <-jobErr:
-		return err
-	}
+	return w.Bus.SubscribeProbeJobs(ctx, w.onJob)
 }
 
 func (w *Worker) onJob(ctx context.Context, job results.ProbeJob) {

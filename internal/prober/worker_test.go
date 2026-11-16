@@ -2,14 +2,18 @@ package prober
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
+	natsserver "github.com/nats-io/nats-server/v2/server"
 
+	"github.com/loks0n/synthetics-operator/internal/natsbus"
 	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
@@ -126,5 +130,82 @@ func TestWorkerIgnoresTestKinds(t *testing.T) {
 
 	if len(pub.published) != 0 {
 		t.Fatalf("test kinds are executed by CronJobs, got %d results", len(pub.published))
+	}
+}
+
+// blockingExecutor stands in for a probe against a slow, healthy target: it
+// reports "ok" after delay, or the cancellation it saw if ctx ended first.
+type blockingExecutor struct{ delay time.Duration }
+
+func (e blockingExecutor) Execute(ctx context.Context, job results.ProbeJob) results.ProbeResult {
+	result := results.ProbeResult{Kind: job.Spec.Kind, Name: job.Spec.Name, Result: "ok"}
+	select {
+	case <-time.After(e.delay):
+	case <-ctx.Done():
+		result.Result = "cancelled"
+	}
+	return result
+}
+
+// A rollout stops a prober while jobs are queued in its buffer and one is
+// mid-probe. Every one of them must still be probed against a live context
+// and published before Start returns, or the probe reads as failed or missing.
+func TestWorkerFinishesDeliveredJobsOnShutdown(t *testing.T) {
+	server, err := natsserver.NewServer(&natsserver.Options{Host: "127.0.0.1", Port: -1, NoLog: true, NoSigs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.Start()
+	defer server.Shutdown()
+	if !server.ReadyForConnections(5 * time.Second) {
+		t.Fatal("NATS server not ready")
+	}
+
+	bus, err := natsbus.Connect(logr.Discard(), server.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+
+	const jobs = 5
+	pub := &fakeResultPublisher{}
+	executors := defaultExecutors()
+	executors[results.KindHTTPProbe] = blockingExecutor{delay: 200 * time.Millisecond}
+	w := &Worker{Log: logr.Discard(), Bus: bus, Publisher: pub, executors: executors}
+
+	ctx, stop := context.WithCancel(context.Background())
+	ready := make(chan struct{})
+	stopped := make(chan error, 1)
+	go func() { stopped <- w.Bus.SubscribeProbeJobs(ctx, w.onJob, natsbus.WithReady(ready)) }()
+	<-ready
+
+	for i := range jobs {
+		if err := bus.PublishProbeJob(ctx, results.ProbeJob{Spec: results.SpecUpdate{
+			Kind: results.KindHTTPProbe, Name: fmt.Sprintf("probe-%d", i),
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(100 * time.Millisecond) // the first job is mid-probe, the rest are buffered
+	stop()
+
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("subscription did not return after shutdown")
+	}
+
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	if len(pub.published) != jobs {
+		t.Fatalf("published %d of %d delivered jobs", len(pub.published), jobs)
+	}
+	for _, got := range pub.published {
+		if got.Result != "ok" {
+			t.Fatalf("%s probed against a cancelled context: %s", got.Name, got.Result)
+		}
 	}
 }

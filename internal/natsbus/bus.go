@@ -207,7 +207,9 @@ func subscribeJSON[T any](ctx context.Context, c *Client, subject, queueGroup st
 			c.log.Error(err, "failed to decode NATS message", "subject", subject)
 			return
 		}
-		handler(ctx, payload)
+		// A message drained after shutdown began must still run to completion:
+		// executing it against the cancelled ctx reports a healthy target as down.
+		handler(context.WithoutCancel(ctx), payload)
 	}
 	var sub *natsgo.Subscription
 	var err error
@@ -224,11 +226,17 @@ func subscribeJSON[T any](ctx context.Context, c *Client, subject, queueGroup st
 	if err := c.nc.Flush(); err != nil {
 		return fmt.Errorf("flush %s subscription: %w", subject, err)
 	}
+	drained := make(chan struct{})
+	sub.SetClosedHandler(func(string) { close(drained) })
 	c.log.Info("subscribed to NATS", "subject", subject, "queueGroup", queueGroup)
 	newSubscribeConfig(opts).signalReady()
 	<-ctx.Done()
-	if err := sub.Unsubscribe(); err != nil {
-		c.log.Error(err, "unsubscribe", "subject", subject)
+	// Drain rather than unsubscribe: messages already delivered to this
+	// replica are handled before returning, instead of being dropped.
+	if err := sub.Drain(); err != nil {
+		c.log.Error(err, "drain", "subject", subject)
+		return nil
 	}
+	<-drained
 	return nil
 }
