@@ -17,6 +17,7 @@ const (
 	DependencyKindHTTPProbe      DependencyKind = "HTTPProbe"
 	DependencyKindDNSProbe       DependencyKind = "DNSProbe"
 	DependencyKindTCPProbe       DependencyKind = "TCPProbe"
+	DependencyKindSMTPProbe      DependencyKind = "SMTPProbe"
 	DependencyKindK6Test         DependencyKind = "K6Test"
 	DependencyKindPlaywrightTest DependencyKind = "PlaywrightTest"
 	DependencyKindHeartbeat      DependencyKind = "Heartbeat"
@@ -27,7 +28,7 @@ const (
 // when any transitive dep in this list is currently unhealthy — see the
 // `synthetics_probe_suppressed` / `synthetics_test_suppressed` gauges.
 type DependencyRef struct {
-	// +kubebuilder:validation:Enum=HTTPProbe;DNSProbe;TCPProbe;K6Test;PlaywrightTest;Heartbeat
+	// +kubebuilder:validation:Enum=HTTPProbe;DNSProbe;TCPProbe;SMTPProbe;K6Test;PlaywrightTest;Heartbeat
 	Kind DependencyKind `json:"kind"`
 	Name string         `json:"name"`
 }
@@ -57,10 +58,10 @@ func ValidateDepends(ctx context.Context, reader client.Reader, ownerKind Depend
 		fp := path.Index(i)
 
 		switch dep.Kind {
-		case DependencyKindHTTPProbe, DependencyKindDNSProbe, DependencyKindTCPProbe, DependencyKindK6Test, DependencyKindPlaywrightTest, DependencyKindHeartbeat:
+		case DependencyKindHTTPProbe, DependencyKindDNSProbe, DependencyKindTCPProbe, DependencyKindSMTPProbe, DependencyKindK6Test, DependencyKindPlaywrightTest, DependencyKindHeartbeat:
 		default:
 			allErrs = append(allErrs, field.NotSupported(fp.Child("kind"), string(dep.Kind),
-				[]string{string(DependencyKindHTTPProbe), string(DependencyKindDNSProbe), string(DependencyKindTCPProbe), string(DependencyKindK6Test), string(DependencyKindPlaywrightTest), string(DependencyKindHeartbeat)}))
+				[]string{string(DependencyKindHTTPProbe), string(DependencyKindDNSProbe), string(DependencyKindTCPProbe), string(DependencyKindSMTPProbe), string(DependencyKindK6Test), string(DependencyKindPlaywrightTest), string(DependencyKindHeartbeat)}))
 			continue
 		}
 
@@ -105,6 +106,8 @@ func checkDepExists(ctx context.Context, reader client.Reader, namespace string,
 		err = reader.Get(ctx, key, &DNSProbe{})
 	case DependencyKindTCPProbe:
 		err = reader.Get(ctx, key, &TCPProbe{})
+	case DependencyKindSMTPProbe:
+		err = reader.Get(ctx, key, &SMTPProbe{})
 	case DependencyKindK6Test:
 		err = reader.Get(ctx, key, &K6Test{})
 	case DependencyKindPlaywrightTest:
@@ -174,6 +177,12 @@ func fetchDepends(ctx context.Context, reader client.Reader, namespace string, d
 		return p.Spec.Depends, nil
 	case DependencyKindTCPProbe:
 		var p TCPProbe
+		if err := reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: dep.Name}, &p); err != nil {
+			return nil, err
+		}
+		return p.Spec.Depends, nil
+	case DependencyKindSMTPProbe:
+		var p SMTPProbe
 		if err := reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: dep.Name}, &p); err != nil {
 			return nil, err
 		}

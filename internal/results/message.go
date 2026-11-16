@@ -33,6 +33,7 @@ const (
 	KindHTTPProbe      Kind = "HTTPProbe"
 	KindDNSProbe       Kind = "DNSProbe"
 	KindTCPProbe       Kind = "TCPProbe"
+	KindSMTPProbe      Kind = "SMTPProbe"
 	KindK6Test         Kind = "K6Test"
 	KindPlaywrightTest Kind = "PlaywrightTest"
 	KindHeartbeat      Kind = "Heartbeat"
@@ -91,6 +92,19 @@ type TCPProbeSpecPayload struct {
 	Assertions []Assertion `json:"assertions,omitempty"`
 }
 
+// SMTPProbeSpecPayload carries everything a prober needs to hold an SMTP
+// conversation up to EHLO, and STARTTLS when TLSMode asks for it.
+type SMTPProbeSpecPayload struct {
+	TimeoutMs int64  `json:"timeoutMs"`
+	Host      string `json:"host"`
+	Port      int32  `json:"port"`
+	// TLSMode is none, starttls or implicit, already resolved from the port
+	// when the spec left it empty.
+	TLSMode    string      `json:"tlsMode"`
+	TLS        *TLSConfig  `json:"tls,omitempty"`
+	Assertions []Assertion `json:"assertions,omitempty"`
+}
+
 // HeartbeatSpecPayload carries what a receiver needs to authenticate a ping
 // and what the metrics consumer needs to judge freshness.
 //
@@ -145,6 +159,7 @@ type SpecUpdate struct {
 	HTTPProbe *HTTPProbeSpecPayload `json:"httpProbe,omitempty"`
 	DNSProbe  *DNSProbeSpecPayload  `json:"dnsProbe,omitempty"`
 	TCPProbe  *TCPProbeSpecPayload  `json:"tcpProbe,omitempty"`
+	SMTPProbe *SMTPProbeSpecPayload `json:"smtpProbe,omitempty"`
 	Heartbeat *HeartbeatSpecPayload `json:"heartbeat,omitempty"`
 }
 
@@ -173,7 +188,7 @@ type AssertionResult struct {
 
 // ProbeResult is published by probers after each execution. Carries
 // everything the metrics consumer needs to emit the probe's metric family —
-// result class, duration, HTTP/DNS/TCP telemetry, per-assertion results.
+// result class, duration, HTTP/DNS/TCP/SMTP telemetry, per-assertion results.
 //
 // The metrics consumer joins this against its SpecUpdate cache to resolve
 // metricLabels and depends; those are not duplicated here.
@@ -212,6 +227,12 @@ type ProbeResult struct {
 	// TCP telemetry
 	TCPHost string `json:"tcpHost,omitempty"`
 	TCPPort int32  `json:"tcpPort,omitempty"`
+
+	// SMTP telemetry. The certificate expiry rides on TLSCertExpiryUnix.
+	SMTPHost      string `json:"smtpHost,omitempty"`
+	SMTPPort      int32  `json:"smtpPort,omitempty"`
+	SMTPTLSMode   string `json:"smtpTlsMode,omitempty"`
+	SMTPReplyCode int    `json:"smtpReplyCode,omitempty"`
 }
 
 // TestCase is a single case within a PlaywrightTest run, produced from the

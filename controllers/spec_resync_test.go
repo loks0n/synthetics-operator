@@ -78,7 +78,12 @@ func TestSpecResyncRepublishesAllLiveSpecs(t *testing.T) {
 		Spec:       syntheticsv1alpha1.TCPProbeSpec{Target: syntheticsv1alpha1.TCPTarget{Host: "database", Port: 5432}},
 	}
 
-	cl := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(probe, test, tcp).Build()
+	smtp := &syntheticsv1alpha1.SMTPProbe{
+		ObjectMeta: metav1.ObjectMeta{Name: "mail", Namespace: "default"},
+		Spec:       syntheticsv1alpha1.SMTPProbeSpec{Target: syntheticsv1alpha1.TCPTarget{Host: "mail", Port: 587}},
+	}
+
+	cl := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(probe, test, tcp, smtp).Build()
 	pub := &fakePublisher{}
 
 	r := &SpecResyncer{Client: cl, Publisher: pub, Log: log.Log}
@@ -86,8 +91,8 @@ func TestSpecResyncRepublishesAllLiveSpecs(t *testing.T) {
 
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
-	if len(pub.specs) != 3 {
-		t.Fatalf("expected 3 spec updates, got %d: %+v", len(pub.specs), pub.specs)
+	if len(pub.specs) != 4 {
+		t.Fatalf("expected 4 spec updates, got %d: %+v", len(pub.specs), pub.specs)
 	}
 	seen := map[results.Kind]string{}
 	for _, s := range pub.specs {
@@ -96,7 +101,7 @@ func TestSpecResyncRepublishesAllLiveSpecs(t *testing.T) {
 		}
 		seen[s.Kind] = s.Name
 	}
-	if seen[results.KindHTTPProbe] != "web" || seen[results.KindPlaywrightTest] != "flow" || seen[results.KindTCPProbe] != "database" {
+	if seen[results.KindHTTPProbe] != "web" || seen[results.KindPlaywrightTest] != "flow" || seen[results.KindTCPProbe] != "database" || seen[results.KindSMTPProbe] != "mail" {
 		t.Fatalf("unexpected specs republished: %v", seen)
 	}
 }

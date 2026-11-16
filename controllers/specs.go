@@ -102,6 +102,39 @@ func tcpProbeSpecUpdate(p *syntheticsv1alpha1.TCPProbe) results.SpecUpdate {
 	}
 }
 
+// smtpProbeSpecUpdate builds a SpecUpdate message from an SMTPProbe. An empty
+// TLS mode resolves from the port here, so the prober never guesses.
+func smtpProbeSpecUpdate(p *syntheticsv1alpha1.SMTPProbe) results.SpecUpdate {
+	mode := p.Spec.TLS.Mode
+	if mode == "" {
+		mode = syntheticsv1alpha1.DefaultSMTPTLSMode(p.Spec.Target.Port)
+	}
+	payload := results.SMTPProbeSpecPayload{
+		TimeoutMs:  p.Spec.Timeout.Milliseconds(),
+		Host:       p.Spec.Target.Host,
+		Port:       p.Spec.Target.Port,
+		TLSMode:    string(mode),
+		Assertions: toAssertions(p.Spec.Assertions),
+	}
+	if p.Spec.TLS.InsecureSkipVerify || p.Spec.TLS.CACert != "" {
+		payload.TLS = &results.TLSConfig{
+			InsecureSkipVerify: p.Spec.TLS.InsecureSkipVerify,
+			CACert:             p.Spec.TLS.CACert,
+		}
+	}
+	return results.SpecUpdate{
+		Kind:         results.KindSMTPProbe,
+		Name:         p.Name,
+		Namespace:    p.Namespace,
+		Generation:   p.Generation,
+		Suspend:      p.Spec.Suspend,
+		IntervalMs:   p.Spec.Interval.Milliseconds(),
+		Depends:      toDependsRefs(p.Spec.Depends),
+		MetricLabels: p.Spec.MetricLabels,
+		SMTPProbe:    &payload,
+	}
+}
+
 // heartbeatSpecUpdate builds a SpecUpdate message from a Heartbeat. The token
 // is passed in rather than read off the CR because it lives in a Secret.
 //

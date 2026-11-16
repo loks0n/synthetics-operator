@@ -11,6 +11,7 @@ Drop-in manifests for the CRDs the operator manages. Each one is meant to be a m
 | [`dnsprobe-basic.yaml`](dnsprobe-basic.yaml) | A-record probe against a specific resolver |
 | [`dnsprobe-mx.yaml`](dnsprobe-mx.yaml) | MX-record probe for mail routing |
 | [`tcpprobe-basic.yaml`](tcpprobe-basic.yaml) | TCP host/port availability and connection-duration assertion |
+| [`smtpprobe-basic.yaml`](smtpprobe-basic.yaml) | SMTP banner, EHLO and STARTTLS with reply-code and certificate-expiry assertions |
 
 ## Heartbeats
 

@@ -1437,7 +1437,7 @@ data:
             "name": "kind",
             "label": "Kind",
             "type": "custom",
-            "query": "HTTPProbe, DNSProbe, TCPProbe",
+            "query": "HTTPProbe, DNSProbe, TCPProbe, SMTPProbe",
             "multi": true,
             "includeAll": true,
             "allValue": ".*",
@@ -1948,6 +1948,16 @@ data:
                             "color": "red",
                             "index": 7,
                             "text": "connect_timeout"
+                          }
+                        }
+                      },
+                      {
+                        "type": "value",
+                        "options": {
+                          "smtp_rejected": {
+                            "color": "red",
+                            "index": 8,
+                            "text": "smtp_rejected"
                           }
                         }
                       }
@@ -2587,6 +2597,15 @@ data:
                       "index": 5
                     }
                   }
+                },
+                {
+                  "type": "value",
+                  "options": {
+                    "smtp_rejected": {
+                      "color": "dark-red",
+                      "index": 6
+                    }
+                  }
                 }
               ]
             }
@@ -2949,6 +2968,161 @@ metadata:
   labels:
     grafana_dashboard: "1"
   name: synthetics-playwright-dashboard
+  namespace: monitoring
+---
+apiVersion: v1
+data:
+  synthetics-smtp.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["synthetics", "smtp"],
+      "templating": {
+        "list": [
+          {
+            "name": "namespace",
+            "label": "Namespace",
+            "type": "query",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "query": {"query": "label_values(synthetics_probe_last_run_timestamp{kind=\"SMTPProbe\"}, namespace)", "refId": "A"},
+            "refresh": 2,
+            "sort": 1
+          },
+          {
+            "name": "probe",
+            "label": "SMTPProbe",
+            "type": "query",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "query": {"query": "label_values(synthetics_probe_last_run_timestamp{namespace=\"$namespace\", kind=\"SMTPProbe\"}, name)", "refId": "A"},
+            "refresh": 2,
+            "sort": 1
+          }
+        ]
+      },
+      "time": {"from": "now-6h", "to": "now"},
+      "timepicker": {"refresh_intervals": ["10s", "30s", "1m", "5m"]},
+      "timezone": "browser",
+      "title": "Synthetics / SMTP",
+      "uid": "synthetics-SMTPProbe",
+      "version": 1,
+      "panels": [
+        {
+          "id": 1,
+          "title": "Current status",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 5, "w": 3, "x": 0, "y": 0},
+          "targets": [{"refId": "A", "expr": "max(synthetics_probe{namespace=\"$namespace\", kind=\"SMTPProbe\", name=\"$probe\"})"}],
+          "options": {"colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+        },
+        {
+          "id": 2,
+          "title": "Result",
+          "type": "table",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 5, "w": 4, "x": 3, "y": 0},
+          "targets": [{"refId": "A", "expr": "synthetics_probe_result_info{namespace=\"$namespace\", kind=\"SMTPProbe\", name=\"$probe\"}", "format": "table", "instant": true}],
+          "transformations": [{"id": "filterFieldsByName", "options": {"include": {"names": ["result", "failed_assertion"]}}}],
+          "options": {"showHeader": true}
+        },
+        {
+          "id": 3,
+          "title": "Last run age",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 5, "w": 3, "x": 7, "y": 0},
+          "targets": [{"refId": "A", "expr": "time() - max(synthetics_probe_last_run_timestamp{namespace=\"$namespace\", kind=\"SMTPProbe\", name=\"$probe\"})"}],
+          "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "s"}}
+        },
+        {
+          "id": 4,
+          "title": "Duration",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 5, "w": 4, "x": 10, "y": 0},
+          "targets": [{"refId": "A", "expr": "max(synthetics_probe_duration_ms{namespace=\"$namespace\", kind=\"SMTPProbe\", name=\"$probe\"})"}],
+          "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "ms"}}
+        },
+        {
+          "id": 9,
+          "title": "TLS expiry",
+          "description": "Days until the server's TLS certificate expires. starttls and implicit TLS only.",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 5, "w": 4, "x": 14, "y": 0},
+          "targets": [{"refId": "A", "expr": "(max(synthetics_probe_tls_cert_expiry_timestamp_seconds{namespace=\"$namespace\", kind=\"SMTPProbe\", name=\"$probe\"}) - time()) / 86400"}],
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "d", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 7}, {"color": "yellow", "value": 30}, {"color": "green", "value": 90}]}, "noValue": "—"}}
+        },
+        {
+          "id": 5,
+          "title": "Target",
+          "type": "table",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+          "targets": [{"refId": "A", "expr": "synthetics_probe_smtp_info{namespace=\"$namespace\", kind=\"SMTPProbe\", name=\"$probe\"}", "format": "table", "instant": true}],
+          "transformations": [{"id": "filterFieldsByName", "options": {"include": {"names": ["host", "port", "tls_mode"]}}}],
+          "options": {"showHeader": true}
+        },
+        {
+          "id": 6,
+          "title": "Availability",
+          "type": "state-timeline",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 5},
+          "targets": [{"refId": "A", "expr": "min by () (min_over_time(synthetics_probe{namespace=\"$namespace\", kind=\"SMTPProbe\", name=\"$probe\"}[$__interval]))", "legendFormat": "$probe", "interval": "$__interval"}],
+          "options": {"mergeValues": true, "showValue": "always", "rowHeight": 0.7},
+          "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}}], "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+        },
+        {
+          "id": 7,
+          "title": "Duration over time",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 13},
+          "targets": [
+            {"refId": "A", "expr": "synthetics_probe_duration_ms{namespace=\"$namespace\", kind=\"SMTPProbe\", name=\"$probe\"}", "legendFormat": "now"},
+            {"refId": "B", "expr": "synthetics_probe_duration_ms{namespace=\"$namespace\", kind=\"SMTPProbe\", name=\"$probe\"} offset 1w", "legendFormat": "1w ago"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "ms", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 12, "showPoints": "never"}}},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+        },
+        {
+          "id": 10,
+          "title": "Reply code over time",
+          "description": "Last SMTP reply code: the banner, EHLO or STARTTLS reply that ended the check.",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 13},
+          "targets": [{"refId": "A", "expr": "synthetics_probe_smtp_reply_code{namespace=\"$namespace\", kind=\"SMTPProbe\", name=\"$probe\"}", "legendFormat": "reply code"}],
+          "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "lineWidth": 2, "showPoints": "never"}}},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+        },
+        {
+          "id": 8,
+          "title": "Assertions",
+          "type": "state-timeline",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 9, "w": 24, "x": 0, "y": 22},
+          "targets": [{"refId": "A", "expr": "min by (assertion, expr) (min_over_time(synthetics_probe_assertion_result{namespace=\"$namespace\", kind=\"SMTPProbe\", name=\"$probe\"}[$__interval]))", "legendFormat": "{{assertion}} — {{expr}}", "interval": "$__interval"}],
+          "options": {"mergeValues": true, "showValue": "always", "rowHeight": 0.7},
+          "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"color": "red", "text": "FAIL"}, "1": {"color": "green", "text": "PASS"}}}], "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+        }
+      ]
+    }
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  labels:
+    grafana_dashboard: "1"
+  name: synthetics-smtp-dashboard
   namespace: monitoring
 ---
 apiVersion: v1

@@ -107,3 +107,18 @@ func evalTCPAssertions(r tcpResult, assertions []results.Assertion) (string, str
 	ok, failed, out := evalAssertions(assertions, ctx)
 	return outcomeFromOK(ok), failed, out
 }
+
+// evalSMTPAssertions evaluates SMTPProbe assertions against the conversation.
+func evalSMTPAssertions(r smtpResult, assertions []results.Assertion) (string, string, []results.AssertionResult) {
+	sslExpiryDays := float64(-1)
+	if r.CertExpiry != nil {
+		sslExpiryDays = time.Until(*r.CertExpiry).Hours() / 24
+	}
+	ctx := assertionContext{
+		"smtp_code":       float64(r.ReplyCode),
+		"duration_ms":     float64(r.Duration.Milliseconds()),
+		"ssl_expiry_days": sslExpiryDays,
+	}
+	ok, failed, out := evalAssertions(assertions, ctx)
+	return outcomeFromOK(ok), failed, out
+}

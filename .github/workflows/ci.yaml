@@ -300,6 +300,93 @@ jobs:
       - name: Apply HTTPProbe
         run: kubectl apply -f examples/httpprobe-basic.yaml
 
+      - name: Deploy SMTP servers and SMTPProbes
+        run: |
+          # mailpit speaks real SMTP; the second server accepts TCP and then
+          # refuses service with 421, which a TCPProbe reads as healthy.
+          kubectl apply -f - <<'EOF'
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: mailpit
+            labels:
+              app: mailpit
+          spec:
+            containers:
+              - name: mailpit
+                image: axllent/mailpit:v1.32.0
+                ports:
+                  - containerPort: 1025
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: mailpit
+          spec:
+            selector:
+              app: mailpit
+            ports:
+              - port: 25
+                targetPort: 1025
+          ---
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: smtp-refusing
+            labels:
+              app: smtp-refusing
+          spec:
+            containers:
+              - name: server
+                image: python:3.13-alpine
+                command:
+                  - python
+                  - -c
+                  - |
+                    import socketserver
+                    class Refuse(socketserver.BaseRequestHandler):
+                        def handle(self):
+                            self.request.sendall(b"421 4.3.2 Service not available\r\n")
+                    socketserver.ThreadingTCPServer(("", 2525), Refuse).serve_forever()
+                ports:
+                  - containerPort: 2525
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: smtp-refusing
+          spec:
+            selector:
+              app: smtp-refusing
+            ports:
+              - port: 25
+                targetPort: 2525
+          ---
+          apiVersion: synthetics.dev/v1alpha1
+          kind: SMTPProbe
+          metadata:
+            name: smoke-smtp
+          spec:
+            interval: 30s
+            target:
+              host: mailpit
+              port: 25
+            assertions:
+              - name: accepted
+                expr: smtp_code = 250
+          ---
+          apiVersion: synthetics.dev/v1alpha1
+          kind: SMTPProbe
+          metadata:
+            name: smoke-smtp-refusing
+          spec:
+            interval: 30s
+            target:
+              host: smtp-refusing
+              port: 25
+          EOF
+          kubectl wait --for=condition=Ready pod/mailpit pod/smtp-refusing --timeout=120s
+
       - name: Apply PlaywrightTest
         run: |
           # Smoke-specific PlaywrightTest script pointed at the in-cluster echo
@@ -345,6 +432,24 @@ jobs:
           done
           cat /tmp/port-forward.log || true
           curl -fsS http://127.0.0.1:8080/metrics || true
+          exit 1
+
+      - name: Verify SMTPProbe metrics
+        run: |
+          kubectl -n synthetics-system port-forward svc/synthetics-operator-metrics 8080:8080 >/tmp/pf-smtp.log 2>&1 &
+          PF_PID=$!
+          trap 'kill $PF_PID' EXIT
+          for _ in $(seq 1 40); do
+            METRICS=$(curl -fsS http://127.0.0.1:8080/metrics 2>/dev/null || true)
+            if grep -qE 'synthetics_probe\{[^}]*name="smoke-smtp"[^}]*\} 1' <<<"$METRICS" \
+              && grep -qE 'synthetics_probe_result_info\{[^}]*name="smoke-smtp-refusing"[^}]*result="smtp_rejected"[^}]*\} 1' <<<"$METRICS"; then
+              exit 0
+            fi
+            sleep 3
+          done
+          cat /tmp/pf-smtp.log || true
+          kubectl -n synthetics-system logs deployment/synthetics-operator-prober --tail=50 || true
+          curl -fsS http://127.0.0.1:8080/metrics | grep -i smtp || true
           exit 1
 
       - name: Verify PlaywrightTest metrics

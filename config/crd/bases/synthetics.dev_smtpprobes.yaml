@@ -1,0 +1,238 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: smtpprobes.synthetics.dev
+spec:
+  group: synthetics.dev
+  names:
+    kind: SMTPProbe
+    listKind: SMTPProbeList
+    plural: smtpprobes
+    shortNames:
+    - sp
+    singular: smtpprobe
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.target.host
+      name: Host
+      type: string
+    - jsonPath: .spec.target.port
+      name: Port
+      type: integer
+    - jsonPath: .spec.tls.mode
+      name: TLS
+      type: string
+    - jsonPath: .spec.interval
+      name: Interval
+      type: string
+    - jsonPath: .spec.suspend
+      name: Suspend
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              assertions:
+                items:
+                  description: "Assertion is a named pass/fail check evaluated against
+                    a probe result.\nThe Expr field uses a simple expression language:\n\n\tvariable
+                    op value\n\nOperators: =, !=, <, <=, >, >=\nValue must be a numeric
+                    literal.\n\nHTTP variables:  status_code, duration_ms, ssl_expiry_days\nDNS
+                    variables:   answer_count, duration_ms\nTCP variables:   duration_ms\nSMTP
+                    variables:  smtp_code, duration_ms, ssl_expiry_days"
+                  properties:
+                    expr:
+                      description: Expr is the expression to evaluate, e.g. "status_code
+                        = 200".
+                      type: string
+                    name:
+                      description: |-
+                        Name identifies the assertion and is used as the "reason" label on the
+                        probe_success metric when this assertion fails.
+                      type: string
+                  required:
+                  - expr
+                  - name
+                  type: object
+                type: array
+              depends:
+                description: |-
+                  Depends lists other probes or tests in the same namespace whose failure
+                  should suppress alerts on this probe. See DependencyRef.
+                items:
+                  description: |-
+                    DependencyRef points to another synthetics.dev CR in the same namespace.
+                    Failures on the owning probe or test are suppressed from alerting metrics
+                    when any transitive dep in this list is currently unhealthy — see the
+                    `synthetics_probe_suppressed` / `synthetics_test_suppressed` gauges.
+                  properties:
+                    kind:
+                      description: DependencyKind is the CRD kind for a DependencyRef
+                        target.
+                      enum:
+                      - HTTPProbe
+                      - DNSProbe
+                      - TCPProbe
+                      - SMTPProbe
+                      - K6Test
+                      - PlaywrightTest
+                      - Heartbeat
+                      type: string
+                    name:
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+              interval:
+                type: string
+              metricLabels:
+                additionalProperties:
+                  type: string
+                description: |-
+                  MetricLabels are user-supplied key/value pairs appended to every
+                  Prometheus metric the operator emits for this probe.
+                type: object
+              suspend:
+                type: boolean
+              target:
+                description: Target is the mail server's host and port, in the same
+                  shape as a TCPProbe.
+                properties:
+                  host:
+                    description: |-
+                      Host is a DNS hostname, IPv4 address, or IPv6 address. Do not include a
+                      URL scheme or port; Port is configured separately.
+                    type: string
+                  port:
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                required:
+                - host
+                - port
+                type: object
+              timeout:
+                type: string
+              tls:
+                description: SMTPTLSConfig selects the TLS mode and how the server
+                  certificate is verified.
+                properties:
+                  caCert:
+                    description: |-
+                      CACert is a PEM-encoded CA certificate to trust in addition to the
+                      system roots. Use for internal PKI or self-signed CA certificates.
+                    type: string
+                  insecureSkipVerify:
+                    description: |-
+                      InsecureSkipVerify disables server certificate verification. Use for
+                      self-signed certificates in dev/test environments.
+                    type: boolean
+                  mode:
+                    description: |-
+                      Mode is none, starttls or implicit. Defaults from the port: implicit on
+                      465, starttls on 587, none otherwise.
+                    enum:
+                    - none
+                    - starttls
+                    - implicit
+                    type: string
+                type: object
+            required:
+            - target
+            type: object
+          status:
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

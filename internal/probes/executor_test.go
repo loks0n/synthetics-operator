@@ -26,6 +26,7 @@ func TestExecutorsRejectMissingKindPayload(t *testing.T) {
 		{name: "HTTPProbe", kind: results.KindHTTPProbe, executor: HTTPExecutor{}},
 		{name: "DNSProbe", kind: results.KindDNSProbe, executor: DNSExecutor{}},
 		{name: "TCPProbe", kind: results.KindTCPProbe, executor: TCPExecutor{}},
+		{name: "SMTPProbe", kind: results.KindSMTPProbe, executor: SMTPExecutor{}},
 	}
 
 	for _, test := range tests {
@@ -155,6 +156,8 @@ func TestExecutorsRefuseDeniedNetworks(t *testing.T) {
 		{"cloud metadata", HTTPExecutor{Egress: egress}, httpJob("http://169.254.169.254/computeMetadata/v1/")},
 		{"loopback TCP port", TCPExecutor{Egress: egress}, results.ProbeJob{Spec: results.SpecUpdate{Kind: results.KindTCPProbe,
 			TCPProbe: &results.TCPProbeSpecPayload{TimeoutMs: 2000, Host: "127.0.0.1", Port: int32(portNumber)}}}},
+		{"loopback SMTP port", SMTPExecutor{Egress: egress}, results.ProbeJob{Spec: results.SpecUpdate{Kind: results.KindSMTPProbe,
+			SMTPProbe: &results.SMTPProbeSpecPayload{TimeoutMs: 2000, Host: "127.0.0.1", Port: int32(portNumber), TLSMode: "none"}}}},
 		{"loopback DNS resolver", DNSExecutor{Egress: egress}, results.ProbeJob{Spec: results.SpecUpdate{Kind: results.KindDNSProbe,
 			DNSProbe: &results.DNSProbeSpecPayload{TimeoutMs: 2000, Name: "example.com", Type: "A", Resolver: "127.0.0.1:" + port}}}},
 	}

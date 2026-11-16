@@ -59,6 +59,7 @@ k8s_resource(
         'k6tests.synthetics.dev:customresourcedefinition',
         'playwrighttests.synthetics.dev:customresourcedefinition',
         'tcpprobes.synthetics.dev:customresourcedefinition',
+        'smtpprobes.synthetics.dev:customresourcedefinition',
         'heartbeats.synthetics.dev:customresourcedefinition',
         'synthetics-operator-controller:clusterrole',
         'synthetics-operator-controller:clusterrolebinding',
