@@ -254,7 +254,7 @@ jobs:
         run: |
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-controller --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-webhook --timeout=180s
-          kubectl -n synthetics-system rollout status deployment/synthetics-operator-nats --timeout=120s
+          kubectl -n synthetics-system rollout status statefulset/synthetics-operator-nats --timeout=120s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-prober --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-metrics --timeout=180s
 
@@ -549,4 +549,4 @@ jobs:
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-webhook --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-prober --timeout=180s
           kubectl -n synthetics-system rollout status deployment/synthetics-operator-metrics --timeout=180s
-          kubectl -n synthetics-system rollout status deployment/synthetics-operator-nats --timeout=120s
+          kubectl -n synthetics-system rollout status statefulset/synthetics-operator-nats --timeout=120s
