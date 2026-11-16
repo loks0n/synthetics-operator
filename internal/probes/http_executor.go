@@ -179,7 +179,9 @@ func (e HTTPExecutor) executeRequest(ctx context.Context, request httpRequest) h
 	defer func() { _ = resp.Body.Close() }()
 
 	transferStart := time.Now()
-	_, _ = io.ReadAll(resp.Body)
+	// Read to time the transfer phase, discarding as it streams: nothing
+	// asserts on the body, and buffering it lets one response OOM the prober.
+	_, _ = io.Copy(io.Discard, resp.Body)
 	transferEnd := time.Now()
 	duration := time.Since(start)
 
