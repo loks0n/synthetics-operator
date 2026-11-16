@@ -20,27 +20,33 @@ import (
 
 	"github.com/loks0n/synthetics-operator/internal/natsbus"
 	"github.com/loks0n/synthetics-operator/internal/prober"
+	"github.com/loks0n/synthetics-operator/internal/probes"
 )
 
 func main() {
-	var natsURL string
+	var natsURL, deniedNetworks string
 	var concurrency int
 	flag.StringVar(&natsURL, "nats-url", "", "NATS server URL (required).")
 	flag.IntVar(&concurrency, "concurrency", prober.DefaultConcurrency, "Probes this replica runs at once.")
+	flag.StringVar(&deniedNetworks, "denied-networks", "", "Comma-separated CIDRs probes may not connect to; `private` adds the private, loopback, link-local and CGNAT ranges. Empty allows everything.")
 	flag.Parse()
 
 	ctrl := logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	log := ctrl.WithName("prober")
 
-	if err := run(log, natsURL, concurrency); err != nil {
+	if err := run(log, natsURL, deniedNetworks, concurrency); err != nil {
 		log.Error(err, "exiting")
 		os.Exit(1)
 	}
 }
 
-func run(log logr.Logger, natsURL string, concurrency int) error {
+func run(log logr.Logger, natsURL, deniedNetworks string, concurrency int) error {
 	if natsURL == "" {
 		return errors.New("--nats-url is required")
+	}
+	denied, err := probes.ParseDeniedNetworks(deniedNetworks)
+	if err != nil {
+		return fmt.Errorf("--denied-networks: %w", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -55,7 +61,7 @@ func run(log logr.Logger, natsURL string, concurrency int) error {
 	healthErr := serveHealth(ctx, log.WithName("health"))
 	workerErr := make(chan error, 1)
 
-	worker := prober.NewWorker(log, bus, bus, concurrency)
+	worker := prober.NewWorker(log, bus, bus, concurrency, probes.Egress{Denied: denied})
 	go func() { workerErr <- worker.Start(ctx) }()
 
 	// Wait for the worker even after a signal: it returns once the jobs it was

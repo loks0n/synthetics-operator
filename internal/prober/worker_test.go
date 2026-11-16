@@ -15,6 +15,7 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/server"
 
 	"github.com/loks0n/synthetics-operator/internal/natsbus"
+	internalprobes "github.com/loks0n/synthetics-operator/internal/probes"
 	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
@@ -40,7 +41,7 @@ func TestWorkerExecutesTCPJob(t *testing.T) {
 
 	addr := listener.Addr().(*net.TCPAddr)
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub, 1)
+	w := NewWorker(logr.Discard(), nil, pub, 1, internalprobes.Egress{})
 	w.onJob(context.Background(), results.ProbeJob{Spec: results.SpecUpdate{
 		Kind: results.KindTCPProbe, Name: "mysql", Namespace: "default",
 		TCPProbe: &results.TCPProbeSpecPayload{
@@ -96,7 +97,7 @@ func TestWorkerExecutesJobWithNoPriorState(t *testing.T) {
 	defer srv.Close()
 
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub, 1)
+	w := NewWorker(logr.Discard(), nil, pub, 1, internalprobes.Egress{})
 
 	w.onJob(context.Background(), httpJob(srv.URL))
 
@@ -110,7 +111,7 @@ func TestWorkerExecutesJobWithNoPriorState(t *testing.T) {
 
 func TestWorkerSkipsSuspendedJob(t *testing.T) {
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub, 1)
+	w := NewWorker(logr.Discard(), nil, pub, 1, internalprobes.Egress{})
 
 	job := httpJob("http://127.0.0.1:1")
 	job.Spec.Suspend = true
@@ -123,7 +124,7 @@ func TestWorkerSkipsSuspendedJob(t *testing.T) {
 
 func TestWorkerIgnoresTestKinds(t *testing.T) {
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub, 1)
+	w := NewWorker(logr.Discard(), nil, pub, 1, internalprobes.Egress{})
 
 	job := httpJob("http://127.0.0.1:1")
 	job.Spec.Kind = results.KindK6Test
@@ -170,7 +171,7 @@ func TestWorkerFinishesDeliveredJobsOnShutdown(t *testing.T) {
 
 	const jobs = 5
 	pub := &fakeResultPublisher{}
-	executors := defaultExecutors()
+	executors := defaultExecutors(internalprobes.Egress{})
 	executors[results.KindHTTPProbe] = blockingExecutor{delay: 200 * time.Millisecond}
 	w := &Worker{Log: logr.Discard(), Bus: bus, Publisher: pub, Concurrency: 2, executors: executors}
 
@@ -243,7 +244,7 @@ func TestWorkerRunsJobsConcurrentlyUpToItsLimit(t *testing.T) {
 	const jobs, concurrency = 12, 4
 	var running, peak atomic.Int64
 	pub := &fakeResultPublisher{}
-	w := NewWorker(logr.Discard(), nil, pub, concurrency)
+	w := NewWorker(logr.Discard(), nil, pub, concurrency, internalprobes.Egress{})
 	w.executors[results.KindHTTPProbe] = concurrencyExecutor{running: &running, peak: &peak, delay: 100 * time.Millisecond}
 	w.slots = make(chan struct{}, concurrency)
 

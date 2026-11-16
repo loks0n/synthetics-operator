@@ -32,6 +32,9 @@ spec:
           args:
             - --nats-url={{ include "synthetics-operator.natsURL" . }}
             - --concurrency={{ .Values.prober.concurrency }}
+            {{- with .Values.prober.deniedNetworks }}
+            - --denied-networks={{ join "," . }}
+            {{- end }}
           ports:
             - name: healthz
               containerPort: 8081

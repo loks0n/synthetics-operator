@@ -64,6 +64,11 @@ prober:
   # Probes each replica runs at once. Probes mostly wait on the network, so
   # raise this before adding replicas; lower it if probes saturate the CPU.
   concurrency: 16
+  # Networks probes may not connect to, checked on every resolved address.
+  # Leave empty when probes target in-cluster services. When probe specs come
+  # from people who must not reach this network, set `private` plus the
+  # cluster's pod and service CIDRs, e.g. [private, 10.96.0.0/12].
+  deniedNetworks: []
   resources: {}
   # Optional KEDA autoscaling. Requires KEDA installed in the cluster
   # (https://keda.sh) — the chart only renders the ScaledObject.
