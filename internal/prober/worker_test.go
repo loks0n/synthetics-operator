@@ -6,12 +6,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	natsserver "github.com/nats-io/nats-server/v2/server"
 
 	"github.com/loks0n/synthetics-operator/internal/natsbus"
@@ -266,5 +268,50 @@ func TestWorkerRunsJobsConcurrentlyUpToItsLimit(t *testing.T) {
 	// 12 jobs of 100ms in batches of 4 take ~300ms; one at a time takes 1.2s.
 	if elapsed > 700*time.Millisecond {
 		t.Fatalf("%d jobs took %s; they ran one at a time", jobs, elapsed)
+	}
+}
+
+func TestBusDoesNotLogTheNATSPassword(t *testing.T) {
+	const password = "s3cret-nats-password"
+	server, err := natsserver.NewServer(&natsserver.Options{Host: "127.0.0.1", Port: -1, NoLog: true, NoSigs: true, Username: "appwrite", Password: password})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.Start()
+	defer server.Shutdown()
+	if !server.ReadyForConnections(5 * time.Second) {
+		t.Fatal("NATS server not ready")
+	}
+
+	var mu sync.Mutex
+	var lines []string
+	log := funcr.New(func(prefix, args string) {
+		mu.Lock()
+		defer mu.Unlock()
+		lines = append(lines, args)
+	}, funcr.Options{})
+
+	addr := server.Addr().(*net.TCPAddr)
+	bus, err := natsbus.Connect(log, fmt.Sprintf("nats://appwrite:%s@127.0.0.1:%d", password, addr.Port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		logged := strings.Join(lines, "\n")
+		mu.Unlock()
+		if strings.Contains(logged, "NATS connected") {
+			if strings.Contains(logged, password) {
+				t.Fatalf("log contains the NATS password: %s", logged)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no connect log line; got %q", logged)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

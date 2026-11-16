@@ -49,8 +49,8 @@ func Connect(log logr.Logger, natsURL string) (*Client, error) {
 		natsgo.ReconnectHandler(func(_ *natsgo.Conn) {
 			log.Info("NATS reconnected")
 		}),
-		natsgo.ConnectHandler(func(_ *natsgo.Conn) {
-			log.Info("NATS connected", "url", natsURL)
+		natsgo.ConnectHandler(func(nc *natsgo.Conn) {
+			log.Info("NATS connected", "url", nc.ConnectedUrlRedacted())
 		}),
 	)
 	if err != nil {
