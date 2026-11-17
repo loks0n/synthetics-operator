@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -76,8 +77,15 @@ func (e Egress) control(_, address string, _ syscall.RawConn) error {
 		return fmt.Errorf("parse dial address %q: %w", address, err)
 	}
 	ip := addressPort.Addr().WithZone("").Unmap()
+	addresses := []netip.Addr{ip}
+	// An IPv4-compatible address (::a.b.c.d) embeds an IPv4 address too, so it
+	// is checked in both forms: a denied IPv4 range covers it as it covers ::ffff:a.b.c.d.
+	if ip.Is6() && netip.MustParsePrefix("::/96").Contains(ip) {
+		bytes := ip.As16()
+		addresses = append(addresses, netip.AddrFrom4([4]byte(bytes[12:])))
+	}
 	for _, prefix := range e.Denied {
-		if prefix.Contains(ip) {
+		if slices.ContainsFunc(addresses, prefix.Contains) {
 			return fmt.Errorf("%w: %s", ErrTargetDenied, ip)
 		}
 	}
