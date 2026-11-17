@@ -1,6 +1,6 @@
 // Command prober executes HTTPProbe, DNSProbe, TCPProbe, and SMTPProbe runs. Stateless: pulls
-// jobs from synthetics.probes.jobs via a NATS queue group and publishes
-// results to synthetics.probes.results. Each job carries the spec it needs,
+// jobs from synthetics.probes.jobs via a NATS queue group, or from a Redis list
+// of that name, and publishes results to synthetics.probes.results on the same bus. Each job carries the spec it needs,
 // so there is nothing to hydrate at startup. No Kubernetes API access.
 package main
 
@@ -21,12 +21,21 @@ import (
 	"github.com/loks0n/synthetics-operator/internal/natsbus"
 	"github.com/loks0n/synthetics-operator/internal/prober"
 	"github.com/loks0n/synthetics-operator/internal/probes"
+	"github.com/loks0n/synthetics-operator/internal/redisbus"
 )
 
+// transport is what the prober needs from NATS or Redis.
+type transport interface {
+	prober.JobSubscriber
+	prober.ResultPublisher
+	Close()
+}
+
 func main() {
-	var natsURL, deniedNetworks string
+	var natsURL, redisURL, deniedNetworks string
 	var concurrency int
-	flag.StringVar(&natsURL, "nats-url", "", "NATS server URL (required).")
+	flag.StringVar(&natsURL, "nats-url", "", "NATS server URL. Exactly one of --nats-url and --redis-url is required.")
+	flag.StringVar(&redisURL, "redis-url", "", "Redis URL (redis://[user:password@]host:port[/db]) to pop jobs from and push results to, for a stack with no NATS.")
 	flag.IntVar(&concurrency, "concurrency", prober.DefaultConcurrency, "Probes this replica runs at once.")
 	flag.StringVar(&deniedNetworks, "denied-networks", "", "Comma-separated CIDRs probes may not connect to; `private` adds the private, loopback, link-local and CGNAT ranges. Empty allows everything.")
 	flag.Parse()
@@ -34,15 +43,15 @@ func main() {
 	ctrl := logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	log := ctrl.WithName("prober")
 
-	if err := run(log, natsURL, deniedNetworks, concurrency); err != nil {
+	if err := run(log, natsURL, redisURL, deniedNetworks, concurrency); err != nil {
 		log.Error(err, "exiting")
 		os.Exit(1)
 	}
 }
 
-func run(log logr.Logger, natsURL, deniedNetworks string, concurrency int) error {
-	if natsURL == "" {
-		return errors.New("--nats-url is required")
+func run(log logr.Logger, natsURL, redisURL, deniedNetworks string, concurrency int) error {
+	if (natsURL == "") == (redisURL == "") {
+		return errors.New("exactly one of --nats-url and --redis-url is required")
 	}
 	denied, err := probes.ParseDeniedNetworks(deniedNetworks)
 	if err != nil {
@@ -52,9 +61,20 @@ func run(log logr.Logger, natsURL, deniedNetworks string, concurrency int) error
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	bus, err := natsbus.Connect(log.WithName("nats"), natsURL)
-	if err != nil {
-		return fmt.Errorf("connecting NATS: %w", err)
+	var bus transport
+	if redisURL != "" {
+		redisbus.SetClientLog(log.WithName("redis"))
+		client, err := redisbus.Connect(log.WithName("redis"), redisURL)
+		if err != nil {
+			return fmt.Errorf("connecting Redis: %w", err)
+		}
+		bus = client
+	} else {
+		client, err := natsbus.Connect(log.WithName("nats"), natsURL)
+		if err != nil {
+			return fmt.Errorf("connecting NATS: %w", err)
+		}
+		bus = client
 	}
 	defer bus.Close()
 

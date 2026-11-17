@@ -1,4 +1,4 @@
-// Package prober subscribes to NATS for probe jobs, executes them, and
+// Package prober takes probe jobs from NATS or Redis, executes them, and
 // publishes results. Genuinely stateless: each job carries the spec it needs,
 // so a freshly started replica can execute the very first job it receives.
 package prober
@@ -14,6 +14,12 @@ import (
 	"github.com/loks0n/synthetics-operator/internal/results"
 )
 
+// JobSubscriber delivers probe jobs until ctx is cancelled: natsbus.Client
+// over a NATS queue group, redisbus.Client from a Redis list.
+type JobSubscriber interface {
+	SubscribeProbeJobs(ctx context.Context, handler func(context.Context, results.ProbeJob), opts ...natsbus.SubscribeOption) error
+}
+
 // ResultPublisher publishes probe results back onto the bus.
 type ResultPublisher interface {
 	PublishProbeResult(ctx context.Context, msg results.ProbeResult) error
@@ -28,7 +34,7 @@ const DefaultConcurrency = 16
 // complete job-to-result policy; Worker owns only dispatch and publication.
 type Worker struct {
 	Log       logr.Logger
-	Bus       *natsbus.Client
+	Bus       JobSubscriber
 	Publisher ResultPublisher
 	// Concurrency caps the probes running at once; below 1 means 1.
 	Concurrency int
@@ -38,7 +44,7 @@ type Worker struct {
 }
 
 // NewWorker wires the production executors behind the Worker dispatch seam.
-func NewWorker(log logr.Logger, bus *natsbus.Client, publisher ResultPublisher, concurrency int, egress internalprobes.Egress) *Worker {
+func NewWorker(log logr.Logger, bus JobSubscriber, publisher ResultPublisher, concurrency int, egress internalprobes.Egress) *Worker {
 	return &Worker{
 		Log:         log,
 		Bus:         bus,
@@ -65,7 +71,7 @@ func defaultExecutors(egress internalprobes.Egress) map[results.Kind]internalpro
 
 // NeedLeaderElection tells controller-runtime to run the Worker on every
 // replica — probe workers are horizontally scalable via the NATS queue
-// group, leader election would defeat the point.
+// group or Redis list, leader election would defeat the point.
 func (*Worker) NeedLeaderElection() bool { return false }
 
 // Start subscribes to probe jobs and blocks until ctx is cancelled and every
@@ -81,7 +87,8 @@ func (w *Worker) Start(ctx context.Context) error {
 
 // dispatch runs a job in its own goroutine once a slot is free. While every
 // slot is taken it blocks, and further jobs delivered to this replica wait in
-// its NATS client buffer; they are not handed back to other replicas.
+// its NATS client buffer, where they are not handed back to other replicas,
+// or on the Redis list, where they are.
 func (w *Worker) dispatch(ctx context.Context, job results.ProbeJob) {
 	w.slots <- struct{}{}
 	w.running.Go(func() {

@@ -85,6 +85,23 @@ The prober scales horizontally off the NATS queue group. Raise `prober.replicaCo
 
 The default trigger is 70% CPU; `prober.autoscaling.triggers` is passed to the `ScaledObject` verbatim, so any KEDA scaler works. KEDA itself is not installed by this chart.
 
+### Prober without Kubernetes or NATS
+
+The prober needs no Kubernetes API, so it also runs as a plain container next to an application that schedules its own checks. Where that stack has Redis but no NATS, point it at Redis instead:
+
+```yaml
+prober:
+  image: ghcr.io/loks0n/synthetics-operator-prober:<release>
+  command: ["--redis-url=redis://redis:6379", "--denied-networks=private"]
+```
+
+| List | Direction | Payload |
+|---|---|---|
+| `synthetics.probes.jobs` | your scheduler `LPUSH`es, probers `BRPOP` | `ProbeJob` JSON from [`internal/results`](internal/results/message.go) |
+| `synthetics.probes.results` | probers `LPUSH`, your consumer `BRPOP`s | `ProbeResult` JSON |
+
+Each job goes to one prober, and a prober pops one only when it has a free slot (`--concurrency`), so the replicas share the list. Both lists hold what nobody has popped yet: jobs wait out a prober restart and results wait for their consumer. A job is lost if its prober dies mid-probe, as with NATS.
+
 ### Heartbeats
 
 `Heartbeat` is the one kind that needs inbound traffic, so its receiver is off by default. Enable it, tell the operator what origin to render URLs against, and publish it:
