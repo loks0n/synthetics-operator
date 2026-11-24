@@ -44,6 +44,7 @@ type smtpResult struct {
 	ReplyCode  int
 	Duration   time.Duration
 	CertExpiry *time.Time
+	CertIssued *time.Time
 }
 
 // SMTPExecutor reads the banner, sends EHLO, upgrades with STARTTLS or
@@ -78,6 +79,9 @@ func (e SMTPExecutor) Execute(ctx context.Context, job results.ProbeJob) results
 	out.SMTPReplyCode = raw.ReplyCode
 	if raw.CertExpiry != nil {
 		out.TLSCertExpiryUnix = raw.CertExpiry.Unix()
+	}
+	if raw.CertIssued != nil {
+		out.TLSCertIssuedUnix = raw.CertIssued.Unix()
 	}
 
 	switch {
@@ -278,8 +282,9 @@ func handshakeSMTP(ctx context.Context, conn net.Conn, config *tls.Config, raw *
 		return conn, err
 	}
 	if certificates := tlsConn.ConnectionState().PeerCertificates; len(certificates) > 0 {
-		expiry := certificates[0].NotAfter
-		raw.CertExpiry = &expiry
+		leaf := certificates[0]
+		raw.CertExpiry = &leaf.NotAfter
+		raw.CertIssued = &leaf.NotBefore
 	}
 	return tlsConn, nil
 }

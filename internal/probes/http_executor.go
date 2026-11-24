@@ -41,6 +41,7 @@ type httpResult struct {
 	Completed         time.Time
 	Message           string
 	CertExpiryTime    *time.Time
+	CertIssuedTime    *time.Time
 	PhaseDNSMs        float64
 	PhaseConnectMs    float64
 	PhaseTLSMs        float64
@@ -87,6 +88,9 @@ func (e HTTPExecutor) Execute(ctx context.Context, job results.ProbeJob) results
 	out.HTTPPhaseTransferMs = raw.PhaseTransferMs
 	if raw.CertExpiryTime != nil {
 		out.TLSCertExpiryUnix = raw.CertExpiryTime.Unix()
+	}
+	if raw.CertIssuedTime != nil {
+		out.TLSCertIssuedUnix = raw.CertIssuedTime.Unix()
 	}
 
 	switch {
@@ -193,10 +197,11 @@ func (e HTTPExecutor) executeRequest(ctx context.Context, request httpRequest) h
 		return float64(b.Sub(a).Milliseconds())
 	}
 
-	var certExpiry *time.Time
+	var certExpiry, certIssued *time.Time
 	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
-		t := resp.TLS.PeerCertificates[0].NotAfter
-		certExpiry = &t
+		leaf := resp.TLS.PeerCertificates[0]
+		certExpiry = &leaf.NotAfter
+		certIssued = &leaf.NotBefore
 	}
 
 	return httpResult{
@@ -206,6 +211,7 @@ func (e HTTPExecutor) executeRequest(ctx context.Context, request httpRequest) h
 		Duration:          duration,
 		Message:           fmt.Sprintf("received status %d", resp.StatusCode),
 		CertExpiryTime:    certExpiry,
+		CertIssuedTime:    certIssued,
 		PhaseDNSMs:        msDiff(dnsStart, dnsDone),
 		PhaseConnectMs:    msDiff(connectStart, connectDone),
 		PhaseTLSMs:        msDiff(tlsStart, tlsDone),
