@@ -254,7 +254,7 @@ func TestSMTPExecutorImplicitTLS(t *testing.T) {
 	if got.Result != "assertion_failed" || got.FailedAssertion != "cert-renewed" {
 		t.Fatalf("expected the 10-day certificate to fail the 14-day assertion, got %+v", got)
 	}
-	if got.SMTPReplyCode != 250 || got.TLSCertExpiryUnix == 0 {
+	if got.SMTPReplyCode != 250 || got.TLSCertExpiryUnix == 0 || got.TLSCertIssuedUnix == 0 || got.TLSCertIssuedUnix >= got.TLSCertExpiryUnix {
 		t.Fatalf("telemetry missing over implicit TLS: %+v", got)
 	}
 }

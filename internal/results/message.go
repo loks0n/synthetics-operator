@@ -208,6 +208,7 @@ type ProbeResult struct {
 	URL                   string            `json:"url,omitempty"`
 	Method                string            `json:"method,omitempty"`
 	TLSCertExpiryUnix     int64             `json:"tlsCertExpiryUnix,omitempty"`
+	TLSCertIssuedUnix     int64             `json:"tlsCertIssuedUnix,omitempty"`
 	HTTPPhaseDNSMs        float64           `json:"httpPhaseDnsMs,omitempty"`
 	HTTPPhaseConnectMs    float64           `json:"httpPhaseConnectMs,omitempty"`
 	HTTPPhaseTLSMs        float64           `json:"httpPhaseTlsMs,omitempty"`
@@ -228,7 +229,7 @@ type ProbeResult struct {
 	TCPHost string `json:"tcpHost,omitempty"`
 	TCPPort int32  `json:"tcpPort,omitempty"`
 
-	// SMTP telemetry. The certificate expiry rides on TLSCertExpiryUnix.
+	// SMTP telemetry. The certificate dates ride on TLSCertExpiryUnix and TLSCertIssuedUnix.
 	SMTPHost      string `json:"smtpHost,omitempty"`
 	SMTPPort      int32  `json:"smtpPort,omitempty"`
 	SMTPTLSMode   string `json:"smtpTlsMode,omitempty"`

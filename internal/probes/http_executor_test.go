@@ -266,6 +266,9 @@ func TestHTTPExecutorTLSCertExpiryPopulated(t *testing.T) {
 	if result.CertExpiryTime.IsZero() {
 		t.Fatal("expected non-zero CertExpiryTime")
 	}
+	if result.CertIssuedTime == nil || !result.CertIssuedTime.Before(*result.CertExpiryTime) {
+		t.Fatal("expected CertIssuedTime to be set and before CertExpiryTime")
+	}
 }
 
 func TestHTTPExecutorHTTPNoCertExpiry(t *testing.T) {
@@ -281,8 +284,8 @@ func TestHTTPExecutorHTTPNoCertExpiry(t *testing.T) {
 		},
 	})
 
-	if result.CertExpiryTime != nil {
-		t.Fatal("expected CertExpiryTime to be nil for plain HTTP probe")
+	if result.CertExpiryTime != nil || result.CertIssuedTime != nil {
+		t.Fatal("expected CertExpiryTime and CertIssuedTime to be nil for plain HTTP probe")
 	}
 }
 
